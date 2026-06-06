@@ -33,17 +33,34 @@ CGO_ENABLED=0 go build ./cmd/server
 cd web && npm install && npm run build
 ```
 
-## Docker
+## Запуск
+
+### Docker Compose (рекомендуется)
+
+```sh
+cp .env.example .env  # выставить WG_HOST и PASSWORD
+docker compose up -d
+```
+
+### Dokploy
+
+1. **New Service → Compose**, repo URL = этот репозиторий.
+2. Скопировать `.env.example` в раздел **Environment** и заполнить `WG_HOST` + `PASSWORD`.
+3. Deploy. `cap_add`, `devices`, sysctls, тома и порты уже описаны в `compose.yaml`.
+4. На вкладке **Domains** повесить домен на `HTTP_PORT` (51821). UDP-порт `51820` остаётся прямым, мимо Traefik.
+
+Healthcheck (`GET /healthz`) Dokploy подхватит автоматически — статус сервиса станет зелёным сразу после готовности.
+
+### Голый docker run
 
 ```sh
 docker build -t amnezia-panel .
 docker run -d \
-  --cap-add=NET_ADMIN \
-  -e WG_HOST=vpn.example.com \
-  -e PASSWORD=secret \
-  -p 51820:51820/udp \
-  -p 51821:51821/tcp \
-  -v /etc/amnezia/amneziawg:/etc/amnezia/amneziawg \
+  --cap-add=NET_ADMIN --device=/dev/net/tun \
+  --sysctl net.ipv4.ip_forward=1 \
+  -e WG_HOST=vpn.example.com -e PASSWORD=secret \
+  -p 51820:51820/udp -p 51821:51821/tcp \
+  -v amnezia-state:/etc/amnezia/amneziawg \
   amnezia-panel
 ```
 

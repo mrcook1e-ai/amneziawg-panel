@@ -1,0 +1,71 @@
+# Dokploy-ready compose файл.
+#
+# В Dokploy: New Service → Compose → repo URL → Deploy. Все капы, девайсы,
+# тома и порты декларативны — UI-галочки не нужны.
+#
+# Локально:
+#   cp .env.example .env  # выставить WG_HOST, PASSWORD
+#   docker compose up -d
+services:
+  panel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Образ публикуется параллельно — Dokploy может тянуть готовый вместо сборки.
+    # image: ghcr.io/mrcook1e-ai/amneziawg-panel:latest
+    container_name: amnezia-panel
+    restart: unless-stopped
+
+    # NET_ADMIN нужен awg-quick для поднятия интерфейса и iptables-правил.
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+
+    # /dev/net/tun нужен на хостах без kernel-модуля AmneziaWG (userspace
+    # вариант). На хостах с подгруженным модулем — можно убрать.
+    devices:
+      - /dev/net/tun:/dev/net/tun
+
+    # ip_forward обязателен для маршрутизации трафика VPN-клиентов наружу.
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+
+    ports:
+      - "${WG_PORT:-51820}:51820/udp"   # AmneziaWG
+      - "${HTTP_PORT:-51821}:51821/tcp" # Веб-морда панели
+
+    environment:
+      # Обязательные
+      WG_HOST: ${WG_HOST}
+      PASSWORD: ${PASSWORD}
+
+      # Сеть (значения по умолчанию совпадают с дефолтами кода — переопределять
+      # только если знаешь зачем).
+      WG_PORT: ${WG_PORT:-51820}
+      WG_INTERFACE: ${WG_INTERFACE:-awg0}
+      WG_DEFAULT_ADDRESS: ${WG_DEFAULT_ADDRESS:-10.8.0.x}
+      WG_DEFAULT_DNS: ${WG_DEFAULT_DNS:-1.1.1.1}
+      WG_ALLOWED_IPS: ${WG_ALLOWED_IPS:-0.0.0.0/0, ::/0}
+      WG_MTU: ${WG_MTU:-0}
+      WG_PERSISTENT_KEEPALIVE: ${WG_PERSISTENT_KEEPALIVE:-0}
+      WG_EGRESS_IFACE: ${WG_EGRESS_IFACE:-eth0}
+
+      # HTTP-сервер панели
+      PORT: ${HTTP_PORT:-51821}
+      WEBUI_HOST: 0.0.0.0
+
+    volumes:
+      # Стейт: JSON клиентов, серверный .conf, SQLite-метрики. Переживает
+      # пересборку контейнера, попадает в backup.tar.gz целиком.
+      - amnezia-state:/etc/amnezia/amneziawg
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:51821/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  amnezia-state:
