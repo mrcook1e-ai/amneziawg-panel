@@ -1,5 +1,13 @@
 # syntax=docker/dockerfile:1.7
 
+# Pin AmneziaWG toolchain so we control which protocol features the host
+# kernel understands. The upstream `amneziavpn/amneziawg-go:latest` on Docker
+# Hub ships userspace from September 2021 — ancient, no AWG 1.5/2.0 support.
+# We build both binaries from source against pinned refs and copy them into
+# a slim Alpine runtime. Bump these when a new known-good release lands.
+ARG AWG_TOOLS_REF=v1.0.20260223
+ARG AWG_GO_REF=v0.2.18
+
 # --- frontend ---
 FROM node:20-alpine AS frontend
 WORKDIR /web
@@ -18,9 +26,39 @@ COPY . .
 COPY --from=frontend /web/dist ./internal/static/dist
 RUN CGO_ENABLED=0 go build -tags embed -ldflags="-s -w" -o /out/awgpanel ./cmd/server
 
-# --- runtime: AmneziaWG userspace base image gives us awg + awg-quick ---
-FROM amneziavpn/amneziawg-go:latest
-RUN apk add --no-cache iptables ca-certificates dumb-init
+# --- amneziawg-go (userspace WG daemon, AWG 2.0-capable) ---
+# v0.2.x requires Go 1.24+; panel's own backend stays on 1.22 since our code
+# is happy there. Two stages, two toolchains — by design.
+FROM golang:1.24-alpine AS awggo
+ARG AWG_GO_REF
+RUN apk add --no-cache git
+RUN git clone --depth=1 --branch ${AWG_GO_REF} \
+    https://github.com/amnezia-vpn/amneziawg-go /src
+WORKDIR /src
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/amneziawg-go .
+
+# --- amneziawg-tools (awg, awg-quick) ---
+# WITH_WGQUICK=yes gates the awg-quick script and its config dir; without it
+# the Makefile installs only the `awg` binary and the runtime stage breaks.
+FROM alpine:3.20 AS awgtools
+ARG AWG_TOOLS_REF
+RUN apk add --no-cache git make gcc musl-dev linux-headers bash
+RUN git clone --depth=1 --branch ${AWG_TOOLS_REF} \
+    https://github.com/amnezia-vpn/amneziawg-tools /src
+WORKDIR /src/src
+RUN make WITH_WGQUICK=yes && \
+    make install WITH_WGQUICK=yes DESTDIR=/out PREFIX=/usr
+
+# --- runtime ---
+FROM alpine:3.20
+RUN apk add --no-cache iptables ca-certificates dumb-init bash openresolv iproute2
+COPY --from=awggo    /out/amneziawg-go         /usr/bin/amneziawg-go
+COPY --from=awgtools /out/usr/bin/awg          /usr/bin/awg
+COPY --from=awgtools /out/usr/bin/awg-quick    /usr/bin/awg-quick
+# awg-quick will spawn the Go daemon instead of expecting a kernel module —
+# we don't ship/require the AWG kernel patch.
+ENV WG_QUICK_USERSPACE_IMPLEMENTATION=amneziawg-go \
+    WG_SUDO=1
 COPY --from=backend /out/awgpanel /usr/local/bin/awgpanel
 RUN mkdir -p /etc/amnezia/amneziawg
 EXPOSE 51820/udp 51821/tcp

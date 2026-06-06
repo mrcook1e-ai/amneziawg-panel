@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
+	"time"
 )
 
 type Runner struct {
@@ -12,7 +14,33 @@ type Runner struct {
 	Iface       string
 }
 
-func (r Runner) Up() error   { return run(r.AWGQuickBin, "up", r.Iface) }
+// Up brings the interface up via awg-quick. In userspace mode (no kernel
+// module) there's a known race: awg-quick spawns amneziawg-go and then
+// immediately calls `awg setconf` — the UAPI socket sometimes isn't bound
+// yet, which surfaces as "Unable to modify interface: Invalid argument" and
+// triggers awg-quick to roll the device back. Without retry the panel would
+// crash on Start and bounce until timings happened to line up.
+func (r Runner) Up() error {
+	const attempts = 5
+	var last error
+	for i := 0; i < attempts; i++ {
+		err := run(r.AWGQuickBin, "up", r.Iface)
+		if err == nil {
+			return nil
+		}
+		// Only retry the userspace race, not e.g. "Address already in use".
+		if !strings.Contains(err.Error(), "Unable to modify interface") {
+			return err
+		}
+		last = err
+		// Clean any half-attached device the failed attempt left behind so
+		// the next try starts from a known-empty namespace state.
+		_ = run(r.AWGQuickBin, "down", r.Iface)
+		time.Sleep(time.Duration(200*(i+1)) * time.Millisecond)
+	}
+	return fmt.Errorf("awg-quick up gave up after %d tries: %w", attempts, last)
+}
+
 func (r Runner) Down() error { _ = run(r.AWGQuickBin, "down", r.Iface); return nil }
 
 // SyncConf is equivalent to: awg syncconf <iface> <(awg-quick strip <iface>)
