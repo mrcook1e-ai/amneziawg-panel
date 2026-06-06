@@ -5,6 +5,7 @@
 type Name =
   | 'plus' | 'trash' | 'copy' | 'qrcode' | 'download' | 'edit'
   | 'check' | 'x' | 'logout' | 'shield' | 'eye' | 'eye-off' | 'chevron-down'
+  | 'settings' | 'refresh' | 'power' | 'chevron-right' | 'info'
 
 const props = withDefaults(defineProps<{ name: Name; size?: number }>(), { size: 16 })
 
@@ -22,6 +23,11 @@ const paths: Record<Name, string> = {
   'eye':          'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   'eye-off':      'M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c6 0 10 6 10 6a17 17 0 0 1-3.2 3.9M6.2 6.2A17 17 0 0 0 2 12s4 7 10 7c1 0 1.9-.1 2.8-.4M9.9 14.1A3 3 0 0 1 12 9',
   'chevron-down': 'M6 9l6 6 6-6',
+  'chevron-right':'M9 6l6 6-6 6',
+  'settings':     'M4 6h10M4 12h6M4 18h10M16 4v4M14 18v4M20 10v4M12 10v4M18 18v4',
+  'refresh':      'M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.2L3 16M3 21v-5h5',
+  'power':        'M12 3v9M5.6 7.6a9 9 0 1 0 12.8 0',
+  'info':         'M12 8h.01M11 12h1v5h1',
 }
 </script>
 

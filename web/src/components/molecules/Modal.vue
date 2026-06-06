@@ -27,7 +27,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     leave-from-class="opacity-100"
     leave-to-class="opacity-0"
   >
-    <div v-if="open" class="fixed inset-0 z-40 bg-ink-950/50 backdrop-blur-[2px]" @click="$emit('close')" />
+    <div v-if="open" class="fixed inset-0 z-40 scrim" @click="$emit('close')" />
   </transition>
 
   <transition
@@ -42,15 +42,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       v-if="open"
       class="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 pointer-events-none"
     >
-      <div :class="['w-full bg-white rounded-xl shadow-pop border border-ink-200 pointer-events-auto', widths[size]]" role="dialog" aria-modal="true">
-        <header v-if="title || $slots.title" class="flex items-center justify-between gap-4 px-5 py-3.5 border-b border-ink-100">
-          <h2 class="text-[15px] font-semibold text-ink-900">
+      <div :class="['w-full bg-white rounded-3xl shadow-pop pointer-events-auto overflow-hidden', widths[size]]" role="dialog" aria-modal="true">
+        <header v-if="title || $slots.title" class="flex items-center justify-between gap-4 px-6 pt-5 pb-3">
+          <h2 class="text-[17px] font-semibold text-ink-900 tracking-tight">
             <slot name="title">{{ title }}</slot>
           </h2>
           <IconButton size="sm" title="Close" @click="$emit('close')"><Icon name="x" :size="16" /></IconButton>
         </header>
-        <div class="px-5 py-4"><slot /></div>
-        <footer v-if="$slots.footer" class="px-5 py-3.5 border-t border-ink-100 bg-ink-50/60 rounded-b-xl flex items-center justify-end gap-2">
+        <div class="px-6 pb-5 pt-1"><slot /></div>
+        <footer v-if="$slots.footer" class="px-6 py-4 border-t border-ink-100 bg-ink-50/40 flex items-center justify-end gap-2">
           <slot name="footer" />
         </footer>
       </div>

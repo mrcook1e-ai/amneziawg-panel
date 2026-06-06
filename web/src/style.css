@@ -4,12 +4,46 @@
 
 @layer base {
   html, body, #app { height: 100%; }
-  body { font-feature-settings: 'cv11','ss01','ss03'; }
+  body {
+    font-feature-settings: 'cv11','ss01','ss03';
+    -webkit-font-smoothing: antialiased;
+    background-color: #f2f2f7;
+  }
   ::selection { background: #0a0a0c; color: #fff; }
 }
 
 @layer components {
-  .card { @apply bg-white border border-ink-200 rounded-xl shadow-card; }
-  .hairline { @apply border-ink-200; }
-  .focus-ring { @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-900/15 focus-visible:ring-offset-1 focus-visible:ring-offset-white; }
+  /* Solid white card on the pastel page background. */
+  .card {
+    @apply bg-white rounded-2xl shadow-card;
+  }
+
+  /* Frosted glass surface (top bar, modal). Layered over body bg so it
+     refracts the pastel wash. The 1px inner highlight + hairline border
+     give the "edge" the iOS look depends on. */
+  .glass {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 0.5px solid rgba(255, 255, 255, 0.6);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.7) inset,
+      0 12px 32px -12px rgba(10, 10, 12, 0.12);
+  }
+
+  /* Dimmer translucent layer used behind modals. */
+  .scrim {
+    background: rgba(10, 10, 12, 0.25);
+    backdrop-filter: blur(8px) saturate(160%);
+    -webkit-backdrop-filter: blur(8px) saturate(160%);
+  }
+
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-900/15 focus-visible:ring-offset-1 focus-visible:ring-offset-white;
+  }
+
+  /* Section header above grouped list, like iOS Settings. */
+  .section-title {
+    @apply px-1 mb-2 text-[11px] uppercase tracking-[0.06em] text-ink-500 font-medium;
+  }
 }

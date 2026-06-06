@@ -187,6 +187,34 @@ func (h *Handlers) clientVPNQR(w http.ResponseWriter, r *http.Request) {
 	w.Write(png)
 }
 
+func (h *Handlers) serverInfo(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, h.Mgr.ServerInfo())
+}
+
+func (h *Handlers) serverRegenMagic(w http.ResponseWriter, r *http.Request) {
+	if err := h.Mgr.RegenerateMagic(); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, h.Mgr.ServerInfo())
+}
+
+func (h *Handlers) serverRestart(w http.ResponseWriter, r *http.Request) {
+	if err := h.Mgr.RestartInterface(); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"success": true})
+}
+
+func (h *Handlers) serverResetClients(w http.ResponseWriter, r *http.Request) {
+	if err := h.Mgr.ResetClients(); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"success": true})
+}
+
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)

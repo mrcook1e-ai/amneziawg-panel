@@ -45,6 +45,13 @@ func NewRouter(mgr *awg.Manager, auth *Auth, webFS http.FileSystem) http.Handler
 			r.Use(auth.Middleware)
 			r.Delete("/session", h.sessionDelete)
 
+			r.Route("/wireguard/server", func(r chi.Router) {
+				r.Get("/", h.serverInfo)
+				r.Post("/regenerate-magic", h.serverRegenMagic)
+				r.Post("/restart", h.serverRestart)
+				r.Post("/reset-clients", h.serverResetClients)
+			})
+
 			r.Route("/wireguard/client", func(r chi.Router) {
 				r.Get("/", h.clientsList)
 				r.Post("/", h.clientCreate)

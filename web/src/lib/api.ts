@@ -1,4 +1,4 @@
-import type { Client, SessionState } from '@/types'
+import type { Client, ServerInfo, SessionState } from '@/types'
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
@@ -24,6 +24,11 @@ export const api = {
   session: () => request<SessionState>('/api/session'),
   login: (password: string) => request<{ success: boolean }>('/api/session', { method: 'POST', body: JSON.stringify({ password }) }),
   logout: () => request<{ success: boolean }>('/api/session', { method: 'DELETE' }),
+
+  serverInfo:        () => request<ServerInfo>('/api/wireguard/server/'),
+  regenerateMagic:   () => request<ServerInfo>('/api/wireguard/server/regenerate-magic', { method: 'POST' }),
+  restartInterface:  () => request<{ success: boolean }>('/api/wireguard/server/restart', { method: 'POST' }),
+  resetClients:      () => request<{ success: boolean }>('/api/wireguard/server/reset-clients', { method: 'POST' }),
 
   listClients: () => request<Client[]>('/api/wireguard/client/'),
   createClient: (name: string) => request<{ success: boolean }>('/api/wireguard/client/', { method: 'POST', body: JSON.stringify({ name }) }),

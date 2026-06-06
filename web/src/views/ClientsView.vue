@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { useClientsStore } from '@/stores/clients'
 import { useInterval } from '@/composables/useInterval'
 import TopBar from '@/components/organisms/TopBar.vue'
-import ClientsTable from '@/components/organisms/ClientsTable.vue'
+import ClientList from '@/components/organisms/ClientList.vue'
 import NewClientModal from '@/components/organisms/NewClientModal.vue'
 import QrModal from '@/components/organisms/QrModal.vue'
 import ConfigModal from '@/components/organisms/ConfigModal.vue'
@@ -59,13 +59,13 @@ async function confirmDelete() {
       </template>
     </TopBar>
 
-    <main class="max-w-6xl mx-auto px-5 py-6 space-y-4">
-      <div class="flex items-center justify-between gap-3">
+    <main class="max-w-5xl mx-auto px-4 sm:px-5 pt-8 pb-12 space-y-6">
+      <div class="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 class="text-[18px] font-semibold text-ink-900">Clients</h1>
-          <p class="text-[12.5px] text-ink-500">{{ store.items.length }} total · auto-refreshes every 3s</p>
+          <h1 class="text-[28px] font-semibold text-ink-900 tracking-tight leading-none">Clients</h1>
+          <p class="mt-2 text-[13px] text-ink-500">{{ store.items.length }} total · auto-refreshes every 3s</p>
         </div>
-        <div class="w-72">
+        <div class="w-full sm:w-80">
           <Input v-model="query" size="sm" placeholder="Search by name, IP, or key" />
         </div>
       </div>
@@ -92,7 +92,7 @@ async function confirmDelete() {
         :description="`No clients match “${query}”.`"
       />
 
-      <ClientsTable
+      <ClientList
         v-else
         :clients="filtered"
         @toggle="(id, v) => store.setEnabled(id, v)"

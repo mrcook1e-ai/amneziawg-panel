@@ -308,6 +308,79 @@ func (m *Manager) ClientConfig(id string) (*Client, []byte, error) {
 	return c, out, err
 }
 
+type ServerView struct {
+	PublicKey     string `json:"publicKey"`
+	Address       string `json:"address"`
+	Interface     string `json:"interface"`
+	Endpoint      string `json:"endpoint"`
+	Subnet        string `json:"subnet"`
+	Port          int    `json:"port"`
+	EgressIface   string `json:"egressIface"`
+	DNS           string `json:"dns"`
+	MTU           int    `json:"mtu"`
+	AllowedIPs    string `json:"allowedIPs"`
+	Keepalive     int    `json:"persistentKeepalive"`
+	Jc            int    `json:"jc"`
+	Jmin          int    `json:"jmin"`
+	Jmax          int    `json:"jmax"`
+	S1            int    `json:"s1"`
+	S2            int    `json:"s2"`
+	H1            string `json:"h1"`
+	H2            string `json:"h2"`
+	H3            string `json:"h3"`
+	H4            string `json:"h4"`
+	ClientCount   int    `json:"clientCount"`
+}
+
+func (m *Manager) ServerInfo() ServerView {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s := m.cur.Server
+	return ServerView{
+		PublicKey:   s.PublicKey,
+		Address:     s.Address,
+		Interface:   m.cfg.Interface,
+		Endpoint:    fmt.Sprintf("%s:%d", m.cfg.WGHost, m.cfg.WGPort),
+		Subnet:      m.subnetCIDR(),
+		Port:        m.cfg.WGPort,
+		EgressIface: m.cfg.EgressIface,
+		DNS:         m.cfg.DNS,
+		MTU:         m.cfg.MTU,
+		AllowedIPs:  m.cfg.AllowedIPs,
+		Keepalive:   m.cfg.PersistentKA,
+		Jc:          s.Jc, Jmin: s.Jmin, Jmax: s.Jmax,
+		S1: s.S1, S2: s.S2,
+		H1: s.H1, H2: s.H2, H3: s.H3, H4: s.H4,
+		ClientCount: len(m.cur.Clients),
+	}
+}
+
+func (m *Manager) RegenerateMagic() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cur.Server.H1, m.cur.Server.H2, m.cur.Server.H3, m.cur.Server.H4 = uniqueMagic()
+	return m.saveAndSyncLocked()
+}
+
+// RestartInterface tears the interface down and brings it back up. PostUp/
+// PostDown fire as a side effect, so iptables rules are reseated cleanly.
+func (m *Manager) RestartInterface() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.persistLocked(); err != nil {
+		return err
+	}
+	_ = m.runner.Down()
+	return m.runner.Up()
+}
+
+func (m *Manager) ResetClients() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cur.Clients = map[string]*Client{}
+	return m.saveAndSyncLocked()
+}
+
 func (m *Manager) ClientAmneziaVPN(id, description string) (*Client, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
