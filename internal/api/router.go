@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/mrcook1e/amneziawg-panel/internal/awg"
+	"github.com/mrcook1e/amneziawg-panel/internal/db"
 	"github.com/mrcook1e/amneziawg-panel/internal/static"
 )
 
@@ -32,7 +33,11 @@ func spaHandler(fsys fs.FS) http.Handler {
 
 func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broker, webFS http.FileSystem) http.Handler {
 	h := &Handlers{Mgr: mgr, Auth: auth}
-	admin := &AdminHandlers{Mgr: mgr}
+	var adminDB *db.DB
+	if stats != nil {
+		adminDB = stats.DB
+	}
+	admin := &AdminHandlers{Mgr: mgr, DB: adminDB}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
@@ -55,6 +60,7 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 				r.Post("/regenerate-magic", h.serverRegenMagic)
 				r.Post("/restart", h.serverRestart)
 				r.Post("/reset-clients", h.serverResetClients)
+				r.Post("/factory-reset", admin.factoryReset)
 			})
 
 			r.Route("/wireguard/client", func(r chi.Router) {

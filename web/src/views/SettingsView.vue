@@ -31,8 +31,9 @@ const statsStore = useStatsStore()
 
 const info = ref<ServerInfo | null>(null)
 const loading = ref(true)
-const busy = ref<'regen' | 'restart' | 'reset' | null>(null)
+const busy = ref<'regen' | 'restart' | 'reset' | 'factory' | null>(null)
 const confirmKind = ref<'regen' | 'restart' | 'reset' | null>(null)
+const factoryConfirm = ref(false)
 
 // События берём из общего stats store — туда же SSE-push кладёт новые.
 const events = computed(() => statsStore.events)
@@ -83,6 +84,21 @@ async function doConfirm() {
     if (k === 'regen')   { info.value = await api.regenerateMagic(); toasts.success('Ключи обновлены') }
     if (k === 'restart') { await api.restartInterface(); toasts.success('Интерфейс перезапущен'); await load() }
     if (k === 'reset')   { await api.resetClients();    toasts.success('Все клиенты удалены'); await clients.fetch(true) }
+  } catch (e: any) {
+    toasts.error(e?.message || 'Ошибка действия')
+  } finally {
+    busy.value = null
+  }
+}
+
+async function doFactoryReset() {
+  factoryConfirm.value = false
+  busy.value = 'factory'
+  try {
+    await api.factoryReset()
+    toasts.success('Панель сброшена до заводских настроек')
+    await load()
+    await clients.fetch(true)
   } catch (e: any) {
     toasts.error(e?.message || 'Ошибка действия')
   } finally {
@@ -252,9 +268,14 @@ async function doRestore() {
               <Icon name="power" :size="14" /> Перезапустить
             </Button>
           </InfoRow>
-          <InfoRow label="Удалить всех клиентов">
+          <InfoRow label="Удалить всех клиентов" show-divider>
             <Button variant="danger" size="sm" :loading="busy === 'reset'" @click="confirmKind = 'reset'">
               <Icon name="trash" :size="14" /> Удалить всех
+            </Button>
+          </InfoRow>
+          <InfoRow label="Сброс до заводских настроек">
+            <Button variant="danger" size="sm" :loading="busy === 'factory'" @click="factoryConfirm = true">
+              <Icon name="refresh" :size="14" /> Сбросить всё
             </Button>
           </InfoRow>
         </Section>
@@ -307,6 +328,18 @@ async function doRestore() {
       :busy="importBusy"
       @close="importOpen = false"
       @submit="onImport"
+    />
+
+    <ConfirmDialog
+      :open="factoryConfirm"
+      title="Сброс до заводских настроек?"
+      message="Будут удалены все клиенты, перевыпущен ключ сервера и H1–H4, очищены метрики и журнал событий. Все существующие конфиги перестанут работать. Действие необратимо."
+      require-text="СБРОС"
+      confirm-text="Сбросить"
+      tone="danger"
+      :loading="busy === 'factory'"
+      @cancel="factoryConfirm = false"
+      @confirm="doFactoryReset"
     />
   </div>
 </template>

@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"github.com/mrcook1e/amneziawg-panel/internal/awg"
+	"github.com/mrcook1e/amneziawg-panel/internal/db"
 )
 
-// AdminHandlers groups backup/restore + import. Kept in its own file so the
-// core CRUD handlers stay readable.
+// AdminHandlers groups backup/restore + import + factory-reset. Kept in its
+// own file so the core CRUD handlers stay readable.
 type AdminHandlers struct {
 	Mgr *awg.Manager
+	DB  *db.DB
 }
 
 // backupFile defines what goes into the tar.gz. Paths inside the archive are
@@ -147,6 +149,23 @@ func (a *AdminHandlers) restore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"success": true, "restored": written})
+}
+
+// factoryReset стирает все клиенты, перевыпускает ключ сервера и H1–H4,
+// чистит метрики и журнал событий. На стороне клиента это эквивалент
+// «удалить контейнер и развернуть заново», но без ручного редеплоя.
+func (a *AdminHandlers) factoryReset(w http.ResponseWriter, r *http.Request) {
+	if err := a.Mgr.FactoryReset(); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "manager: " + err.Error()})
+		return
+	}
+	if a.DB != nil {
+		if err := a.DB.Reset(r.Context()); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "db: " + err.Error()})
+			return
+		}
+	}
+	writeJSON(w, 200, map[string]bool{"success": true})
 }
 
 func (a *AdminHandlers) importClient(w http.ResponseWriter, r *http.Request) {

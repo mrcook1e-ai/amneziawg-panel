@@ -39,6 +39,7 @@ export const api = {
   regenerateMagic:  () => request<ServerInfo>('/api/wireguard/server/regenerate-magic', { method: 'POST' }),
   restartInterface: () => request<{ success: boolean }>('/api/wireguard/server/restart', { method: 'POST' }),
   resetClients:     () => request<{ success: boolean }>('/api/wireguard/server/reset-clients', { method: 'POST' }),
+  factoryReset:     () => request<{ success: boolean }>('/api/wireguard/server/factory-reset', { method: 'POST' }),
 
   // ─── Clients ───
   listClients:  () => request<Client[]>('/api/wireguard/client/'),

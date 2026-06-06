@@ -631,6 +631,41 @@ func (m *Manager) RestartInterface() error {
 	return nil
 }
 
+// FactoryReset возвращает сервер в состояние «свежая установка»: новый
+// ключ сервера, новые H1–H4, пустой список клиентов. Интерфейс
+// перезапускается чтобы старые соединения отвалились. Метрики и журнал
+// событий очищаются вызывающей стороной (это пакет stats, отдельно).
+func (m *Manager) FactoryReset() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	priv, err := m.keys.GenPrivate()
+	if err != nil {
+		return err
+	}
+	pub, err := m.keys.Public(priv)
+	if err != nil {
+		return err
+	}
+	h1, h2, h3, h4 := uniqueMagic()
+
+	n := len(m.cur.Clients)
+	m.cur.Server.PrivateKey = priv
+	m.cur.Server.PublicKey = pub
+	m.cur.Server.H1, m.cur.Server.H2, m.cur.Server.H3, m.cur.Server.H4 = h1, h2, h3, h4
+	m.cur.Clients = map[string]*Client{}
+
+	if err := m.persistLocked(); err != nil {
+		return err
+	}
+	_ = m.runner.Down()
+	if err := m.runner.Up(); err != nil {
+		return err
+	}
+	m.fire("server.factory_reset", "", map[string]int{"removedClients": n})
+	return nil
+}
+
 func (m *Manager) ResetClients() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

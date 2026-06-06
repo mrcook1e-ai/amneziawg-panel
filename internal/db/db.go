@@ -111,6 +111,26 @@ const (
 	EventsRetentionDays = 30
 )
 
+// Reset очищает все таблицы метрик и журнал событий. Используется factory-
+// reset'ом из API. Структуру таблиц не трогаем — данные удаляем, схема жива.
+func (d *DB) Reset(ctx context.Context) error {
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, t := range []string{"peer_samples", "peer_daily", "events"} {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// VACUUM нельзя внутри транзакции, и он медленный — пропускаем.
+	return nil
+}
+
 // Prune drops rows past retention windows. Cheap when there's nothing to drop.
 func (d *DB) Prune(ctx context.Context, now time.Time) error {
 	cutS := now.Add(-time.Duration(SampleRetentionDays) * 24 * time.Hour).Unix()
