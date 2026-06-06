@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #app { height: 100%; }
+  body { font-feature-settings: 'cv11','ss01','ss03'; }
+  ::selection { background: #0a0a0c; color: #fff; }
+}
+
+@layer components {
+  .card { @apply bg-white border border-ink-200 rounded-xl shadow-card; }
+  .hairline { @apply border-ink-200; }
+  .focus-ring { @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-900/15 focus-visible:ring-offset-1 focus-visible:ring-offset-white; }
+}

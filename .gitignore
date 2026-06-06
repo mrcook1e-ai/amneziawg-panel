@@ -1,0 +1,26 @@
+# Go
+/awgpanel
+/awgpanel.exe
+*.test
+*.out
+coverage.txt
+
+# Node / Vite
+web/node_modules/
+web/dist/
+web/.vite/
+*.local
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local dev state
+*.tar.gz
+*.pcap
+*.log
+.env
+.env.*
+!.env.example
