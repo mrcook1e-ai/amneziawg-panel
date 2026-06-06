@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -20,19 +21,39 @@ type DB struct{ *sql.DB }
 
 // Open opens (and creates if missing) the sqlite file at dir/panel.db, sets
 // WAL + reasonable pragmas, and runs migrations.
+//
+// Важно: DSN — простой путь без "file:" префикса и URI-параметров. У modernc
+// /sqlite парсер раньше путался на конструкциях вроде ?_pragma=journal_mode(WAL),
+// открывая в результате не тот файл (миграции писались в правильный panel.db,
+// а runtime-запросы летели в анонимную инстанцию). Pragma применяем через
+// Exec после открытия — поведение одинаковое на всех версиях драйвера.
 func Open(dir string) (*DB, error) {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("mkdir state dir: %w", err)
+	}
 	path := filepath.Join(dir, "panel.db")
-	// _pragma=busy_timeout=5000 prevents transient "database is locked" under
-	// the collector+API write/read contention. WAL keeps reads non-blocking.
-	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
-	sqldb, err := sql.Open("sqlite", dsn)
+	sqldb, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	// modernc sqlite is single-connection friendly; cap to avoid lock storms.
-	sqldb.SetMaxOpenConns(4)
-	sqldb.SetMaxIdleConns(2)
-	sqldb.SetConnMaxLifetime(time.Hour)
+	// Одно соединение: SQLite сам сериализует доступ, лишние коннекты
+	// провоцируют "database is locked" под нагрузкой коллектор+API.
+	sqldb.SetMaxOpenConns(1)
+	sqldb.SetMaxIdleConns(1)
+	sqldb.SetConnMaxLifetime(0)
+
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA foreign_keys=ON",
+	}
+	for _, p := range pragmas {
+		if _, err := sqldb.Exec(p); err != nil {
+			sqldb.Close()
+			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+	}
 
 	if err := migrate(sqldb); err != nil {
 		sqldb.Close()
