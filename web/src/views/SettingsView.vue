@@ -10,6 +10,15 @@ import CopyButton from '@/components/molecules/CopyButton.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import Button from '@/components/atoms/Button.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
+import Segmented from '@/components/atoms/Segmented.vue'
+import { useThemeStore, type ThemeMode } from '@/stores/theme'
+
+const theme = useThemeStore()
+const themeOptions: { value: ThemeMode; label: string }[] = [
+  { value: 'auto',  label: 'Auto'  },
+  { value: 'light', label: 'Light' },
+  { value: 'dark',  label: 'Dark'  },
+]
 
 const toasts = useToastStore()
 const info = ref<ServerInfo | null>(null)
@@ -69,6 +78,16 @@ async function doConfirm() {
         <h1 class="text-[28px] font-semibold text-ink-900 tracking-tight leading-none">Settings</h1>
         <p class="mt-2 text-[13px] text-ink-500">Server identity, obfuscation, and danger-zone actions.</p>
       </div>
+
+      <Section title="Appearance" :footer="`Currently ${theme.resolved}.`">
+        <InfoRow label="Theme">
+          <Segmented
+            :model-value="theme.mode"
+            :options="themeOptions"
+            @update:model-value="(v: ThemeMode) => theme.set(v)"
+          />
+        </InfoRow>
+      </Section>
 
       <div v-if="loading" class="card p-10 grid place-items-center"><Spinner :size="22" /></div>
 

@@ -9,9 +9,10 @@ const props = withDefaults(defineProps<{
   size?: number
 }>(), { size: 40, state: null })
 
-// Strict B/W: a handful of grayscale tones so different avatars stay visually
-// distinct without introducing chroma.
-const palette = ['#1c1c1e', '#2c2c2e', '#3a3a3c', '#48484a', '#6c6c70']
+// Three grayscale shades drawn from the ink palette. Because the palette is
+// CSS-variable-backed, ink-700..900 inverts brightness between themes — so
+// avatars stay readable against text-ink-50 (which inverts the other way).
+const palette = [700, 800, 900]
 
 const initial = computed(() => {
   const t = props.name.trim()
@@ -20,7 +21,7 @@ const initial = computed(() => {
   return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase().slice(0, 2)
 })
 
-const bg = computed(() => {
+const shade = computed(() => {
   let h = 0
   for (const ch of props.name) h = (h * 31 + ch.charCodeAt(0)) >>> 0
   return palette[h % palette.length]
@@ -30,14 +31,20 @@ const bg = computed(() => {
 <template>
   <div class="relative shrink-0">
     <div
-      class="rounded-full flex items-center justify-center text-white font-semibold tracking-tight"
-      :style="{ width: size + 'px', height: size + 'px', backgroundColor: bg, fontSize: Math.round(size * 0.38) + 'px' }"
+      class="rounded-full flex items-center justify-center text-ink-50 font-semibold tracking-tight"
+      :style="{
+        width: size + 'px',
+        height: size + 'px',
+        backgroundColor: `rgb(var(--ink-${shade}))`,
+        fontSize: Math.round(size * 0.38) + 'px',
+      }"
     >
       {{ initial }}
     </div>
     <div
       v-if="state"
-      class="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-white"
+      class="absolute -bottom-0.5 -right-0.5 rounded-full ring-2"
+      :style="{ '--tw-ring-color': 'rgb(var(--surface))' }"
     >
       <StatusDot :state="state" />
     </div>

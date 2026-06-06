@@ -1,23 +1,31 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{vue,ts}'],
   theme: {
     extend: {
       colors: {
-        // iOS-system inspired neutrals. Page bg = ink-50, cards = white,
-        // dividers = ink-100, primary text = ink-900.
+        // Ink palette is driven by CSS variables defined in style.css so
+        // every bg-ink-* / text-ink-* class auto-swaps between light & dark.
+        // In light: ink-50 is the page bg, ink-900 is primary text.
+        // In dark: ink-50 is the page bg (near-black), ink-900 is white.
         ink: {
-          50:  '#f2f2f7', // systemGray6
-          100: '#e5e5ea', // systemGray5
-          200: '#d1d1d6', // systemGray4
-          300: '#c7c7cc', // systemGray3
-          400: '#aeaeb2', // systemGray2
-          500: '#8e8e93', // systemGray
-          600: '#6c6c70',
-          700: '#48484a',
-          800: '#2c2c2e',
-          900: '#1c1c1e',
-          950: '#0a0a0c',
+          50:  'rgb(var(--ink-50)  / <alpha-value>)',
+          100: 'rgb(var(--ink-100) / <alpha-value>)',
+          200: 'rgb(var(--ink-200) / <alpha-value>)',
+          300: 'rgb(var(--ink-300) / <alpha-value>)',
+          400: 'rgb(var(--ink-400) / <alpha-value>)',
+          500: 'rgb(var(--ink-500) / <alpha-value>)',
+          600: 'rgb(var(--ink-600) / <alpha-value>)',
+          700: 'rgb(var(--ink-700) / <alpha-value>)',
+          800: 'rgb(var(--ink-800) / <alpha-value>)',
+          900: 'rgb(var(--ink-900) / <alpha-value>)',
+          950: 'rgb(var(--ink-950) / <alpha-value>)',
+        },
+        // Card / raised surface. White in light, near-black in dark.
+        surface: {
+          DEFAULT: 'rgb(var(--surface)        / <alpha-value>)',
+          raised:  'rgb(var(--surface-raised) / <alpha-value>)',
         },
         accent: { DEFAULT: '#0a0a0c', muted: '#3a3b41' },
         // Avatar palette — used by Avatar atom to color initials.

@@ -3,46 +3,96 @@
 @tailwind utilities;
 
 @layer base {
+  /* Semantic palette. Components reference ink-* / surface-* / etc; these
+     variables redefine what those names mean per theme. No component code
+     changes when the theme flips. */
+  :root {
+    --ink-50:  242 242 247;
+    --ink-100: 229 229 234;
+    --ink-200: 209 209 214;
+    --ink-300: 199 199 204;
+    --ink-400: 174 174 178;
+    --ink-500: 142 142 147;
+    --ink-600: 108 108 112;
+    --ink-700: 72  72  74;
+    --ink-800: 44  44  46;
+    --ink-900: 28  28  30;
+    --ink-950: 10  10  12;
+
+    --surface:        255 255 255;
+    --surface-raised: 255 255 255;
+
+    --glass-bg:    255 255 255;
+    --glass-alpha: 0.72;
+    --scrim:       10 10 12;
+    --scrim-alpha: 0.25;
+
+    color-scheme: light;
+  }
+
+  .dark {
+    /* Page bg pure black, card a half-step up. Hover/divider sits above the
+       card so it stays visible (otherwise hover would equal surface). */
+    --ink-50:    0   0   0;  /* page bg */
+    --ink-100:  44  44  46;  /* hover / divider — sits above surface */
+    --ink-200:  58  58  60;  /* borders, secondary fills */
+    --ink-300:  72  72  74;
+    --ink-400: 108 108 112;
+    --ink-500: 142 142 147;
+    --ink-600: 174 174 178;
+    --ink-700: 199 199 204;
+    --ink-800: 229 229 234;
+    --ink-900: 245 245 247;  /* primary text */
+    --ink-950: 255 255 255;
+
+    --surface:        28 28 30;   /* #1c1c1e */
+    --surface-raised: 44 44 46;
+
+    --glass-bg:    28 28 30;
+    --glass-alpha: 0.65;
+    --scrim:       0 0 0;
+    --scrim-alpha: 0.50;
+
+    color-scheme: dark;
+  }
+
   html, body, #app { height: 100%; }
   body {
     font-feature-settings: 'cv11','ss01','ss03';
     -webkit-font-smoothing: antialiased;
-    background-color: #f2f2f7;
+    background-color: rgb(var(--ink-50));
+    color: rgb(var(--ink-900));
   }
-  ::selection { background: #0a0a0c; color: #fff; }
+  ::selection { background: rgb(var(--ink-900)); color: rgb(var(--ink-50)); }
 }
 
 @layer components {
-  /* Solid white card on the pastel page background. */
   .card {
-    @apply bg-white rounded-2xl shadow-card;
+    background-color: rgb(var(--surface));
+    @apply rounded-2xl shadow-card;
   }
 
-  /* Frosted glass surface (top bar, modal). Layered over body bg so it
-     refracts the pastel wash. The 1px inner highlight + hairline border
-     give the "edge" the iOS look depends on. */
   .glass {
-    background: rgba(255, 255, 255, 0.72);
+    background-color: rgb(var(--glass-bg) / var(--glass-alpha));
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border: 0.5px solid rgba(255, 255, 255, 0.6);
+    border: 0.5px solid rgb(var(--ink-200) / 0.6);
     box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.7) inset,
-      0 12px 32px -12px rgba(10, 10, 12, 0.12);
+      0 1px 0 rgb(var(--ink-50) / 0.4) inset,
+      0 12px 32px -12px rgba(0, 0, 0, 0.25);
   }
 
-  /* Dimmer translucent layer used behind modals. */
   .scrim {
-    background: rgba(10, 10, 12, 0.25);
+    background-color: rgb(var(--scrim) / var(--scrim-alpha));
     backdrop-filter: blur(8px) saturate(160%);
     -webkit-backdrop-filter: blur(8px) saturate(160%);
   }
 
   .focus-ring {
-    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-900/15 focus-visible:ring-offset-1 focus-visible:ring-offset-white;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-900/15 focus-visible:ring-offset-1;
+    --tw-ring-offset-color: rgb(var(--surface));
   }
 
-  /* Section header above grouped list, like iOS Settings. */
   .section-title {
     @apply px-1 mb-2 text-[11px] uppercase tracking-[0.06em] text-ink-500 font-medium;
   }

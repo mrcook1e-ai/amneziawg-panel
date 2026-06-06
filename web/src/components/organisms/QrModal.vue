@@ -59,7 +59,7 @@ async function copyLink() {
         v-model="format"
         :options="[{ value: 'vpn', label: 'AmneziaVPN' }, { value: 'conf', label: 'Plain WG' }]"
       />
-      <div class="p-3 bg-white border border-ink-200 rounded-xl">
+      <div class="p-3 bg-white rounded-xl">
         <img v-if="clientId" :key="qrSrc" :src="qrSrc" alt="Configuration QR code" width="256" height="256" class="block" />
       </div>
       <p class="text-[12px] text-ink-500 text-center max-w-xs">{{ hint }}</p>

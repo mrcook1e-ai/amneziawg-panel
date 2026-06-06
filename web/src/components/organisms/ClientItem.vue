@@ -74,7 +74,7 @@ function commit() {
         <IconButton size="sm" title="QR code" @click="emit('show-qr')"><Icon name="qrcode" :size="15" /></IconButton>
         <IconButton size="sm" title="Show config" @click="emit('show-config')"><Icon name="download" :size="15" /></IconButton>
         <div class="px-1.5"><Switch :model-value="client.enabled" @update:model-value="v => emit('toggle', v)" /></div>
-        <IconButton size="sm" tone="danger" title="Delete" @click="emit('remove')"><Icon name="trash" :size="15" /></IconButton>
+        <IconButton size="sm" title="Delete" @click="emit('remove')"><Icon name="trash" :size="15" /></IconButton>
       </div>
     </div>
 

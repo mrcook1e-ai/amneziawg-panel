@@ -42,7 +42,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       v-if="open"
       class="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 pointer-events-none"
     >
-      <div :class="['w-full bg-white rounded-3xl shadow-pop pointer-events-auto overflow-hidden', widths[size]]" role="dialog" aria-modal="true">
+      <div :class="['w-full bg-surface rounded-3xl shadow-pop pointer-events-auto overflow-hidden', widths[size]]" role="dialog" aria-modal="true">
         <header v-if="title || $slots.title" class="flex items-center justify-between gap-4 px-6 pt-5 pb-3">
           <h2 class="text-[17px] font-semibold text-ink-900 tracking-tight">
             <slot name="title">{{ title }}</slot>
@@ -50,7 +50,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           <IconButton size="sm" title="Close" @click="$emit('close')"><Icon name="x" :size="16" /></IconButton>
         </header>
         <div class="px-6 pb-5 pt-1"><slot /></div>
-        <footer v-if="$slots.footer" class="px-6 py-4 border-t border-ink-100 bg-ink-50/40 flex items-center justify-end gap-2">
+        <footer v-if="$slots.footer" class="px-6 py-4 border-t border-ink-200/40 bg-ink-100/40 flex items-center justify-end gap-2">
           <slot name="footer" />
         </footer>
       </div>

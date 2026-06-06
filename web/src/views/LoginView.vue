@@ -34,35 +34,51 @@ async function submit() {
 
 <template>
   <main class="min-h-full grid place-items-center px-5 py-10">
-    <div class="w-full max-w-sm card p-6">
-      <div class="flex items-center gap-2.5 mb-5">
-        <div class="h-9 w-9 rounded-lg bg-ink-900 text-white grid place-items-center">
-          <Icon name="shield" :size="17" />
+    <div class="w-full max-w-sm space-y-8">
+      <!-- Brand: identical to the island TopBar so login feels like part of the panel,
+           not a separate page. -->
+      <div class="flex items-center gap-3 px-1">
+        <div class="h-11 w-11 rounded-2xl bg-ink-900 text-ink-50 grid place-items-center shadow-card">
+          <Icon name="shield" :size="20" />
         </div>
         <div class="leading-tight">
-          <div class="text-[15px] font-semibold text-ink-900">AmneziaWG Panel</div>
-          <div class="text-[12px] text-ink-500">Dev · sign in to continue</div>
+          <div class="text-[17px] font-semibold text-ink-900 tracking-tight">AmneziaWG</div>
+          <div class="text-[12.5px] text-ink-500">Control panel</div>
         </div>
       </div>
 
-      <form @submit.prevent="submit" class="space-y-4">
-        <Field label="Password" :error="err">
-          <div class="relative">
-            <Input
-              v-model="password"
-              :type="reveal ? 'text' : 'password'"
-              autocomplete="current-password"
-              autofocus
-              :invalid="!!err"
-            />
-            <button type="button" class="absolute inset-y-0 right-0 px-3 text-ink-500 hover:text-ink-800" @click="reveal = !reveal" :aria-label="reveal ? 'Hide password' : 'Show password'">
-              <Icon :name="reveal ? 'eye-off' : 'eye'" :size="16" />
-            </button>
-          </div>
-        </Field>
+      <div class="card p-6 sm:p-7">
+        <h1 class="text-[19px] font-semibold text-ink-900 tracking-tight">Welcome back</h1>
+        <p class="mt-1 text-[13px] text-ink-500">Enter the panel password to continue.</p>
 
-        <Button type="submit" variant="primary" block :loading="busy">Sign in</Button>
-      </form>
+        <form @submit.prevent="submit" class="mt-6 space-y-5">
+          <Field label="Password" :error="err">
+            <div class="relative">
+              <Input
+                v-model="password"
+                :type="reveal ? 'text' : 'password'"
+                autocomplete="current-password"
+                autofocus
+                :invalid="!!err"
+              />
+              <button
+                type="button"
+                class="absolute inset-y-0 right-0 px-3 text-ink-500 hover:text-ink-900 transition"
+                @click="reveal = !reveal"
+                :aria-label="reveal ? 'Hide password' : 'Show password'"
+              >
+                <Icon :name="reveal ? 'eye-off' : 'eye'" :size="16" />
+              </button>
+            </div>
+          </Field>
+
+          <Button type="submit" variant="primary" block :loading="busy">Sign in</Button>
+        </form>
+      </div>
+
+      <p class="text-center text-[11.5px] text-ink-500 px-4">
+        Session cookie is HTTP-only. Don't share this panel URL.
+      </p>
     </div>
   </main>
 </template>

@@ -14,7 +14,7 @@ defineEmits<{ (e: 'update:modelValue', v: T): void }>()
       :class="[
         'px-3 h-7 text-[12.5px] font-medium rounded-md transition focus-ring',
         modelValue === opt.value
-          ? 'bg-white text-ink-900 shadow-card'
+          ? 'bg-surface text-ink-900 shadow-card'
           : 'text-ink-600 hover:text-ink-900',
       ]"
     >{{ opt.label }}</button>

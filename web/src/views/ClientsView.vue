@@ -9,6 +9,7 @@ import QrModal from '@/components/organisms/QrModal.vue'
 import ConfigModal from '@/components/organisms/ConfigModal.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import EmptyState from '@/components/molecules/EmptyState.vue'
+import StatGrid from '@/components/molecules/StatGrid.vue'
 import Button from '@/components/atoms/Button.vue'
 import Input from '@/components/atoms/Input.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
@@ -60,14 +61,15 @@ async function confirmDelete() {
     </TopBar>
 
     <main class="max-w-5xl mx-auto px-4 sm:px-5 pt-8 pb-12 space-y-6">
-      <div class="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 class="text-[28px] font-semibold text-ink-900 tracking-tight leading-none">Clients</h1>
-          <p class="mt-2 text-[13px] text-ink-500">{{ store.items.length }} total · auto-refreshes every 3s</p>
-        </div>
-        <div class="w-full sm:w-80">
-          <Input v-model="query" size="sm" placeholder="Search by name, IP, or key" />
-        </div>
+      <div>
+        <h1 class="text-[28px] font-semibold text-ink-900 tracking-tight leading-none">Clients</h1>
+        <p class="mt-2 text-[13px] text-ink-500">Auto-refreshes every 3s</p>
+      </div>
+
+      <StatGrid v-if="store.items.length" :clients="store.items" />
+
+      <div v-if="store.items.length" class="w-full sm:max-w-md">
+        <Input v-model="query" size="sm" placeholder="Search by name, IP, or key" />
       </div>
 
       <div v-if="store.loading && !store.items.length" class="card p-10 grid place-items-center">

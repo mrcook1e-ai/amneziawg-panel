@@ -21,10 +21,10 @@ const sizes: Record<Size, string> = {
 }
 
 const variants: Record<Variant, string> = {
-  primary:   'bg-ink-900 text-white hover:bg-ink-800 active:bg-ink-950',
-  secondary: 'bg-white text-ink-900 border border-ink-200 hover:bg-ink-50 active:bg-ink-100',
+  primary:   'bg-ink-900 text-ink-50 hover:bg-ink-800 active:bg-ink-950',
+  secondary: 'bg-surface text-ink-900 border border-ink-200 hover:bg-ink-100 active:bg-ink-200',
   ghost:     'bg-transparent text-ink-700 hover:bg-ink-100 active:bg-ink-200',
-  danger:    'bg-danger text-white hover:opacity-90 active:opacity-100',
+  danger:    'bg-danger text-ink-50 hover:opacity-90 active:opacity-100',
 }
 
 const cls = computed(() => [base, sizes[props.size], variants[props.variant], props.block && 'w-full'])
