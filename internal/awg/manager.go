@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,8 +120,17 @@ func (m *Manager) bootstrap() (*Config, error) {
 	}, nil
 }
 
+func (m *Manager) subnetCIDR() string {
+	return strings.Replace(m.cfg.Subnet, "x", "0", 1) + "/24"
+}
+
 func (m *Manager) persistLocked() error {
-	conf, err := RenderServer(m.cur, m.cfg.WGPort)
+	conf, err := RenderServer(ServerRenderArgs{
+		Config:     m.cur,
+		Port:       m.cfg.WGPort,
+		SubnetCIDR: m.subnetCIDR(),
+		Egress:     m.cfg.EgressIface,
+	})
 	if err != nil {
 		return err
 	}

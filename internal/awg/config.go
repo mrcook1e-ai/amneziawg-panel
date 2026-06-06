@@ -45,6 +45,8 @@ var serverTmpl = template.Must(template.New("server").Parse(`# Managed by amnezi
 PrivateKey = {{.Server.PrivateKey}}
 Address = {{.Server.Address}}/24
 ListenPort = {{.Port}}
+PostUp = iptables -I FORWARD -i %i -j ACCEPT; iptables -I FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -s {{.SubnetCIDR}} -o {{.Egress}} -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -s {{.SubnetCIDR}} -o {{.Egress}} -j MASQUERADE
 Jc = {{.Server.Jc}}
 Jmin = {{.Server.Jmin}}
 Jmax = {{.Server.Jmax}}
@@ -85,19 +87,28 @@ PublicKey = {{.Server.PublicKey}}
 {{end}}Endpoint = {{.Endpoint}}
 `))
 
-func RenderServer(c *Config, port int) ([]byte, error) {
-	peers := make([]*Client, 0, len(c.Clients))
-	for _, cl := range c.Clients {
+type ServerRenderArgs struct {
+	Config     *Config
+	Port       int
+	SubnetCIDR string
+	Egress     string
+}
+
+func RenderServer(a ServerRenderArgs) ([]byte, error) {
+	peers := make([]*Client, 0, len(a.Config.Clients))
+	for _, cl := range a.Config.Clients {
 		if cl.Enabled {
 			peers = append(peers, cl)
 		}
 	}
 	var buf bytes.Buffer
 	err := serverTmpl.Execute(&buf, struct {
-		Server *Server
-		Port   int
-		Peers  []*Client
-	}{&c.Server, port, peers})
+		Server     *Server
+		Port       int
+		Peers      []*Client
+		SubnetCIDR string
+		Egress     string
+	}{&a.Config.Server, a.Port, peers, a.SubnetCIDR, a.Egress})
 	return buf.Bytes(), err
 }
 
