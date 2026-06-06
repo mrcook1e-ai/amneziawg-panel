@@ -13,8 +13,6 @@ import (
 	"github.com/mrcook1e/amneziawg-panel/internal/static"
 )
 
-// spaHandler serves files from fsys and falls back to /index.html for any
-// path that isn't an existing file (so Vue Router history mode works).
 func spaHandler(fsys fs.FS) http.Handler {
 	fileSrv := http.FileServer(http.FS(fsys))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -55,10 +53,17 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 			r.Get("/backup", admin.backup)
 			r.Post("/restore", admin.restore)
 
+			r.Route("/profiles", func(r chi.Router) {
+				r.Get("/", h.profilesList)
+				r.Post("/", h.profileCreate)
+				r.Get("/{id}", h.profileGet)
+				r.Patch("/{id}", h.profilePatch)
+				r.Delete("/{id}", h.profileDelete)
+				r.Post("/{id}/regenerate-magic", h.profileRegenMagic)
+				r.Post("/{id}/restart", h.profileRestart)
+			})
+
 			r.Route("/wireguard/server", func(r chi.Router) {
-				r.Get("/", h.serverInfo)
-				r.Post("/regenerate-magic", h.serverRegenMagic)
-				r.Post("/restart", h.serverRestart)
 				r.Post("/reset-clients", h.serverResetClients)
 				r.Post("/factory-reset", admin.factoryReset)
 			})
@@ -72,6 +77,7 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 				r.Post("/{id}/disable", h.clientDisable)
 				r.Put("/{id}/name", h.clientRename)
 				r.Put("/{id}/address", h.clientAddress)
+				r.Patch("/{id}/profile", h.clientMove)
 				r.Get("/{id}/configuration", h.clientConfig)
 				r.Get("/{id}/qrcode.svg", h.clientQR)
 				r.Get("/{id}/amnezia.vpn", h.clientVPN)

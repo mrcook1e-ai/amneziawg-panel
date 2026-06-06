@@ -80,9 +80,9 @@ const cfgFor  = ref<string | null>(null)
 const delFor  = ref<string | null>(null)
 const nameOf = (id: string | null) => id ? clients.items.find(c => c.id === id)?.name : undefined
 
-async function onCreate(name: string) {
+async function onCreate(args: import('@/types').CreateClientArgs) {
   newBusy.value = true
-  try { await clients.create(name); newOpen.value = false }
+  try { await clients.create(args); newOpen.value = false }
   finally { newBusy.value = false }
 }
 async function confirmDelete() {

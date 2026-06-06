@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import type { ServerInfo } from '@/types'
 import { api } from '@/lib/api'
 import { useToastStore } from '@/stores/toasts'
 import { useClientsStore } from '@/stores/clients'
 import { useStatsStore } from '@/stores/stats'
+import { useProfilesStore } from '@/stores/profiles'
 import TopBar from '@/components/organisms/TopBar.vue'
 import Section from '@/components/molecules/Section.vue'
 import InfoRow from '@/components/molecules/InfoRow.vue'
@@ -12,11 +12,13 @@ import CopyButton from '@/components/molecules/CopyButton.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import EventRow from '@/components/molecules/EventRow.vue'
 import ImportClientModal from '@/components/organisms/ImportClientModal.vue'
+import ProfileModal from '@/components/organisms/ProfileModal.vue'
 import Button from '@/components/atoms/Button.vue'
 import Segmented from '@/components/atoms/Segmented.vue'
 import Icon from '@/components/atoms/Icon.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import { useThemeStore, type ThemeMode } from '@/stores/theme'
+import type { ProfileInfo } from '@/types'
 
 const theme = useThemeStore()
 const themeOptions: { value: ThemeMode; label: string }[] = [
@@ -28,19 +30,22 @@ const themeOptions: { value: ThemeMode; label: string }[] = [
 const toasts = useToastStore()
 const clients = useClientsStore()
 const statsStore = useStatsStore()
+const profiles = useProfilesStore()
 
-const info = ref<ServerInfo | null>(null)
 const loading = ref(true)
-const busy = ref<'regen' | 'restart' | 'reset' | 'factory' | null>(null)
-const confirmKind = ref<'regen' | 'restart' | 'reset' | null>(null)
-const factoryConfirm = ref(false)
+const busyAction = ref<{kind: string; profileId?: string} | null>(null)
+const confirmAction = ref<{kind: 'reset' | 'factory' | 'regen' | 'restart' | 'delete'; profileId?: string} | null>(null)
 
-// События берём из общего stats store — туда же SSE-push кладёт новые.
 const events = computed(() => statsStore.events)
 const eventsLoading = ref(true)
 
 const importOpen = ref(false)
 const importBusy = ref(false)
+
+const profileModalOpen = ref(false)
+const profileModalMode = ref<'create' | 'edit'>('create')
+const editingProfile = ref<ProfileInfo | null>(null)
+const profileModalBusy = ref(false)
 
 const restoreInput = ref<HTMLInputElement | null>(null)
 const restoreBusy = ref(false)
@@ -50,60 +55,80 @@ async function load() {
   loading.value = true
   eventsLoading.value = true
   try {
-    const [srv] = await Promise.all([api.serverInfo(), statsStore.fetch()])
-    info.value = srv
+    await Promise.all([profiles.fetch(true), statsStore.fetch()])
   } catch (e: any) { toasts.error(e?.message || 'Ошибка загрузки') }
   finally { loading.value = false; eventsLoading.value = false }
 }
 onMounted(load)
 
-const confirmTitle = computed(() => ({
-  regen:   'Обновить H1–H4?',
-  restart: 'Перезапустить интерфейс?',
-  reset:   'Удалить всех клиентов?',
-}[confirmKind.value!] || ''))
-
-const confirmMessage = computed(() => ({
-  regen:   'Существующие конфиги перестанут работать — каждому клиенту нужно будет загрузить новый. Ключ сервера остаётся прежним.',
-  restart: 'Активные соединения ненадолго прервутся, пока интерфейс поднимается. Правила iptables встанут заново автоматически.',
-  reset:   'Все клиенты будут удалены, доступ отозван. Восстановить нельзя.',
-}[confirmKind.value!] || ''))
-
-const confirmText = computed(() => ({
-  regen:   'Обновить',
-  restart: 'Перезапустить',
-  reset:   'Удалить всех',
-}[confirmKind.value!] || ''))
+const confirmTitle = computed(() => {
+  const k = confirmAction.value?.kind
+  return ({
+    regen:   'Обновить H1–H4?',
+    restart: 'Перезапустить интерфейс?',
+    reset:   'Удалить всех клиентов?',
+    factory: 'Сброс до заводских настроек?',
+    delete:  'Удалить профиль?',
+  }[k!] || '')
+})
+const confirmMessage = computed(() => {
+  const k = confirmAction.value?.kind
+  return ({
+    regen:   'Существующие конфиги клиентов этого профиля перестанут работать — каждому понадобится новый. Ключ сервера не меняется.',
+    restart: 'Активные соединения этого профиля ненадолго прервутся, пока интерфейс поднимается. Правила iptables встанут заново.',
+    reset:   'Все клиенты во всех профилях будут удалены, доступ отозван. Действие необратимо.',
+    factory: 'Будут удалены все профили и клиенты, перевыпущен ключ сервера, очищены метрики и журнал. Останется один пустой default-профиль. Необратимо.',
+    delete:  'Профиль будет удалён. Если в нём есть клиенты — сначала переместите или удалите их.',
+  }[k!] || '')
+})
+const confirmText = computed(() => {
+  const k = confirmAction.value?.kind
+  return ({ regen: 'Обновить', restart: 'Перезапустить', reset: 'Удалить всех', factory: 'Сбросить', delete: 'Удалить' }[k!] || '')
+})
+const confirmTone = computed(() => {
+  const k = confirmAction.value?.kind
+  return (k === 'reset' || k === 'factory' || k === 'delete') ? 'danger' : 'neutral'
+})
 
 async function doConfirm() {
-  const k = confirmKind.value
-  if (!k) return
-  busy.value = k
-  confirmKind.value = null
+  const a = confirmAction.value
+  if (!a) return
+  busyAction.value = { kind: a.kind, profileId: a.profileId }
+  confirmAction.value = null
   try {
-    if (k === 'regen')   { info.value = await api.regenerateMagic(); toasts.success('Ключи обновлены') }
-    if (k === 'restart') { await api.restartInterface(); toasts.success('Интерфейс перезапущен'); await load() }
-    if (k === 'reset')   { await api.resetClients();    toasts.success('Все клиенты удалены'); await clients.fetch(true) }
+    if (a.kind === 'regen' && a.profileId)   await profiles.regenerateMagic(a.profileId)
+    if (a.kind === 'restart' && a.profileId) await profiles.restart(a.profileId)
+    if (a.kind === 'delete' && a.profileId)  await profiles.remove(a.profileId)
+    if (a.kind === 'reset')   { await api.resetClients(); toasts.success('Все клиенты удалены'); await clients.fetch(true) }
+    if (a.kind === 'factory') {
+      await api.factoryReset(); toasts.success('Сброс выполнен')
+      await load(); await clients.fetch(true)
+    }
   } catch (e: any) {
     toasts.error(e?.message || 'Ошибка действия')
   } finally {
-    busy.value = null
+    busyAction.value = null
   }
 }
 
-async function doFactoryReset() {
-  factoryConfirm.value = false
-  busy.value = 'factory'
+function openCreateProfile() {
+  profileModalMode.value = 'create'
+  editingProfile.value = null
+  profileModalOpen.value = true
+}
+function openEditProfile(p: ProfileInfo) {
+  profileModalMode.value = 'edit'
+  editingProfile.value = p
+  profileModalOpen.value = true
+}
+async function onProfileSubmit(body: any) {
+  profileModalBusy.value = true
   try {
-    await api.factoryReset()
-    toasts.success('Панель сброшена до заводских настроек')
-    await load()
-    await clients.fetch(true)
-  } catch (e: any) {
-    toasts.error(e?.message || 'Ошибка действия')
-  } finally {
-    busy.value = null
-  }
+    if (profileModalMode.value === 'create') await profiles.create(body)
+    else if (editingProfile.value) await profiles.patch(editingProfile.value.id, body)
+    profileModalOpen.value = false
+  } catch { /* toast already shown */ }
+  finally { profileModalBusy.value = false }
 }
 
 async function onImport(body: Parameters<typeof api.importClient>[0]) {
@@ -120,22 +145,14 @@ async function onImport(body: Parameters<typeof api.importClient>[0]) {
   }
 }
 
-function downloadBackup() {
-  // Прямая навигация — браузер сам поднимет диалог сохранения и принесёт
-  // cookie сессии. Никакого XHR-blob не нужно: файл может быть большим.
-  window.location.href = api.backupUrl()
-}
-
+function downloadBackup() { window.location.href = api.backupUrl() }
 function pickRestore() { restoreInput.value?.click() }
-
 function onRestoreFile(e: Event) {
   const f = (e.target as HTMLInputElement).files?.[0]
   if (!f) return
   restoreConfirmFile.value = f
-  // Reset так, чтобы один и тот же файл можно было выбрать повторно.
   ;(e.target as HTMLInputElement).value = ''
 }
-
 async function doRestore() {
   const f = restoreConfirmFile.value
   if (!f) return
@@ -163,7 +180,7 @@ async function doRestore() {
         <div class="eyebrow">Сервер</div>
         <h1 class="num-display text-ink-900 text-[40px] sm:text-[48px]">Настройки</h1>
         <p class="text-[13.5px] text-ink-500 leading-relaxed max-w-md">
-          Параметры сервера, обфускация AmneziaWG и действия, которые затрагивают живой трафик.
+          Профили подключения, обфускация и действия, которые затрагивают живой трафик.
         </p>
       </header>
 
@@ -177,112 +194,118 @@ async function doRestore() {
         </InfoRow>
       </Section>
 
-      <!-- Skeleton state -->
-      <template v-if="loading">
-        <Section title="Подключение">
+      <Section title="Профили подключения" footer="Каждый профиль — отдельный AmneziaWG-интерфейс на своём UDP-порту. Клиенты привязаны к одному профилю.">
+        <template v-if="loading">
           <div class="p-5 space-y-3">
             <Skeleton height="16" width="60%" />
             <Skeleton height="16" width="40%" />
-            <Skeleton height="16" width="50%" />
           </div>
-        </Section>
-        <Section title="Ключ сервера">
-          <div class="p-5 space-y-3">
-            <Skeleton height="16" width="80%" />
-            <Skeleton height="16" width="35%" />
+        </template>
+        <template v-else>
+          <div class="divide-y divide-ink-900/5">
+            <div v-for="p in profiles.items" :key="p.id" class="px-5 py-4 space-y-3">
+              <div class="flex items-baseline justify-between gap-3 flex-wrap">
+                <div class="flex items-baseline gap-2">
+                  <span class="text-[15px] text-ink-900 font-semibold">{{ p.name }}</span>
+                  <span class="mono text-[11px] text-ink-500">{{ p.id }}</span>
+                  <span v-if="p.hasMimicry" class="text-[10px] uppercase tracking-[0.12em] text-success px-1.5 py-0.5 rounded bg-success/10">мимикрия 1.5</span>
+                </div>
+                <div class="text-[11.5px] text-ink-500 tnum mono">
+                  {{ p.iface }} · :{{ p.port }} · клиентов {{ p.clientCount }}
+                </div>
+              </div>
+              <p v-if="p.description" class="text-[12.5px] text-ink-500">{{ p.description }}</p>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[12px]">
+                <div class="flex items-center gap-2">
+                  <span class="text-ink-500 w-24 shrink-0">Endpoint</span>
+                  <span class="mono text-ink-900 truncate">{{ p.endpoint }}</span>
+                  <CopyButton :value="p.endpoint" />
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-ink-500 w-24 shrink-0">PubKey</span>
+                  <span class="mono text-ink-900 truncate">{{ p.publicKey }}</span>
+                  <CopyButton :value="p.publicKey" />
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-ink-500 w-24 shrink-0">H1–H4</span>
+                  <span class="mono text-ink-700 text-[11px] truncate">{{ p.h1 }} · {{ p.h2 }} · {{ p.h3 }} · {{ p.h4 }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-ink-500 w-24 shrink-0">Jc/J/S</span>
+                  <span class="mono text-ink-700">{{ p.jc }} · {{ p.jmin }}–{{ p.jmax }} · {{ p.s1 }}/{{ p.s2 }}</span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2 flex-wrap pt-1">
+                <Button size="sm" variant="ghost" @click="openEditProfile(p)">
+                  <Icon name="settings" :size="13" /> Редактировать
+                </Button>
+                <Button size="sm" variant="ghost"
+                  :loading="busyAction?.kind === 'regen' && busyAction?.profileId === p.id"
+                  @click="confirmAction = { kind: 'regen', profileId: p.id }">
+                  <Icon name="refresh" :size="13" /> Обновить H1–H4
+                </Button>
+                <Button size="sm" variant="ghost"
+                  :loading="busyAction?.kind === 'restart' && busyAction?.profileId === p.id"
+                  @click="confirmAction = { kind: 'restart', profileId: p.id }">
+                  <Icon name="power" :size="13" /> Перезапустить
+                </Button>
+                <Button size="sm" variant="ghost"
+                  :disabled="profiles.items.length === 1 || p.clientCount > 0"
+                  :title="profiles.items.length === 1 ? 'Нельзя удалить единственный профиль' : p.clientCount > 0 ? 'Сначала переместите клиентов' : ''"
+                  @click="confirmAction = { kind: 'delete', profileId: p.id }">
+                  <Icon name="trash" :size="13" /> Удалить
+                </Button>
+              </div>
+            </div>
           </div>
-        </Section>
-      </template>
-
-      <template v-else-if="info">
-        <Section title="Подключение">
-          <InfoRow label="Внешний адрес" :value="info.endpoint" mono show-divider>
-            <CopyButton :value="info.endpoint" />
-          </InfoRow>
-          <InfoRow label="Интерфейс"     :value="info.interface" mono show-divider />
-          <InfoRow label="UDP-порт"      :value="String(info.port)" mono show-divider />
-          <InfoRow label="Внешняя сетевая карта" :value="info.egressIface" mono />
-        </Section>
-
-        <Section title="Ключ сервера" footer="Этим ключом сервер представляется клиентам при подключении.">
-          <InfoRow label="Публичный ключ" :value="info.publicKey" mono show-divider>
-            <CopyButton :value="info.publicKey" />
-          </InfoRow>
-          <InfoRow label="IP в туннеле" :value="info.address" mono />
-        </Section>
-
-        <Section title="Обфускация" footer="H1–H4 — случайные числа, маскирующие WireGuard под обычный трафик. После обновления все клиенты должны переподключиться по новому конфигу.">
-          <InfoRow label="Jc / Jmin / Jmax" :value="`${info.jc} · ${info.jmin} · ${info.jmax}`" mono show-divider />
-          <InfoRow label="S1 / S2"          :value="`${info.s1} · ${info.s2}`" mono show-divider />
-          <InfoRow label="H1" :value="info.h1" mono show-divider />
-          <InfoRow label="H2" :value="info.h2" mono show-divider />
-          <InfoRow label="H3" :value="info.h3" mono show-divider />
-          <InfoRow label="H4" :value="info.h4" mono show-divider />
-          <InfoRow label="Обновить ключи">
-            <Button size="sm" :loading="busy === 'regen'" @click="confirmKind = 'regen'">
-              <Icon name="refresh" :size="14" /> Обновить H1–H4
+          <div class="p-4 border-t border-ink-900/5">
+            <Button size="sm" variant="primary" @click="openCreateProfile">
+              <Icon name="plus" :size="14" /> Добавить профиль
             </Button>
-          </InfoRow>
-        </Section>
+          </div>
+        </template>
+      </Section>
 
-        <Section title="Сеть по умолчанию" footer="Эти параметры подставляются в каждый новый конфиг клиента.">
-          <InfoRow label="Подсеть"      :value="info.subnet" mono show-divider />
-          <InfoRow label="DNS"          :value="info.dns" mono show-divider />
-          <InfoRow label="MTU"          :value="info.mtu ? String(info.mtu) : '— (авто)'" mono show-divider />
-          <InfoRow label="Allowed IPs"  :value="info.allowedIPs" mono show-divider />
-          <InfoRow label="Keepalive"    :value="info.persistentKeepalive ? `${info.persistentKeepalive} с` : 'выключен'" mono />
-        </Section>
+      <Section title="Клиенты" footer="Импорт нужен, если у клиента уже есть конфиг и нужно вернуть его в панель по публичному ключу.">
+        <InfoRow label="Импорт по публичному ключу">
+          <Button size="sm" @click="importOpen = true">
+            <Icon name="plus" :size="14" /> Импортировать
+          </Button>
+        </InfoRow>
+      </Section>
 
-        <Section title="Клиенты" footer="Импорт нужен, если у клиента уже есть конфиг и нужно вернуть его в панель по публичному ключу.">
-          <InfoRow label="Импорт по публичному ключу" show-divider>
-            <Button size="sm" @click="importOpen = true">
-              <Icon name="plus" :size="14" /> Импортировать
-            </Button>
-          </InfoRow>
-          <InfoRow label="Всего клиентов" :value="`${info.clientCount}`" mono />
-        </Section>
+      <Section title="Резервная копия" footer="Архив: state.json (профили + клиенты) + .conf каждого интерфейса + база метрик. Восстановление перезаписывает текущее состояние и перезапускает интерфейсы.">
+        <InfoRow label="Скачать архив" show-divider>
+          <Button size="sm" @click="downloadBackup">
+            <Icon name="download" :size="14" /> Скачать .tar.gz
+          </Button>
+        </InfoRow>
+        <InfoRow label="Восстановить из архива">
+          <input ref="restoreInput" type="file" accept=".gz,.tgz,application/gzip" class="hidden" @change="onRestoreFile" />
+          <Button size="sm" :loading="restoreBusy" @click="pickRestore">
+            <Icon name="upload" :size="14" /> Выбрать файл
+          </Button>
+        </InfoRow>
+      </Section>
 
-        <Section title="Резервная копия" footer="Архив содержит JSON состояния, серверный .conf и базу метрик. Восстановление перезаписывает текущее состояние и перезапускает интерфейс.">
-          <InfoRow label="Скачать архив" show-divider>
-            <Button size="sm" @click="downloadBackup">
-              <Icon name="download" :size="14" /> Скачать .tar.gz
-            </Button>
-          </InfoRow>
-          <InfoRow label="Восстановить из архива">
-            <input
-              ref="restoreInput"
-              type="file"
-              accept=".gz,.tgz,application/gzip"
-              class="hidden"
-              @change="onRestoreFile"
-            />
-            <Button size="sm" :loading="restoreBusy" @click="pickRestore">
-              <Icon name="upload" :size="14" /> Выбрать файл
-            </Button>
-          </InfoRow>
-        </Section>
+      <Section title="Опасные действия" footer="Эти действия затрагивают живой трафик и необратимы.">
+        <InfoRow label="Удалить всех клиентов" show-divider>
+          <Button variant="danger" size="sm" :loading="busyAction?.kind === 'reset'"
+            @click="confirmAction = { kind: 'reset' }">
+            <Icon name="trash" :size="14" /> Удалить всех
+          </Button>
+        </InfoRow>
+        <InfoRow label="Сброс до заводских настроек">
+          <Button variant="danger" size="sm" :loading="busyAction?.kind === 'factory'"
+            @click="confirmAction = { kind: 'factory' }">
+            <Icon name="refresh" :size="14" /> Сбросить всё
+          </Button>
+        </InfoRow>
+      </Section>
 
-        <Section title="Опасные действия" footer="Эти действия затрагивают живой трафик. Если нужны только новые H1–H4 — используйте кнопку выше.">
-          <InfoRow label="Перезапустить интерфейс" show-divider>
-            <Button size="sm" :loading="busy === 'restart'" @click="confirmKind = 'restart'">
-              <Icon name="power" :size="14" /> Перезапустить
-            </Button>
-          </InfoRow>
-          <InfoRow label="Удалить всех клиентов" show-divider>
-            <Button variant="danger" size="sm" :loading="busy === 'reset'" @click="confirmKind = 'reset'">
-              <Icon name="trash" :size="14" /> Удалить всех
-            </Button>
-          </InfoRow>
-          <InfoRow label="Сброс до заводских настроек">
-            <Button variant="danger" size="sm" :loading="busy === 'factory'" @click="factoryConfirm = true">
-              <Icon name="refresh" :size="14" /> Сбросить всё
-            </Button>
-          </InfoRow>
-        </Section>
-      </template>
-
-      <!-- История событий — всегда показываем, после серверной секции. -->
-      <Section title="История событий" footer="Последние 50 действий: создание, удаление, переименование, истечение, серверные операции. Хранятся 30 дней.">
+      <Section title="История событий" footer="Последние 50 действий. Хранятся 30 дней.">
         <template v-if="eventsLoading">
           <div class="p-4 space-y-3">
             <div v-for="i in 5" :key="i" class="flex items-center gap-3">
@@ -304,19 +327,19 @@ async function doRestore() {
     </main>
 
     <ConfirmDialog
-      :open="confirmKind !== null"
+      :open="confirmAction !== null"
       :title="confirmTitle"
       :message="confirmMessage"
       :confirm-text="confirmText"
-      :tone="confirmKind === 'reset' ? 'danger' : 'neutral'"
-      @cancel="confirmKind = null"
+      :tone="confirmTone"
+      @cancel="confirmAction = null"
       @confirm="doConfirm"
     />
 
     <ConfirmDialog
       :open="restoreConfirmFile !== null"
       title="Восстановить из архива?"
-      :message="`Текущее состояние будет перезаписано файлом «${restoreConfirmFile?.name ?? ''}» и интерфейс перезапустится. Активные соединения прервутся.`"
+      :message="`Текущее состояние будет перезаписано файлом «${restoreConfirmFile?.name ?? ''}» и интерфейсы перезапустятся.`"
       confirm-text="Восстановить"
       tone="danger"
       @cancel="restoreConfirmFile = null"
@@ -330,16 +353,13 @@ async function doRestore() {
       @submit="onImport"
     />
 
-    <ConfirmDialog
-      :open="factoryConfirm"
-      title="Сброс до заводских настроек?"
-      message="Будут удалены все клиенты, перевыпущен ключ сервера и H1–H4, очищены метрики и журнал событий. Все существующие конфиги перестанут работать. Действие необратимо."
-      require-text="СБРОС"
-      confirm-text="Сбросить"
-      tone="danger"
-      :loading="busy === 'factory'"
-      @cancel="factoryConfirm = false"
-      @confirm="doFactoryReset"
+    <ProfileModal
+      :open="profileModalOpen"
+      :mode="profileModalMode"
+      :profile="editingProfile"
+      :busy="profileModalBusy"
+      @close="profileModalOpen = false"
+      @submit="onProfileSubmit"
     />
   </div>
 </template>

@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,9 +17,6 @@ import (
 	"github.com/mrcook1e/amneziawg-panel/internal/config"
 )
 
-// randomMagic returns a random uint32 string for H1-H4. AmneziaWG clients
-// reject obvious placeholders like "1" / "2" — these must be large random
-// uint32 values, unique per server.
 func randomMagic() string {
 	var b [4]byte
 	_, _ = rand.Read(b[:])
@@ -37,23 +36,26 @@ func uniqueMagic() (string, string, string, string) {
 	}
 }
 
-type Manager struct {
-	cfg    config.Config
-	store  *Store
-	keys   Keys
-	runner Runner
-	ipam   *IPAM
-
-	mu  sync.Mutex
-	cur *Config
-
-	// emit is a hook used to journal lifecycle events without importing the
-	// events package directly (would cycle). Wired by main.go.
-	emit func(kind, clientID string, payload any)
+type profileState struct {
+	profile *Profile
+	runner  Runner
 }
 
-// SetEventSink wires the audit-log emitter. Safe to leave unset (no-op).
-func (m *Manager) SetEventSink(fn func(kind, clientID string, payload any)) {
+type Manager struct {
+	cfg      config.Config
+	store    *Store
+	keys     Keys
+	ipam     *IPAM
+	portIPAM *PortIPAM
+
+	mu       sync.Mutex
+	profiles map[string]*profileState
+	clients  map[string]*Client
+
+	emit func(kind, id string, payload any)
+}
+
+func (m *Manager) SetEventSink(fn func(kind, id string, payload any)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emit = fn
@@ -70,12 +72,18 @@ func NewManager(cfg config.Config) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
+	pipam, err := NewPortIPAM(cfg.PortRangeStart, cfg.PortRangeEnd)
+	if err != nil {
+		return nil, err
+	}
 	return &Manager{
-		cfg:    cfg,
-		store:  NewStore(cfg.WGPath, cfg.Interface),
-		keys:   Keys{Bin: cfg.AWGBin},
-		runner: Runner{AWGBin: cfg.AWGBin, AWGQuickBin: cfg.AWGQuickBin, Iface: cfg.Interface},
-		ipam:   ipam,
+		cfg:      cfg,
+		store:    NewStore(cfg.WGPath),
+		keys:     Keys{Bin: cfg.AWGBin},
+		ipam:     ipam,
+		portIPAM: pipam,
+		profiles: map[string]*profileState{},
+		clients:  map[string]*Client{},
 	}, nil
 }
 
@@ -97,26 +105,47 @@ func (m *Manager) Start() error {
 			return err
 		}
 	}
-	m.cur = c
-	if err := m.persistLocked(); err != nil {
-		return err
+	m.hydrate(c)
+
+	for _, ps := range m.profiles {
+		if err := m.persistProfileLocked(ps); err != nil {
+			return err
+		}
+		_ = ps.runner.Down()
+		if err := ps.runner.Up(); err != nil {
+			return fmt.Errorf("awg-quick up %s: %w", ps.profile.Iface, err)
+		}
+		if err := ps.runner.SyncConf(); err != nil {
+			return err
+		}
 	}
-	_ = m.runner.Down()
-	if err := m.runner.Up(); err != nil {
-		return fmt.Errorf("awg-quick up: %w", err)
-	}
-	return m.runner.SyncConf()
+	return m.store.SaveState(m.dumpStateLocked())
 }
 
-func (m *Manager) Shutdown() error { return m.runner.Down() }
+func (m *Manager) Shutdown() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ps := range m.profiles {
+		_ = ps.runner.Down()
+	}
+	return nil
+}
 
-// StateDir returns the directory that holds <iface>.json / <iface>.conf.
-// Used by backup/restore to know what to bundle.
-func (m *Manager) StateDir() string  { return m.cfg.WGPath }
-func (m *Manager) IfaceName() string { return m.cfg.Interface }
+func (m *Manager) StateDir() string { return m.cfg.WGPath }
 
-// Reload re-reads the JSON state from disk (after a restore has dropped a new
-// file in place) and bounces the interface so the running peers match.
+// IfaceNames returns the interface names of all configured profiles, sorted
+// for deterministic output. Used by stats collector and SSE broker.
+func (m *Manager) IfaceNames() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.profiles))
+	for _, ps := range m.profiles {
+		out = append(out, ps.profile.Iface)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func (m *Manager) Reload() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -127,27 +156,513 @@ func (m *Manager) Reload() error {
 	if c == nil {
 		return errors.New("state file missing after reload")
 	}
-	m.cur = c
-	if err := m.persistLocked(); err != nil {
-		return err
+	for _, ps := range m.profiles {
+		_ = ps.runner.Down()
 	}
-	_ = m.runner.Down()
-	if err := m.runner.Up(); err != nil {
-		return fmt.Errorf("awg-quick up: %w", err)
+	m.profiles = map[string]*profileState{}
+	m.clients = map[string]*Client{}
+	m.hydrate(c)
+	for _, ps := range m.profiles {
+		if err := m.persistProfileLocked(ps); err != nil {
+			return err
+		}
+		_ = ps.runner.Down()
+		if err := ps.runner.Up(); err != nil {
+			return fmt.Errorf("awg-quick up %s: %w", ps.profile.Iface, err)
+		}
+		if err := ps.runner.SyncConf(); err != nil {
+			return err
+		}
 	}
-	return m.runner.SyncConf()
+	return nil
 }
 
-// ImportArgs lets an admin re-attach an existing peer (e.g. they kept the
-// privateKey on their phone). PublicKey is required; if PrivateKey is empty
-// the panel won't be able to render a downloadable config but the peer still
-// shows up on the dashboard and counts toward stats.
+func (m *Manager) hydrate(c *Config) {
+	for id, p := range c.Profiles {
+		m.profiles[id] = &profileState{
+			profile: p,
+			runner:  Runner{AWGBin: m.cfg.AWGBin, AWGQuickBin: m.cfg.AWGQuickBin, Iface: p.Iface},
+		}
+	}
+	for id, cl := range c.Clients {
+		m.clients[id] = cl
+	}
+}
+
+func (m *Manager) dumpStateLocked() *Config {
+	profiles := make(map[string]*Profile, len(m.profiles))
+	for id, ps := range m.profiles {
+		profiles[id] = ps.profile
+	}
+	clients := make(map[string]*Client, len(m.clients))
+	for id, c := range m.clients {
+		clients[id] = c
+	}
+	return &Config{SchemaVersion: SchemaVersion, Profiles: profiles, Clients: clients}
+}
+
+func (m *Manager) subnetCIDR() string {
+	return strings.Replace(m.cfg.Subnet, "x", "0", 1) + "/24"
+}
+
+func (m *Manager) bootstrap() (*Config, error) {
+	p, err := m.newProfile("default", "Default", "")
+	if err != nil {
+		return nil, err
+	}
+	return &Config{
+		SchemaVersion: SchemaVersion,
+		Profiles:      map[string]*Profile{p.ID: p},
+		Clients:       map[string]*Client{},
+	}, nil
+}
+
+var profileIDRe = regexp.MustCompile(`^[a-z0-9-]{2,32}$`)
+
+func (m *Manager) usedPortsLocked() map[int]struct{} {
+	used := map[int]struct{}{}
+	for _, ps := range m.profiles {
+		used[ps.profile.Port] = struct{}{}
+	}
+	return used
+}
+
+// newProfile builds a fresh Profile but does NOT insert it into m.profiles —
+// callers (bootstrap, CreateProfile) own that step. It generates a server
+// keypair, allocates a port + matching iface name, and rolls fresh H1-H4.
+func (m *Manager) newProfile(id, name, description string) (*Profile, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = m.nextProfileIDLocked()
+	}
+	if !profileIDRe.MatchString(id) {
+		return nil, fmt.Errorf("profile id must match [a-z0-9-]{2,32}: %q", id)
+	}
+	if _, exists := m.profiles[id]; exists {
+		return nil, fmt.Errorf("profile %q already exists", id)
+	}
+
+	port, err := m.portIPAM.Next(m.usedPortsLocked())
+	if err != nil {
+		return nil, err
+	}
+	iface := m.portIPAM.IfaceFor(port)
+
+	priv, err := m.keys.GenPrivate()
+	if err != nil {
+		return nil, err
+	}
+	pub, err := m.keys.Public(priv)
+	if err != nil {
+		return nil, err
+	}
+
+	o := m.cfg.Obf
+	h1, h2, h3, h4 := o.H1, o.H2, o.H3, o.H4
+	if h1 == "1" && h2 == "2" && h3 == "3" && h4 == "4" {
+		h1, h2, h3, h4 = uniqueMagic()
+	}
+
+	displayName := strings.TrimSpace(name)
+	if displayName == "" {
+		displayName = id
+	}
+
+	return &Profile{
+		ID:          id,
+		Name:        displayName,
+		Description: description,
+		Iface:       iface,
+		Port:        port,
+		PrivateKey:  priv,
+		PublicKey:   pub,
+		Address:     m.ipam.ServerIP(),
+		Jc:          o.Jc, Jmin: o.Jmin, Jmax: o.Jmax,
+		S1: o.S1, S2: o.S2,
+		H1: h1, H2: h2, H3: h3, H4: h4,
+		CreatedAt: time.Now().UTC(),
+	}, nil
+}
+
+func (m *Manager) nextProfileIDLocked() string {
+	for n := 1; n < 1000; n++ {
+		id := fmt.Sprintf("profile-%d", n)
+		if _, exists := m.profiles[id]; !exists {
+			return id
+		}
+	}
+	return "profile-" + uuid.NewString()[:8]
+}
+
+// peersFor returns enabled clients for a profile, sorted by Name for stable
+// .conf rendering.
+func (m *Manager) peersForLocked(profileID string) []*Client {
+	peers := []*Client{}
+	for _, c := range m.clients {
+		if c.ProfileID == profileID && c.Enabled {
+			peers = append(peers, c)
+		}
+	}
+	sort.Slice(peers, func(i, j int) bool { return peers[i].Name < peers[j].Name })
+	return peers
+}
+
+func (m *Manager) persistProfileLocked(ps *profileState) error {
+	conf, err := RenderProfile(ProfileRenderArgs{
+		Profile:    ps.profile,
+		Peers:      m.peersForLocked(ps.profile.ID),
+		SubnetCIDR: m.subnetCIDR(),
+		Egress:     m.cfg.EgressIface,
+	})
+	if err != nil {
+		return err
+	}
+	return m.store.SaveProfileConf(ps.profile.Iface, conf)
+}
+
+func (m *Manager) persistAllLocked() error {
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		return err
+	}
+	for _, ps := range m.profiles {
+		if err := m.persistProfileLocked(ps); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *Manager) syncProfileLocked(ps *profileState) error {
+	if err := m.persistProfileLocked(ps); err != nil {
+		return err
+	}
+	return ps.runner.SyncConf()
+}
+
+// ---- profiles ---------------------------------------------------------------
+
+type ProfileSpec struct {
+	ID, Name, Description string
+	I1, I2, I3, I4, I5    string
+}
+
+type ProfileView struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Iface       string `json:"iface"`
+	Port        int    `json:"port"`
+	PublicKey   string `json:"publicKey"`
+	Address     string `json:"address"`
+	Endpoint    string `json:"endpoint"`
+	Jc          int    `json:"jc"`
+	Jmin        int    `json:"jmin"`
+	Jmax        int    `json:"jmax"`
+	S1          int    `json:"s1"`
+	S2          int    `json:"s2"`
+	H1          string `json:"h1"`
+	H2          string `json:"h2"`
+	H3          string `json:"h3"`
+	H4          string `json:"h4"`
+	I1          string `json:"i1,omitempty"`
+	I2          string `json:"i2,omitempty"`
+	I3          string `json:"i3,omitempty"`
+	I4          string `json:"i4,omitempty"`
+	I5          string `json:"i5,omitempty"`
+	ClientCount int    `json:"clientCount"`
+	HasMimicry  bool   `json:"hasMimicry"`
+}
+
+func (m *Manager) viewProfileLocked(p *Profile) ProfileView {
+	count := 0
+	for _, c := range m.clients {
+		if c.ProfileID == p.ID {
+			count++
+		}
+	}
+	return ProfileView{
+		ID: p.ID, Name: p.Name, Description: p.Description,
+		Iface: p.Iface, Port: p.Port, PublicKey: p.PublicKey, Address: p.Address,
+		Endpoint:    fmt.Sprintf("%s:%d", m.cfg.WGHost, p.Port),
+		Jc:          p.Jc, Jmin: p.Jmin, Jmax: p.Jmax,
+		S1: p.S1, S2: p.S2,
+		H1: p.H1, H2: p.H2, H3: p.H3, H4: p.H4,
+		I1: p.I1, I2: p.I2, I3: p.I3, I4: p.I4, I5: p.I5,
+		ClientCount: count,
+		HasMimicry:  p.I1 != "" || p.I2 != "" || p.I3 != "" || p.I4 != "" || p.I5 != "",
+	}
+}
+
+func (m *Manager) ListProfiles() []ProfileView {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]ProfileView, 0, len(m.profiles))
+	for _, ps := range m.profiles {
+		out = append(out, m.viewProfileLocked(ps.profile))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Port < out[j].Port })
+	return out
+}
+
+func (m *Manager) ProfileInfo(id string) (ProfileView, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ps, ok := m.profiles[id]
+	if !ok {
+		return ProfileView{}, errProfileNotFound
+	}
+	return m.viewProfileLocked(ps.profile), nil
+}
+
+// DefaultProfileID returns the profile selected when the UI doesn't ask for a
+// specific one. We pick the lowest-port profile for determinism.
+func (m *Manager) DefaultProfileID() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var chosen *Profile
+	for _, ps := range m.profiles {
+		if chosen == nil || ps.profile.Port < chosen.Port {
+			chosen = ps.profile
+		}
+	}
+	if chosen == nil {
+		return ""
+	}
+	return chosen.ID
+}
+
+func (m *Manager) CreateProfile(spec ProfileSpec) (ProfileView, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, err := m.newProfile(spec.ID, spec.Name, spec.Description)
+	if err != nil {
+		return ProfileView{}, err
+	}
+	p.I1, p.I2, p.I3, p.I4, p.I5 = spec.I1, spec.I2, spec.I3, spec.I4, spec.I5
+
+	ps := &profileState{
+		profile: p,
+		runner:  Runner{AWGBin: m.cfg.AWGBin, AWGQuickBin: m.cfg.AWGQuickBin, Iface: p.Iface},
+	}
+	m.profiles[p.ID] = ps
+
+	if err := m.persistAllLocked(); err != nil {
+		delete(m.profiles, p.ID)
+		return ProfileView{}, err
+	}
+	_ = ps.runner.Down()
+	if err := ps.runner.Up(); err != nil {
+		delete(m.profiles, p.ID)
+		_ = m.persistAllLocked()
+		return ProfileView{}, fmt.Errorf("awg-quick up %s: %w", p.Iface, err)
+	}
+	m.fire("profile.created", p.ID, map[string]any{"name": p.Name, "iface": p.Iface, "port": p.Port})
+	return m.viewProfileLocked(p), nil
+}
+
+type ProfilePatch struct {
+	Name        *string
+	Description *string
+	I1          *string
+	I2          *string
+	I3          *string
+	I4          *string
+	I5          *string
+}
+
+func (m *Manager) PatchProfile(id string, p ProfilePatch) (ProfileView, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ps, ok := m.profiles[id]
+	if !ok {
+		return ProfileView{}, errProfileNotFound
+	}
+	pr := ps.profile
+	if p.Name != nil {
+		pr.Name = strings.TrimSpace(*p.Name)
+		if pr.Name == "" {
+			pr.Name = pr.ID
+		}
+	}
+	if p.Description != nil {
+		pr.Description = *p.Description
+	}
+	if p.I1 != nil {
+		pr.I1 = strings.TrimSpace(*p.I1)
+	}
+	if p.I2 != nil {
+		pr.I2 = strings.TrimSpace(*p.I2)
+	}
+	if p.I3 != nil {
+		pr.I3 = strings.TrimSpace(*p.I3)
+	}
+	if p.I4 != nil {
+		pr.I4 = strings.TrimSpace(*p.I4)
+	}
+	if p.I5 != nil {
+		pr.I5 = strings.TrimSpace(*p.I5)
+	}
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		return ProfileView{}, err
+	}
+	if err := m.syncProfileLocked(ps); err != nil {
+		return ProfileView{}, err
+	}
+	m.fire("profile.patched", pr.ID, map[string]string{"name": pr.Name})
+	return m.viewProfileLocked(pr), nil
+}
+
+func (m *Manager) DeleteProfile(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ps, ok := m.profiles[id]
+	if !ok {
+		return errProfileNotFound
+	}
+	if len(m.profiles) == 1 {
+		return errors.New("cannot delete the last profile")
+	}
+	for _, c := range m.clients {
+		if c.ProfileID == id {
+			return errProfileHasClients
+		}
+	}
+	_ = ps.runner.Down()
+	_ = m.store.RemoveProfileConf(ps.profile.Iface)
+	delete(m.profiles, id)
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		return err
+	}
+	m.fire("profile.deleted", id, nil)
+	return nil
+}
+
+func (m *Manager) RegenerateMagic(profileID string) (ProfileView, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ps, ok := m.profiles[profileID]
+	if !ok {
+		return ProfileView{}, errProfileNotFound
+	}
+	ps.profile.H1, ps.profile.H2, ps.profile.H3, ps.profile.H4 = uniqueMagic()
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		return ProfileView{}, err
+	}
+	if err := m.syncProfileLocked(ps); err != nil {
+		return ProfileView{}, err
+	}
+	m.fire("profile.regen_magic", profileID, nil)
+	return m.viewProfileLocked(ps.profile), nil
+}
+
+func (m *Manager) RestartInterface(profileID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ps, ok := m.profiles[profileID]
+	if !ok {
+		return errProfileNotFound
+	}
+	if err := m.persistProfileLocked(ps); err != nil {
+		return err
+	}
+	_ = ps.runner.Down()
+	if err := ps.runner.Up(); err != nil {
+		return err
+	}
+	m.fire("profile.restart", profileID, nil)
+	return nil
+}
+
+// ---- clients ----------------------------------------------------------------
+
+type CreateClientArgs struct {
+	Name      string
+	ProfileID string
+	Notes     string
+}
+
+func (m *Manager) CreateClient(args CreateClientArgs) (*Client, error) {
+	name := strings.TrimSpace(args.Name)
+	if name == "" {
+		return nil, errors.New("name is required")
+	}
+
+	priv, err := m.keys.GenPrivate()
+	if err != nil {
+		return nil, err
+	}
+	pub, err := m.keys.Public(priv)
+	if err != nil {
+		return nil, err
+	}
+	psk, err := m.keys.GenPSK()
+	if err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	profileID := strings.TrimSpace(args.ProfileID)
+	if profileID == "" {
+		var chosen *Profile
+		for _, ps := range m.profiles {
+			if chosen == nil || ps.profile.Port < chosen.Port {
+				chosen = ps.profile
+			}
+		}
+		if chosen == nil {
+			return nil, errors.New("no profiles configured")
+		}
+		profileID = chosen.ID
+	}
+	ps, ok := m.profiles[profileID]
+	if !ok {
+		return nil, errProfileNotFound
+	}
+
+	used := map[string]struct{}{}
+	for _, p := range m.profiles {
+		used[p.profile.Address] = struct{}{}
+	}
+	for _, c := range m.clients {
+		used[c.Address] = struct{}{}
+	}
+	addr, err := m.ipam.Next(used)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	c := &Client{
+		ID:         uuid.NewString(),
+		ProfileID:  profileID,
+		Name:       name,
+		Address:    addr,
+		PrivateKey: priv, PublicKey: pub, PreSharedKey: psk,
+		Notes:     args.Notes,
+		Enabled:   true,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	m.clients[c.ID] = c
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		delete(m.clients, c.ID)
+		return nil, err
+	}
+	if err := m.syncProfileLocked(ps); err != nil {
+		delete(m.clients, c.ID)
+		return nil, err
+	}
+	m.fire("client.created", c.ID, map[string]string{"name": c.Name, "address": c.Address, "profileId": profileID})
+	return c, nil
+}
+
 type ImportArgs struct {
 	Name         string
+	ProfileID    string
 	PublicKey    string
 	PrivateKey   string
 	PreSharedKey string
-	Address      string // optional — auto-allocated if empty
+	Address      string
 	Notes        string
 }
 
@@ -164,14 +679,35 @@ func (m *Manager) ImportClient(in ImportArgs) (*Client, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for _, c := range m.cur.Clients {
+	profileID := strings.TrimSpace(in.ProfileID)
+	if profileID == "" {
+		var chosen *Profile
+		for _, ps := range m.profiles {
+			if chosen == nil || ps.profile.Port < chosen.Port {
+				chosen = ps.profile
+			}
+		}
+		if chosen == nil {
+			return nil, errors.New("no profiles configured")
+		}
+		profileID = chosen.ID
+	}
+	ps, ok := m.profiles[profileID]
+	if !ok {
+		return nil, errProfileNotFound
+	}
+
+	for _, c := range m.clients {
 		if c.PublicKey == pub {
 			return nil, fmt.Errorf("client with this publicKey already exists: %s", c.Name)
 		}
 	}
 
-	used := map[string]struct{}{m.cur.Server.Address: {}}
-	for _, c := range m.cur.Clients {
+	used := map[string]struct{}{}
+	for _, p := range m.profiles {
+		used[p.profile.Address] = struct{}{}
+	}
+	for _, c := range m.clients {
 		used[c.Address] = struct{}{}
 	}
 	addr := strings.TrimSpace(in.Address)
@@ -192,136 +728,83 @@ func (m *Manager) ImportClient(in ImportArgs) (*Client, error) {
 
 	now := time.Now().UTC()
 	c := &Client{
-		ID: uuid.NewString(), Name: name, Address: addr,
+		ID: uuid.NewString(), ProfileID: profileID,
+		Name: name, Address: addr,
 		PrivateKey:   strings.TrimSpace(in.PrivateKey),
 		PublicKey:    pub,
 		PreSharedKey: strings.TrimSpace(in.PreSharedKey),
 		Notes:        in.Notes,
 		Enabled:      true, CreatedAt: now, UpdatedAt: now,
 	}
-	m.cur.Clients[c.ID] = c
-	if err := m.saveAndSyncLocked(); err != nil {
-		delete(m.cur.Clients, c.ID)
+	m.clients[c.ID] = c
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		delete(m.clients, c.ID)
 		return nil, err
 	}
-	m.fire("client.created", c.ID, map[string]string{"name": c.Name, "address": c.Address, "imported": "true"})
+	if err := m.syncProfileLocked(ps); err != nil {
+		delete(m.clients, c.ID)
+		return nil, err
+	}
+	m.fire("client.created", c.ID, map[string]string{"name": c.Name, "address": c.Address, "imported": "true", "profileId": profileID})
 	return c, nil
-}
-
-func (m *Manager) bootstrap() (*Config, error) {
-	priv, err := m.keys.GenPrivate()
-	if err != nil {
-		return nil, err
-	}
-	pub, err := m.keys.Public(priv)
-	if err != nil {
-		return nil, err
-	}
-	o := m.cfg.Obf
-	h1, h2, h3, h4 := o.H1, o.H2, o.H3, o.H4
-	// Treat placeholder defaults ("1".."4") as a signal to roll random magic.
-	if h1 == "1" && h2 == "2" && h3 == "3" && h4 == "4" {
-		h1, h2, h3, h4 = uniqueMagic()
-	}
-	return &Config{
-		Server: Server{
-			PrivateKey: priv, PublicKey: pub,
-			Address: m.ipam.ServerIP(),
-			Jc:      o.Jc, Jmin: o.Jmin, Jmax: o.Jmax,
-			S1: o.S1, S2: o.S2,
-			H1: h1, H2: h2, H3: h3, H4: h4,
-		},
-		Clients: map[string]*Client{},
-	}, nil
-}
-
-func (m *Manager) subnetCIDR() string {
-	return strings.Replace(m.cfg.Subnet, "x", "0", 1) + "/24"
-}
-
-func (m *Manager) persistLocked() error {
-	conf, err := RenderServer(ServerRenderArgs{
-		Config:     m.cur,
-		Port:       m.cfg.WGPort,
-		SubnetCIDR: m.subnetCIDR(),
-		Egress:     m.cfg.EgressIface,
-	})
-	if err != nil {
-		return err
-	}
-	return m.store.Save(m.cur, conf)
-}
-
-func (m *Manager) saveAndSyncLocked() error {
-	if err := m.persistLocked(); err != nil {
-		return err
-	}
-	return m.runner.SyncConf()
 }
 
 type ClientView struct {
 	*Client
 	LatestHandshakeAt *time.Time `json:"latestHandshakeAt"`
-	// Session counters from the running interface — reset to zero on
-	// awg-quick up. For lifetime totals use Client.TotalRx/TotalTx.
-	TransferRx   uint64 `json:"transferRx"`
-	TransferTx   uint64 `json:"transferTx"`
-	PersistentKA string `json:"persistentKeepalive"`
+	TransferRx        uint64     `json:"transferRx"`
+	TransferTx        uint64     `json:"transferTx"`
+	PersistentKA      string     `json:"persistentKeepalive"`
 }
 
 func (m *Manager) ListClients() ([]ClientView, error) {
 	m.mu.Lock()
-	out := make([]ClientView, 0, len(m.cur.Clients))
-	for _, c := range m.cur.Clients {
+	out := make([]ClientView, 0, len(m.clients))
+	for _, c := range m.clients {
 		out = append(out, ClientView{Client: c})
+	}
+	ifaces := make([]string, 0, len(m.profiles))
+	for _, ps := range m.profiles {
+		ifaces = append(ifaces, ps.profile.Iface)
 	}
 	m.mu.Unlock()
 
-	status, err := ShowDump(m.cfg.AWGBin, m.cfg.Interface)
-	if err == nil {
-		for i := range out {
-			if s, ok := status[out[i].PublicKey]; ok {
-				out[i].TransferRx = s.RxBytes
-				out[i].TransferTx = s.TxBytes
-				out[i].PersistentKA = s.Keepalive
-				// Prefer the freshest handshake — current session if available,
-				// otherwise the last-seen value persisted across restarts.
-				if s.LatestHandshake != nil {
-					out[i].LatestHandshakeAt = s.LatestHandshake
-				} else {
-					out[i].LatestHandshakeAt = out[i].Client.LastHandshakeAt
-				}
+	status := mergedDump(m.cfg.AWGBin, ifaces)
+	for i := range out {
+		if s, ok := status[out[i].PublicKey]; ok {
+			out[i].TransferRx = s.RxBytes
+			out[i].TransferTx = s.TxBytes
+			out[i].PersistentKA = s.Keepalive
+			if s.LatestHandshake != nil {
+				out[i].LatestHandshakeAt = s.LatestHandshake
 			} else {
 				out[i].LatestHandshakeAt = out[i].Client.LastHandshakeAt
 			}
+		} else {
+			out[i].LatestHandshakeAt = out[i].Client.LastHandshakeAt
 		}
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 
-// Snapshot returns a read-only copy of the current client map keyed by public
-// key. Used by the stats collector to reconcile peer status without taking
-// the write path.
 func (m *Manager) Snapshot() map[string]Client {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make(map[string]Client, len(m.cur.Clients))
-	for _, c := range m.cur.Clients {
+	out := make(map[string]Client, len(m.clients))
+	for _, c := range m.clients {
 		out[c.PublicKey] = *c
 	}
 	return out
 }
 
-// ApplyTraffic adds the given bucket deltas to a client's lifetime counters
-// and updates last-handshake. Called by the stats collector. No-op if the
-// client no longer exists.
 func (m *Manager) ApplyTraffic(id string, rxDelta, txDelta uint64, handshake *time.Time) {
 	if rxDelta == 0 && txDelta == 0 && handshake == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	c, ok := m.cur.Clients[id]
+	c, ok := m.clients[id]
 	if !ok {
 		return
 	}
@@ -330,15 +813,12 @@ func (m *Manager) ApplyTraffic(id string, rxDelta, txDelta uint64, handshake *ti
 	if handshake != nil && (c.LastHandshakeAt == nil || handshake.After(*c.LastHandshakeAt)) {
 		c.LastHandshakeAt = handshake
 	}
-	// Cheap persist — avoid syncconf, this only changed accounting.
-	_ = m.persistLocked()
+	_ = m.store.SaveState(m.dumpStateLocked())
 }
 
-// ClientPatch captures user-editable fields. Pointer types let us distinguish
-// "leave alone" (nil) from "clear" (pointer to zero value).
 type ClientPatch struct {
 	Notes              *string    `json:"notes"`
-	ExpiresAt          *time.Time `json:"expiresAt"` // null in JSON clears it
+	ExpiresAt          *time.Time `json:"expiresAt"`
 	ClearExpiresAt     bool       `json:"clearExpiresAt"`
 	DNSOverride        *string    `json:"dnsOverride"`
 	AllowedIPsOverride *string    `json:"allowedIPsOverride"`
@@ -348,9 +828,9 @@ type ClientPatch struct {
 func (m *Manager) PatchClient(id string, p ClientPatch) (*Client, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	c, err := m.get(id)
-	if err != nil {
-		return nil, err
+	c, ok := m.clients[id]
+	if !ok {
+		return nil, errNotFound
 	}
 	if p.Notes != nil {
 		c.Notes = *p.Notes
@@ -371,9 +851,7 @@ func (m *Manager) PatchClient(id string, p ClientPatch) (*Client, error) {
 		c.MTUOverride = *p.MTUOverride
 	}
 	c.UpdatedAt = time.Now().UTC()
-	// Overrides don't affect server.conf — patch is config-rendering metadata.
-	// We still persist; syncconf is a no-op (no peer entries changed).
-	if err := m.persistLocked(); err != nil {
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
 		return nil, err
 	}
 	m.fire("client.patched", id, map[string]string{"name": c.Name})
@@ -381,21 +859,26 @@ func (m *Manager) PatchClient(id string, p ClientPatch) (*Client, error) {
 	return &cp, nil
 }
 
-// DisableExpired walks clients and disables any whose ExpiresAt is in the
-// past. Returns the IDs that flipped. Idempotent.
 func (m *Manager) DisableExpired(now time.Time) []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var flipped []string
-	for _, c := range m.cur.Clients {
+	dirtyProfiles := map[string]struct{}{}
+	for _, c := range m.clients {
 		if c.Enabled && c.ExpiresAt != nil && c.ExpiresAt.Before(now) {
 			c.Enabled = false
 			c.UpdatedAt = now.UTC()
 			flipped = append(flipped, c.ID)
+			dirtyProfiles[c.ProfileID] = struct{}{}
 		}
 	}
 	if len(flipped) > 0 {
-		_ = m.saveAndSyncLocked()
+		_ = m.store.SaveState(m.dumpStateLocked())
+		for pid := range dirtyProfiles {
+			if ps, ok := m.profiles[pid]; ok {
+				_ = m.syncProfileLocked(ps)
+			}
+		}
 		for _, id := range flipped {
 			m.fire("client.expired", id, nil)
 		}
@@ -403,72 +886,23 @@ func (m *Manager) DisableExpired(now time.Time) []string {
 	return flipped
 }
 
-func (m *Manager) CreateClient(name string) (*Client, error) {
-	if name == "" {
-		return nil, errors.New("name is required")
-	}
-	priv, err := m.keys.GenPrivate()
-	if err != nil {
-		return nil, err
-	}
-	pub, err := m.keys.Public(priv)
-	if err != nil {
-		return nil, err
-	}
-	psk, err := m.keys.GenPSK()
-	if err != nil {
-		return nil, err
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	used := map[string]struct{}{m.cur.Server.Address: {}}
-	for _, c := range m.cur.Clients {
-		used[c.Address] = struct{}{}
-	}
-	addr, err := m.ipam.Next(used)
-	if err != nil {
-		return nil, err
-	}
-	now := time.Now().UTC()
-	c := &Client{
-		ID: uuid.NewString(), Name: name, Address: addr,
-		PrivateKey: priv, PublicKey: pub, PreSharedKey: psk,
-		Enabled: true, CreatedAt: now, UpdatedAt: now,
-	}
-	m.cur.Clients[c.ID] = c
-	if err := m.saveAndSyncLocked(); err != nil {
-		delete(m.cur.Clients, c.ID)
-		return nil, err
-	}
-	m.fire("client.created", c.ID, map[string]string{"name": c.Name, "address": c.Address})
-	return c, nil
-}
-
-func (m *Manager) get(id string) (*Client, error) {
-	c, ok := m.cur.Clients[id]
-	if !ok {
-		return nil, errNotFound
-	}
-	return c, nil
-}
-
-var errNotFound = errors.New("client not found")
-
-func IsNotFound(err error) bool { return errors.Is(err, errNotFound) }
-
 func (m *Manager) DeleteClient(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	c, ok := m.cur.Clients[id]
+	c, ok := m.clients[id]
 	if !ok {
 		return errNotFound
 	}
 	name := c.Name
-	delete(m.cur.Clients, id)
-	if err := m.saveAndSyncLocked(); err != nil {
+	pid := c.ProfileID
+	delete(m.clients, id)
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
 		return err
+	}
+	if ps, ok := m.profiles[pid]; ok {
+		if err := m.syncProfileLocked(ps); err != nil {
+			return err
+		}
 	}
 	m.fire("client.deleted", id, map[string]string{"name": name})
 	return nil
@@ -477,14 +911,19 @@ func (m *Manager) DeleteClient(id string) error {
 func (m *Manager) SetEnabled(id string, enabled bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	c, err := m.get(id)
-	if err != nil {
-		return err
+	c, ok := m.clients[id]
+	if !ok {
+		return errNotFound
 	}
 	c.Enabled = enabled
 	c.UpdatedAt = time.Now().UTC()
-	if err := m.saveAndSyncLocked(); err != nil {
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
 		return err
+	}
+	if ps, ok := m.profiles[c.ProfileID]; ok {
+		if err := m.syncProfileLocked(ps); err != nil {
+			return err
+		}
 	}
 	kind := "client.enabled"
 	if !enabled {
@@ -500,15 +939,20 @@ func (m *Manager) Rename(id, name string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	c, err := m.get(id)
-	if err != nil {
-		return err
+	c, ok := m.clients[id]
+	if !ok {
+		return errNotFound
 	}
 	prev := c.Name
 	c.Name = name
 	c.UpdatedAt = time.Now().UTC()
-	if err := m.saveAndSyncLocked(); err != nil {
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
 		return err
+	}
+	if ps, ok := m.profiles[c.ProfileID]; ok {
+		if err := m.syncProfileLocked(ps); err != nil {
+			return err
+		}
 	}
 	m.fire("client.renamed", id, map[string]string{"from": prev, "to": name})
 	return nil
@@ -520,28 +964,74 @@ func (m *Manager) SetAddress(id, addr string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	c, err := m.get(id)
-	if err != nil {
-		return err
+	c, ok := m.clients[id]
+	if !ok {
+		return errNotFound
 	}
-	for _, other := range m.cur.Clients {
+	for _, other := range m.clients {
 		if other.ID != id && other.Address == addr {
 			return fmt.Errorf("address %s already in use", addr)
 		}
 	}
+	for _, ps := range m.profiles {
+		if ps.profile.Address == addr {
+			return fmt.Errorf("address %s already in use by profile %s", addr, ps.profile.ID)
+		}
+	}
 	c.Address = addr
 	c.UpdatedAt = time.Now().UTC()
-	return m.saveAndSyncLocked()
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		return err
+	}
+	if ps, ok := m.profiles[c.ProfileID]; ok {
+		return m.syncProfileLocked(ps)
+	}
+	return nil
 }
 
-func (m *Manager) renderArgs(c *Client) ClientRenderArgs {
+// MoveClient transfers a client from its current profile to a new one. Both
+// .conf files are re-rendered and syncconf'd so the kernel state matches.
+func (m *Manager) MoveClient(id, toProfileID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, ok := m.clients[id]
+	if !ok {
+		return errNotFound
+	}
+	if c.ProfileID == toProfileID {
+		return nil
+	}
+	target, ok := m.profiles[toProfileID]
+	if !ok {
+		return errProfileNotFound
+	}
+	from := c.ProfileID
+	c.ProfileID = toProfileID
+	c.UpdatedAt = time.Now().UTC()
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		c.ProfileID = from
+		return err
+	}
+	if ps, ok := m.profiles[from]; ok {
+		if err := m.syncProfileLocked(ps); err != nil {
+			return err
+		}
+	}
+	if err := m.syncProfileLocked(target); err != nil {
+		return err
+	}
+	m.fire("client.moved", id, map[string]string{"from": from, "to": toProfileID})
+	return nil
+}
+
+func (m *Manager) renderArgs(profile *Profile, c *Client) ClientRenderArgs {
 	return ClientRenderArgs{
-		Server:     &m.cur.Server,
+		Profile:    profile,
 		Client:     c,
 		DNS:        m.cfg.DNS,
 		MTU:        m.cfg.MTU,
 		AllowedIPs: m.cfg.AllowedIPs,
-		Endpoint:   fmt.Sprintf("%s:%d", m.cfg.WGHost, m.cfg.WGPort),
+		Endpoint:   fmt.Sprintf("%s:%d", m.cfg.WGHost, profile.Port),
 		Keepalive:  m.cfg.PersistentKA,
 	}
 }
@@ -549,142 +1039,107 @@ func (m *Manager) renderArgs(c *Client) ClientRenderArgs {
 func (m *Manager) ClientConfig(id string) (*Client, []byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	c, err := m.get(id)
-	if err != nil {
-		return nil, nil, err
+	c, ok := m.clients[id]
+	if !ok {
+		return nil, nil, errNotFound
 	}
-	out, err := RenderClient(m.renderArgs(c))
+	ps, ok := m.profiles[c.ProfileID]
+	if !ok {
+		return nil, nil, errProfileNotFound
+	}
+	out, err := RenderClient(m.renderArgs(ps.profile, c))
 	return c, out, err
-}
-
-type ServerView struct {
-	PublicKey     string `json:"publicKey"`
-	Address       string `json:"address"`
-	Interface     string `json:"interface"`
-	Endpoint      string `json:"endpoint"`
-	Subnet        string `json:"subnet"`
-	Port          int    `json:"port"`
-	EgressIface   string `json:"egressIface"`
-	DNS           string `json:"dns"`
-	MTU           int    `json:"mtu"`
-	AllowedIPs    string `json:"allowedIPs"`
-	Keepalive     int    `json:"persistentKeepalive"`
-	Jc            int    `json:"jc"`
-	Jmin          int    `json:"jmin"`
-	Jmax          int    `json:"jmax"`
-	S1            int    `json:"s1"`
-	S2            int    `json:"s2"`
-	H1            string `json:"h1"`
-	H2            string `json:"h2"`
-	H3            string `json:"h3"`
-	H4            string `json:"h4"`
-	ClientCount   int    `json:"clientCount"`
-}
-
-func (m *Manager) ServerInfo() ServerView {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	s := m.cur.Server
-	return ServerView{
-		PublicKey:   s.PublicKey,
-		Address:     s.Address,
-		Interface:   m.cfg.Interface,
-		Endpoint:    fmt.Sprintf("%s:%d", m.cfg.WGHost, m.cfg.WGPort),
-		Subnet:      m.subnetCIDR(),
-		Port:        m.cfg.WGPort,
-		EgressIface: m.cfg.EgressIface,
-		DNS:         m.cfg.DNS,
-		MTU:         m.cfg.MTU,
-		AllowedIPs:  m.cfg.AllowedIPs,
-		Keepalive:   m.cfg.PersistentKA,
-		Jc:          s.Jc, Jmin: s.Jmin, Jmax: s.Jmax,
-		S1: s.S1, S2: s.S2,
-		H1: s.H1, H2: s.H2, H3: s.H3, H4: s.H4,
-		ClientCount: len(m.cur.Clients),
-	}
-}
-
-func (m *Manager) RegenerateMagic() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.cur.Server.H1, m.cur.Server.H2, m.cur.Server.H3, m.cur.Server.H4 = uniqueMagic()
-	if err := m.saveAndSyncLocked(); err != nil {
-		return err
-	}
-	m.fire("server.regen_magic", "", nil)
-	return nil
-}
-
-// RestartInterface tears the interface down and brings it back up. PostUp/
-// PostDown fire as a side effect, so iptables rules are reseated cleanly.
-func (m *Manager) RestartInterface() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.persistLocked(); err != nil {
-		return err
-	}
-	_ = m.runner.Down()
-	if err := m.runner.Up(); err != nil {
-		return err
-	}
-	m.fire("server.restart", "", nil)
-	return nil
-}
-
-// FactoryReset возвращает сервер в состояние «свежая установка»: новый
-// ключ сервера, новые H1–H4, пустой список клиентов. Интерфейс
-// перезапускается чтобы старые соединения отвалились. Метрики и журнал
-// событий очищаются вызывающей стороной (это пакет stats, отдельно).
-func (m *Manager) FactoryReset() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	priv, err := m.keys.GenPrivate()
-	if err != nil {
-		return err
-	}
-	pub, err := m.keys.Public(priv)
-	if err != nil {
-		return err
-	}
-	h1, h2, h3, h4 := uniqueMagic()
-
-	n := len(m.cur.Clients)
-	m.cur.Server.PrivateKey = priv
-	m.cur.Server.PublicKey = pub
-	m.cur.Server.H1, m.cur.Server.H2, m.cur.Server.H3, m.cur.Server.H4 = h1, h2, h3, h4
-	m.cur.Clients = map[string]*Client{}
-
-	if err := m.persistLocked(); err != nil {
-		return err
-	}
-	_ = m.runner.Down()
-	if err := m.runner.Up(); err != nil {
-		return err
-	}
-	m.fire("server.factory_reset", "", map[string]int{"removedClients": n})
-	return nil
-}
-
-func (m *Manager) ResetClients() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	n := len(m.cur.Clients)
-	m.cur.Clients = map[string]*Client{}
-	if err := m.saveAndSyncLocked(); err != nil {
-		return err
-	}
-	m.fire("server.reset_clients", "", map[string]int{"removed": n})
-	return nil
 }
 
 func (m *Manager) ClientAmneziaVPN(id, description string) (*Client, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	c, err := m.get(id)
-	if err != nil {
-		return nil, "", err
+	c, ok := m.clients[id]
+	if !ok {
+		return nil, "", errNotFound
 	}
-	out, err := RenderAmneziaVPN(m.renderArgs(c), description)
+	ps, ok := m.profiles[c.ProfileID]
+	if !ok {
+		return nil, "", errProfileNotFound
+	}
+	out, err := RenderAmneziaVPN(m.renderArgs(ps.profile, c), description)
 	return c, out, err
+}
+
+// ResetClients wipes every client from every profile.
+func (m *Manager) ResetClients() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := len(m.clients)
+	m.clients = map[string]*Client{}
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		return err
+	}
+	for _, ps := range m.profiles {
+		if err := m.syncProfileLocked(ps); err != nil {
+			return err
+		}
+	}
+	m.fire("server.reset_clients", "", map[string]int{"removed": n})
+	return nil
+}
+
+// FactoryReset drops everything (profiles + clients) and recreates a single
+// default profile with fresh keys + magic. Interfaces are bounced.
+func (m *Manager) FactoryReset() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, ps := range m.profiles {
+		_ = ps.runner.Down()
+		_ = m.store.RemoveProfileConf(ps.profile.Iface)
+	}
+	m.profiles = map[string]*profileState{}
+	m.clients = map[string]*Client{}
+
+	p, err := m.newProfile("default", "Default", "")
+	if err != nil {
+		return err
+	}
+	ps := &profileState{
+		profile: p,
+		runner:  Runner{AWGBin: m.cfg.AWGBin, AWGQuickBin: m.cfg.AWGQuickBin, Iface: p.Iface},
+	}
+	m.profiles[p.ID] = ps
+
+	if err := m.persistAllLocked(); err != nil {
+		return err
+	}
+	_ = ps.runner.Down()
+	if err := ps.runner.Up(); err != nil {
+		return err
+	}
+	m.fire("server.factory_reset", "", nil)
+	return nil
+}
+
+var (
+	errNotFound          = errors.New("client not found")
+	errProfileNotFound   = errors.New("profile not found")
+	errProfileHasClients = errors.New("profile has clients; move or delete them first")
+)
+
+func IsNotFound(err error) bool        { return errors.Is(err, errNotFound) || errors.Is(err, errProfileNotFound) }
+func IsProfileHasClients(err error) bool { return errors.Is(err, errProfileHasClients) }
+
+// mergedDump runs `awg show <iface> dump` for each interface and returns a
+// single map keyed by peer pubkey (pubkey is globally unique). Failures on a
+// single interface are silently skipped — happens during a profile restart.
+func mergedDump(bin string, ifaces []string) map[string]PeerStatus {
+	out := map[string]PeerStatus{}
+	for _, iface := range ifaces {
+		st, err := ShowDump(bin, iface)
+		if err != nil {
+			continue
+		}
+		for k, v := range st {
+			out[k] = v
+		}
+	}
+	return out
 }

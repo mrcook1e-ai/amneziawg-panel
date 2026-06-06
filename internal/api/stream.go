@@ -44,16 +44,15 @@ type Broker struct {
 }
 
 type brokerCfg struct {
-	Bin   string
-	Iface string
-	Tick  time.Duration
+	Bin  string
+	Tick time.Duration
 }
 
-func NewBroker(mgr *awg.Manager, bin, iface string) *Broker {
+func NewBroker(mgr *awg.Manager, bin string) *Broker {
 	return &Broker{
 		subs:  map[chan []byte]struct{}{},
 		mgr:   mgr,
-		cfg:   brokerCfg{Bin: bin, Iface: iface, Tick: time.Second},
+		cfg:   brokerCfg{Bin: bin, Tick: time.Second},
 		tickC: make(chan struct{}, 1),
 	}
 }
@@ -96,9 +95,15 @@ func (b *Broker) Run(ctx context.Context) {
 				continue
 			}
 
-			status, err := awg.ShowDump(b.cfg.Bin, b.cfg.Iface)
-			if err != nil {
-				continue
+			status := map[string]awg.PeerStatus{}
+			for _, iface := range b.mgr.IfaceNames() {
+				st, err := awg.ShowDump(b.cfg.Bin, iface)
+				if err != nil {
+					continue
+				}
+				for k, v := range st {
+					status[k] = v
+				}
 			}
 			dt := now.Sub(lastT).Seconds()
 			if lastT.IsZero() || dt <= 0 || dt > 5 {

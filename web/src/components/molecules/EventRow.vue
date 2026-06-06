@@ -22,9 +22,14 @@ const meta = computed<{ verb: string; subject: string; note: string; tone: Tone 
     case 'client.renamed':  return { verb: 'Переименован', subject: payload.from || '', note: `→ ${payload.to || ''}`, tone: 'neutral' }
     case 'client.expired':  return { verb: 'Срок истёк', subject: name, note: 'автоотключение', tone: 'warning' }
     case 'client.patched':  return { verb: 'Изменён',    subject: name, note: 'настройки', tone: 'neutral' }
-    case 'server.restart':       return { verb: 'Сервер', subject: 'перезапущен',          note: '', tone: 'warning' }
-    case 'server.regen_magic':   return { verb: 'Сервер', subject: 'обновлены H1–H4',      note: '', tone: 'warning' }
+    case 'client.moved':         return { verb: 'Перемещён', subject: name, note: `${payload.from || ''} → ${payload.to || ''}`, tone: 'neutral' }
+    case 'profile.created':      return { verb: 'Профиль', subject: payload.name || '', note: `:${payload.port ?? ''}`, tone: 'success' }
+    case 'profile.deleted':      return { verb: 'Профиль', subject: 'удалён', note: '', tone: 'danger' }
+    case 'profile.patched':      return { verb: 'Профиль', subject: payload.name || 'изменён', note: '', tone: 'neutral' }
+    case 'profile.restart':      return { verb: 'Профиль', subject: 'перезапущен', note: '', tone: 'warning' }
+    case 'profile.regen_magic':  return { verb: 'Профиль', subject: 'обновлены H1–H4', note: '', tone: 'warning' }
     case 'server.reset_clients': return { verb: 'Сервер', subject: 'удалены все клиенты',  note: `${payload.removed ?? 0}`, tone: 'danger' }
+    case 'server.factory_reset': return { verb: 'Сервер', subject: 'заводской сброс',  note: '', tone: 'danger' }
     default: return { verb: e.kind, subject: name, note: '', tone: 'neutral' }
   }
 })

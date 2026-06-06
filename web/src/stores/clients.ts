@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { api } from '@/lib/api'
-import type { Client, ClientPatch } from '@/types'
+import type { Client, ClientPatch, CreateClientArgs } from '@/types'
 import { useToastStore } from '@/stores/toasts'
 
 export const useClientsStore = defineStore('clients', {
@@ -26,27 +26,32 @@ export const useClientsStore = defineStore('clients', {
         this.loading = false
       }
     },
-    async create(name: string) {
+    async create(args: CreateClientArgs) {
       const t = useToastStore()
-      try { await api.createClient(name); t.success('Client created'); await this.fetch(true) }
-      catch (e: any) { t.error(e?.message || 'Create failed'); throw e }
+      try { await api.createClient(args); t.success('Клиент создан'); await this.fetch(true) }
+      catch (e: any) { t.error(e?.message || 'Ошибка создания'); throw e }
+    },
+    async move(id: string, profileId: string) {
+      const t = useToastStore()
+      try { await api.moveClient(id, profileId); t.success('Клиент перемещён'); await this.fetch(true) }
+      catch (e: any) { t.error(e?.message || 'Не удалось переместить'); throw e }
     },
     async remove(id: string) {
       const t = useToastStore()
-      try { await api.deleteClient(id); t.success('Client deleted'); await this.fetch(true) }
-      catch (e: any) { t.error(e?.message || 'Delete failed') }
+      try { await api.deleteClient(id); t.success('Клиент удалён'); await this.fetch(true) }
+      catch (e: any) { t.error(e?.message || 'Ошибка удаления') }
     },
     async setEnabled(id: string, enabled: boolean) {
       const t = useToastStore()
       try {
         enabled ? await api.enableClient(id) : await api.disableClient(id)
         await this.fetch(true)
-      } catch (e: any) { t.error(e?.message || 'Update failed') }
+      } catch (e: any) { t.error(e?.message || 'Ошибка') }
     },
     async rename(id: string, name: string) {
       const t = useToastStore()
       try { await api.renameClient(id, name); await this.fetch(true) }
-      catch (e: any) { t.error(e?.message || 'Rename failed') }
+      catch (e: any) { t.error(e?.message || 'Ошибка') }
     },
     async patch(id: string, patch: ClientPatch) {
       const t = useToastStore()
@@ -54,10 +59,10 @@ export const useClientsStore = defineStore('clients', {
         const updated = await api.patchClient(id, patch)
         const i = this.items.findIndex(c => c.id === id)
         if (i >= 0) this.items[i] = { ...this.items[i], ...updated }
-        t.success('Saved')
+        t.success('Сохранено')
         return updated
       } catch (e: any) {
-        t.error(e?.message || 'Save failed'); throw e
+        t.error(e?.message || 'Ошибка'); throw e
       }
     },
   },

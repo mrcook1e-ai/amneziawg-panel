@@ -44,7 +44,7 @@ func main() {
 	collector := &stats.Collector{
 		DB: d, Mgr: mgr, Events: evLog,
 		Tick: 30 * time.Second,
-		Bin: cfg.AWGBin, Iface: cfg.Interface,
+		Bin:  cfg.AWGBin,
 	}
 	collectorCtx, stopCollector := context.WithCancel(context.Background())
 	go collector.Run(collectorCtx)
@@ -53,7 +53,7 @@ func main() {
 	sh := &api.StatsHandlers{Mgr: mgr, DB: d, Events: evLog}
 
 	// SSE-брокер: 1с-тик с живой скоростью + push событий из журнала.
-	broker := api.NewBroker(mgr, cfg.AWGBin, cfg.Interface)
+	broker := api.NewBroker(mgr, cfg.AWGBin)
 	broker.AttachEventLog(evLog)
 	brokerCtx, stopBroker := context.WithCancel(context.Background())
 	go broker.Run(brokerCtx)

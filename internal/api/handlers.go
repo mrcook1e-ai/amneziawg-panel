@@ -48,7 +48,9 @@ func (h *Handlers) sessionPost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 429, map[string]string{"error": "Too many attempts — try again in a minute"})
 		return
 	}
-	var in struct{ Password string `json:"password"` }
+	var in struct {
+		Password string `json:"password"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "Bad Request"})
 		return
@@ -80,9 +82,32 @@ func (h *Handlers) clientsList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) clientCreate(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Name string `json:"name"` }
+	var in struct {
+		Name      string `json:"name"`
+		ProfileID string `json:"profileId"`
+		Notes     string `json:"notes"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
-	if _, err := h.Mgr.CreateClient(in.Name); err != nil {
+	if _, err := h.Mgr.CreateClient(awg.CreateClientArgs{
+		Name:      in.Name,
+		ProfileID: in.ProfileID,
+		Notes:     in.Notes,
+	}); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"success": true})
+}
+
+func (h *Handlers) clientMove(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ProfileID string `json:"profileId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "Bad Request"})
+		return
+	}
+	if err := h.Mgr.MoveClient(chi.URLParam(r, "id"), in.ProfileID); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -109,7 +134,9 @@ func (h *Handlers) setEnabled(w http.ResponseWriter, r *http.Request, v bool) {
 }
 
 func (h *Handlers) clientRename(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Name string `json:"name"` }
+	var in struct {
+		Name string `json:"name"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	if err := h.Mgr.Rename(chi.URLParam(r, "id"), in.Name); err != nil {
 		writeErr(w, err)
@@ -119,7 +146,9 @@ func (h *Handlers) clientRename(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) clientAddress(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Address string `json:"address"` }
+	var in struct {
+		Address string `json:"address"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	if err := h.Mgr.SetAddress(chi.URLParam(r, "id"), in.Address); err != nil {
 		writeErr(w, err)
@@ -191,9 +220,6 @@ func (h *Handlers) clientVPNQR(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	// AmneziaVPN URLs are long (~900 chars) — Low ECC + 1024px keeps modules
-	// scannable on a phone screen at arm's length. Bigger than 1024 doesn't
-	// help if the phone camera can't fit it in frame.
 	png, err := qrcode.Encode(link, qrcode.Low, 1024)
 	if err != nil {
 		writeErr(w, err)
@@ -203,26 +229,8 @@ func (h *Handlers) clientVPNQR(w http.ResponseWriter, r *http.Request) {
 	w.Write(png)
 }
 
-func (h *Handlers) serverInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, h.Mgr.ServerInfo())
-}
-
-func (h *Handlers) serverRegenMagic(w http.ResponseWriter, r *http.Request) {
-	if err := h.Mgr.RegenerateMagic(); err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, 200, h.Mgr.ServerInfo())
-}
-
-func (h *Handlers) serverRestart(w http.ResponseWriter, r *http.Request) {
-	if err := h.Mgr.RestartInterface(); err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, 200, map[string]bool{"success": true})
-}
-
+// serverResetClients keeps the existing "wipe every client" surface but it now
+// wipes across all profiles.
 func (h *Handlers) serverResetClients(w http.ResponseWriter, r *http.Request) {
 	if err := h.Mgr.ResetClients(); err != nil {
 		writeErr(w, err)
@@ -240,6 +248,10 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 func writeErr(w http.ResponseWriter, err error) {
 	if awg.IsNotFound(err) {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
+		return
+	}
+	if awg.IsProfileHasClients(err) {
+		writeJSON(w, 409, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, 500, map[string]string{"error": err.Error()})

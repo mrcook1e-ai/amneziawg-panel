@@ -26,15 +26,15 @@ func RenderAmneziaVPN(a ClientRenderArgs, description string) (string, error) {
 	}
 
 	last := map[string]any{
-		"H1":              a.Server.H1,
-		"H2":              a.Server.H2,
-		"H3":              a.Server.H3,
-		"H4":              a.Server.H4,
-		"Jc":              a.Server.Jc,
-		"Jmax":            a.Server.Jmax,
-		"Jmin":            a.Server.Jmin,
-		"S1":              a.Server.S1,
-		"S2":              a.Server.S2,
+		"H1":              a.Profile.H1,
+		"H2":              a.Profile.H2,
+		"H3":              a.Profile.H3,
+		"H4":              a.Profile.H4,
+		"Jc":              a.Profile.Jc,
+		"Jmax":            a.Profile.Jmax,
+		"Jmin":            a.Profile.Jmin,
+		"S1":              a.Profile.S1,
+		"S2":              a.Profile.S2,
 		"client_ip":       a.Client.Address,
 		"client_priv_key": a.Client.PrivateKey,
 		"client_pub_key":  a.Client.PublicKey,
@@ -43,7 +43,7 @@ func RenderAmneziaVPN(a ClientRenderArgs, description string) (string, error) {
 		"port":            port,
 		"psk_key":         a.Client.PreSharedKey,
 		"server_priv_key": "",
-		"server_pub_key":  a.Server.PublicKey,
+		"server_pub_key":  a.Profile.PublicKey,
 	}
 	lastJSON, err := json.Marshal(last)
 	if err != nil {
@@ -51,18 +51,38 @@ func RenderAmneziaVPN(a ClientRenderArgs, description string) (string, error) {
 	}
 
 	awg := map[string]any{
-		"H1":              a.Server.H1,
-		"H2":              a.Server.H2,
-		"H3":              a.Server.H3,
-		"H4":              a.Server.H4,
-		"Jc":              strconv.Itoa(a.Server.Jc),
-		"Jmax":            strconv.Itoa(a.Server.Jmax),
-		"Jmin":            strconv.Itoa(a.Server.Jmin),
-		"S1":              strconv.Itoa(a.Server.S1),
-		"S2":              strconv.Itoa(a.Server.S2),
+		"H1":              a.Profile.H1,
+		"H2":              a.Profile.H2,
+		"H3":              a.Profile.H3,
+		"H4":              a.Profile.H4,
+		"Jc":              strconv.Itoa(a.Profile.Jc),
+		"Jmax":            strconv.Itoa(a.Profile.Jmax),
+		"Jmin":            strconv.Itoa(a.Profile.Jmin),
+		"S1":              strconv.Itoa(a.Profile.S1),
+		"S2":              strconv.Itoa(a.Profile.S2),
 		"last_config":     string(lastJSON),
 		"port":            strconv.Itoa(port),
 		"transport_proto": "udp",
+	}
+	if a.Profile.I1 != "" {
+		awg["I1"] = a.Profile.I1
+		last["I1"] = a.Profile.I1
+	}
+	if a.Profile.I2 != "" {
+		awg["I2"] = a.Profile.I2
+		last["I2"] = a.Profile.I2
+	}
+	if a.Profile.I3 != "" {
+		awg["I3"] = a.Profile.I3
+		last["I3"] = a.Profile.I3
+	}
+	if a.Profile.I4 != "" {
+		awg["I4"] = a.Profile.I4
+		last["I4"] = a.Profile.I4
+	}
+	if a.Profile.I5 != "" {
+		awg["I5"] = a.Profile.I5
+		last["I5"] = a.Profile.I5
 	}
 
 	dns1, dns2 := splitDNS(a.DNS)

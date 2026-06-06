@@ -9,12 +9,14 @@ type Config struct {
 	BindAddr string
 	HTTPPort int
 
-	Interface string
-	WGPath    string
-	WGHost    string
-	WGPort    int
-	MTU       int
-	DNS       string
+	Interface      string
+	WGPath         string
+	WGHost         string
+	WGPort         int
+	PortRangeStart int
+	PortRangeEnd   int
+	MTU            int
+	DNS            string
 
 	Subnet           string
 	AllowedIPs       string
@@ -39,10 +41,12 @@ func Load() Config {
 	return Config{
 		BindAddr:     env("WEBUI_HOST", "0.0.0.0"),
 		HTTPPort:     envInt("PORT", 51821),
-		Interface:    env("WG_INTERFACE", "awg0"),
-		WGPath:       env("WG_PATH", "/etc/amnezia/amneziawg"),
-		WGHost:       env("WG_HOST", ""),
-		WGPort:       envInt("WG_PORT", 51820),
+		Interface:      env("WG_INTERFACE", "awg0"),
+		WGPath:         env("WG_PATH", "/etc/amnezia/amneziawg"),
+		WGHost:         env("WG_HOST", ""),
+		WGPort:         envInt("WG_PORT", 51820),
+		PortRangeStart: envInt("WG_PORT_RANGE_START", 51820),
+		PortRangeEnd:   envInt("WG_PORT_RANGE_END", 51829),
 		MTU:          envInt("WG_MTU", 0),
 		DNS:          env("WG_DEFAULT_DNS", "1.1.1.1"),
 		Subnet:       env("WG_DEFAULT_ADDRESS", "10.8.0.x"),

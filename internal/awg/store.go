@@ -8,33 +8,43 @@ import (
 	"path/filepath"
 )
 
+const StateFile = "state.json"
+
 type Store struct {
 	dir       string
-	iface     string
-	jsonPath  string
-	confPath  string
+	statePath string
 }
 
-func NewStore(dir, iface string) *Store {
+func NewStore(dir string) *Store {
 	return &Store{
-		dir:      dir,
-		iface:    iface,
-		jsonPath: filepath.Join(dir, iface+".json"),
-		confPath: filepath.Join(dir, iface+".conf"),
+		dir:       dir,
+		statePath: filepath.Join(dir, StateFile),
 	}
 }
 
+func (s *Store) Dir() string       { return s.dir }
+func (s *Store) StatePath() string { return s.statePath }
+
+// ConfPath returns the path of the rendered awg-quick config for an interface
+// living in this store's directory.
+func (s *Store) ConfPath(iface string) string {
+	return filepath.Join(s.dir, iface+".conf")
+}
+
 func (s *Store) Load() (*Config, error) {
-	b, err := os.ReadFile(s.jsonPath)
+	b, err := os.ReadFile(s.statePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	c := &Config{Clients: map[string]*Client{}}
+	c := &Config{}
 	if err := json.Unmarshal(b, c); err != nil {
 		return nil, err
+	}
+	if c.Profiles == nil {
+		c.Profiles = map[string]*Profile{}
 	}
 	if c.Clients == nil {
 		c.Clients = map[string]*Client{}
@@ -42,17 +52,30 @@ func (s *Store) Load() (*Config, error) {
 	return c, nil
 }
 
-func (s *Store) Save(c *Config, serverConf []byte) error {
+// SaveState writes only the JSON state file (no .conf rendering). Use
+// SaveProfileConf alongside this for the awg-quick files.
+func (s *Store) SaveState(c *Config) error {
 	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return err
 	}
-	if err := writeAtomic(s.jsonPath, mustJSON(c), 0o660); err != nil {
-		return err
-	}
-	return writeAtomic(s.confPath, serverConf, 0o600)
+	c.SchemaVersion = SchemaVersion
+	return writeAtomic(s.statePath, mustJSON(c), 0o660)
 }
 
-func (s *Store) ConfPath() string { return s.confPath }
+func (s *Store) SaveProfileConf(iface string, conf []byte) error {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
+		return err
+	}
+	return writeAtomic(s.ConfPath(iface), conf, 0o600)
+}
+
+func (s *Store) RemoveProfileConf(iface string) error {
+	err := os.Remove(s.ConfPath(iface))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
 
 func mustJSON(v any) []byte {
 	b, _ := json.MarshalIndent(v, "", "  ")

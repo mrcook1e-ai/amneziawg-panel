@@ -43,9 +43,8 @@ type Collector struct {
 	DB     *db.DB
 	Mgr    *awg.Manager
 	Events *events.Log
-	Tick   time.Duration // typically 30s
-	Bin    string        // path to awg binary
-	Iface  string        // interface name (e.g. awg0)
+	Tick time.Duration // typically 30s
+	Bin  string        // path to awg binary
 
 	mu   sync.Mutex
 	prev map[string]peerCounters // keyed by public key, populated lazily
@@ -91,10 +90,15 @@ func (c *Collector) Run(ctx context.Context) {
 }
 
 func (c *Collector) tickOnce(ctx context.Context) {
-	status, err := awg.ShowDump(c.Bin, c.Iface)
-	if err != nil {
-		// Interface might be momentarily down (during restart). Don't spam.
-		return
+	status := map[string]awg.PeerStatus{}
+	for _, iface := range c.Mgr.IfaceNames() {
+		st, err := awg.ShowDump(c.Bin, iface)
+		if err != nil {
+			continue
+		}
+		for k, v := range st {
+			status[k] = v
+		}
 	}
 	snap := c.Mgr.Snapshot()
 	now := time.Now().UTC()

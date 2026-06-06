@@ -1,5 +1,6 @@
 export interface Client {
   id: string
+  profileId: string
   name: string
   address: string
   publicKey: string
@@ -11,7 +12,6 @@ export interface Client {
   transferTx: number
   persistentKeepalive: string
 
-  // Extended fields (Phase 1 backend).
   notes?: string
   expiresAt?: string | null
   dnsOverride?: string
@@ -27,18 +27,15 @@ export interface SessionState {
   authenticated: boolean
 }
 
-export interface ServerInfo {
+export interface ProfileInfo {
+  id: string
+  name: string
+  description?: string
+  iface: string
+  port: number
   publicKey: string
   address: string
-  interface: string
   endpoint: string
-  subnet: string
-  port: number
-  egressIface: string
-  dns: string
-  mtu: number
-  allowedIPs: string
-  persistentKeepalive: number
   jc: number
   jmin: number
   jmax: number
@@ -48,7 +45,34 @@ export interface ServerInfo {
   h2: string
   h3: string
   h4: string
+  i1?: string
+  i2?: string
+  i3?: string
+  i4?: string
+  i5?: string
   clientCount: number
+  hasMimicry: boolean
+}
+
+export interface ProfileCreateBody {
+  id?: string
+  name: string
+  description?: string
+  i1?: string
+  i2?: string
+  i3?: string
+  i4?: string
+  i5?: string
+}
+
+export interface ProfilePatchBody {
+  name?: string
+  description?: string
+  i1?: string
+  i2?: string
+  i3?: string
+  i4?: string
+  i5?: string
 }
 
 export type ToastKind = 'info' | 'success' | 'warning' | 'danger'
@@ -59,8 +83,6 @@ export interface Toast {
   message: string
 }
 
-// ─── Stats (Phase 2 backend) ───────────────────────────────────────────────
-
 export interface TopRow {
   clientId: string
   rx: number
@@ -68,8 +90,8 @@ export interface TopRow {
 }
 
 export interface Overview {
-  windowSeconds: number   // 300
-  rxLast: number          // bytes in last 5 min
+  windowSeconds: number
+  rxLast: number
   txLast: number
   rxToday: number
   txToday: number
@@ -78,7 +100,7 @@ export interface Overview {
 }
 
 export interface SeriesPoint {
-  ts: number   // unix seconds
+  ts: number
   rx: number
   tx: number
 }
@@ -100,8 +122,6 @@ export interface ClientStats {
   series: SeriesPoint[]
 }
 
-// ─── Events ────────────────────────────────────────────────────────────────
-
 export type EventKind =
   | 'client.created'
   | 'client.deleted'
@@ -110,9 +130,14 @@ export type EventKind =
   | 'client.renamed'
   | 'client.expired'
   | 'client.patched'
-  | 'server.restart'
-  | 'server.regen_magic'
+  | 'client.moved'
+  | 'profile.created'
+  | 'profile.deleted'
+  | 'profile.patched'
+  | 'profile.restart'
+  | 'profile.regen_magic'
   | 'server.reset_clients'
+  | 'server.factory_reset'
 
 export interface AppEvent {
   id: number
@@ -122,8 +147,6 @@ export interface AppEvent {
   payload?: Record<string, unknown> | null
 }
 
-// ─── Client patch ──────────────────────────────────────────────────────────
-
 export interface ClientPatch {
   notes?: string
   expiresAt?: string | null
@@ -131,4 +154,10 @@ export interface ClientPatch {
   dnsOverride?: string
   allowedIPsOverride?: string
   mtuOverride?: number
+}
+
+export interface CreateClientArgs {
+  name: string
+  profileId?: string
+  notes?: string
 }

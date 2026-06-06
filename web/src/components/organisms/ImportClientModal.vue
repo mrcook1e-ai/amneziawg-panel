@@ -6,19 +6,22 @@
   можно указать вручную (если он зафиксирован в конфиге) или дать выделить
   автоматически.
 */
-import { ref, watch } from 'vue'
+import { ref, watch, computed, onMounted } from 'vue'
 import Modal from '@/components/molecules/Modal.vue'
 import Field from '@/components/molecules/Field.vue'
 import Input from '@/components/atoms/Input.vue'
 import Button from '@/components/atoms/Button.vue'
+import { useProfilesStore } from '@/stores/profiles'
 
 const props = defineProps<{ open: boolean; busy?: boolean }>()
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'submit', body: { name: string; publicKey: string; privateKey?: string; preSharedKey?: string; address?: string; notes?: string }): void
+  (e: 'submit', body: { name: string; profileId: string; publicKey: string; privateKey?: string; preSharedKey?: string; address?: string; notes?: string }): void
 }>()
 
+const profiles = useProfilesStore()
 const name = ref('')
+const profileId = ref('')
 const publicKey = ref('')
 const privateKey = ref('')
 const preSharedKey = ref('')
@@ -26,21 +29,29 @@ const address = ref('')
 const notes = ref('')
 const err = ref('')
 
+onMounted(() => { if (!profiles.items.length) profiles.fetch(true) })
+
 watch(() => props.open, (v) => {
   if (v) {
     name.value = ''; publicKey.value = ''; privateKey.value = ''
     preSharedKey.value = ''; address.value = ''; notes.value = ''
+    profileId.value = profiles.defaultId
     err.value = ''
   }
 })
+
+const profileOptions = computed(() => profiles.items.map(p => ({
+  value: p.id, label: `${p.name} · :${p.port}`,
+})))
 
 function submit() {
   const n = name.value.trim()
   const pk = publicKey.value.trim()
   if (!n) { err.value = 'Введите имя'; return }
   if (!pk) { err.value = 'Публичный ключ обязателен'; return }
+  if (!profileId.value) { err.value = 'Выберите профиль'; return }
   emit('submit', {
-    name: n, publicKey: pk,
+    name: n, profileId: profileId.value, publicKey: pk,
     privateKey: privateKey.value.trim() || undefined,
     preSharedKey: preSharedKey.value.trim() || undefined,
     address: address.value.trim() || undefined,
@@ -66,6 +77,12 @@ function submit() {
           <Input v-model="address" placeholder="10.99.0.42" />
         </Field>
       </div>
+
+      <Field label="Профиль подключения">
+        <select v-model="profileId" class="w-full h-10 px-3 rounded-lg bg-ink-100/60 border border-ink-900/10 text-[13.5px] text-ink-900 focus-ring">
+          <option v-for="o in profileOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+        </select>
+      </Field>
 
       <Field label="Публичный ключ">
         <Input v-model="publicKey" placeholder="base64..." />

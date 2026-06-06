@@ -32,7 +32,8 @@ services:
       - net.ipv4.conf.all.src_valid_mark=1
 
     ports:
-      - "${WG_PORT:-51820}:51820/udp"   # AmneziaWG
+      # Диапазон UDP-портов: один на каждый профиль (awg0=51820, awg1=51821, …).
+      - "${WG_PORT_RANGE_START:-51820}-${WG_PORT_RANGE_END:-51829}:51820-51829/udp"
       - "${HTTP_PORT:-51821}:51821/tcp" # Веб-морда панели
 
     environment:
@@ -43,6 +44,8 @@ services:
       # Сеть (значения по умолчанию совпадают с дефолтами кода — переопределять
       # только если знаешь зачем).
       WG_PORT: ${WG_PORT:-51820}
+      WG_PORT_RANGE_START: ${WG_PORT_RANGE_START:-51820}
+      WG_PORT_RANGE_END: ${WG_PORT_RANGE_END:-51829}
       WG_INTERFACE: ${WG_INTERFACE:-awg0}
       WG_DEFAULT_ADDRESS: ${WG_DEFAULT_ADDRESS:-10.8.0.x}
       WG_DEFAULT_DNS: ${WG_DEFAULT_DNS:-1.1.1.1}

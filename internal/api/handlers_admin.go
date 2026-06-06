@@ -32,12 +32,18 @@ type backupFile struct {
 
 func (a *AdminHandlers) files() []backupFile {
 	dir := a.Mgr.StateDir()
-	iface := a.Mgr.IfaceName()
-	return []backupFile{
-		{archiveName: iface + ".json", diskPath: filepath.Join(dir, iface+".json")},
-		{archiveName: iface + ".conf", diskPath: filepath.Join(dir, iface+".conf"), optional: true},
+	out := []backupFile{
+		{archiveName: awg.StateFile, diskPath: filepath.Join(dir, awg.StateFile)},
 		{archiveName: "panel.db", diskPath: filepath.Join(dir, "panel.db"), optional: true},
 	}
+	for _, iface := range a.Mgr.IfaceNames() {
+		out = append(out, backupFile{
+			archiveName: iface + ".conf",
+			diskPath:    filepath.Join(dir, iface+".conf"),
+			optional:    true,
+		})
+	}
+	return out
 }
 
 func (a *AdminHandlers) backup(w http.ResponseWriter, r *http.Request) {
@@ -101,11 +107,12 @@ func (a *AdminHandlers) restore(w http.ResponseWriter, r *http.Request) {
 	tr := tar.NewReader(gz)
 
 	dir := a.Mgr.StateDir()
-	iface := a.Mgr.IfaceName()
 	allowed := map[string]bool{
-		iface + ".json": true,
-		iface + ".conf": true,
-		"panel.db":      true,
+		awg.StateFile: true,
+		"panel.db":    true,
+	}
+	for _, iface := range a.Mgr.IfaceNames() {
+		allowed[iface+".conf"] = true
 	}
 
 	var written []string
@@ -171,6 +178,7 @@ func (a *AdminHandlers) factoryReset(w http.ResponseWriter, r *http.Request) {
 func (a *AdminHandlers) importClient(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name         string `json:"name"`
+		ProfileID    string `json:"profileId"`
 		PublicKey    string `json:"publicKey"`
 		PrivateKey   string `json:"privateKey"`
 		PreSharedKey string `json:"preSharedKey"`
@@ -182,7 +190,7 @@ func (a *AdminHandlers) importClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, err := a.Mgr.ImportClient(awg.ImportArgs{
-		Name: in.Name, PublicKey: in.PublicKey, PrivateKey: in.PrivateKey,
+		Name: in.Name, ProfileID: in.ProfileID, PublicKey: in.PublicKey, PrivateKey: in.PrivateKey,
 		PreSharedKey: in.PreSharedKey, Address: in.Address, Notes: in.Notes,
 	})
 	if err != nil {

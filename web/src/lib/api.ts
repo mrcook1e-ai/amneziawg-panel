@@ -1,6 +1,7 @@
 import type {
-  Client, ServerInfo, SessionState,
+  Client, SessionState,
   Overview, Series, ClientStats, AppEvent, ClientPatch,
+  ProfileInfo, ProfileCreateBody, ProfilePatchBody, CreateClientArgs,
 } from '@/types'
 
 export class ApiError extends Error {
@@ -28,23 +29,35 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  // ─── Session ───
   session: () => request<SessionState>('/api/session'),
   login: (password: string) =>
     request<{ success: boolean }>('/api/session', { method: 'POST', body: JSON.stringify({ password }) }),
   logout: () => request<{ success: boolean }>('/api/session', { method: 'DELETE' }),
 
-  // ─── Server ───
-  serverInfo:       () => request<ServerInfo>('/api/wireguard/server/'),
-  regenerateMagic:  () => request<ServerInfo>('/api/wireguard/server/regenerate-magic', { method: 'POST' }),
-  restartInterface: () => request<{ success: boolean }>('/api/wireguard/server/restart', { method: 'POST' }),
-  resetClients:     () => request<{ success: boolean }>('/api/wireguard/server/reset-clients', { method: 'POST' }),
-  factoryReset:     () => request<{ success: boolean }>('/api/wireguard/server/factory-reset', { method: 'POST' }),
+  // Profiles
+  listProfiles: () => request<ProfileInfo[]>('/api/profiles/'),
+  getProfile:   (id: string) => request<ProfileInfo>(`/api/profiles/${enc(id)}`),
+  createProfile:(body: ProfileCreateBody) =>
+    request<ProfileInfo>('/api/profiles/', { method: 'POST', body: JSON.stringify(body) }),
+  patchProfile: (id: string, body: ProfilePatchBody) =>
+    request<ProfileInfo>(`/api/profiles/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteProfile:(id: string) =>
+    request<{ success: boolean }>(`/api/profiles/${enc(id)}`, { method: 'DELETE' }),
+  regenerateProfileMagic: (id: string) =>
+    request<ProfileInfo>(`/api/profiles/${enc(id)}/regenerate-magic`, { method: 'POST' }),
+  restartProfile: (id: string) =>
+    request<{ success: boolean }>(`/api/profiles/${enc(id)}/restart`, { method: 'POST' }),
 
-  // ─── Clients ───
+  // Server-wide actions (apply across all profiles)
+  resetClients: () => request<{ success: boolean }>('/api/wireguard/server/reset-clients', { method: 'POST' }),
+  factoryReset: () => request<{ success: boolean }>('/api/wireguard/server/factory-reset', { method: 'POST' }),
+
+  // Clients
   listClients:  () => request<Client[]>('/api/wireguard/client/'),
-  createClient: (name: string) =>
-    request<{ success: boolean }>('/api/wireguard/client/', { method: 'POST', body: JSON.stringify({ name }) }),
+  createClient: (args: CreateClientArgs) =>
+    request<{ success: boolean }>('/api/wireguard/client/', { method: 'POST', body: JSON.stringify(args) }),
+  moveClient: (id: string, profileId: string) =>
+    request<{ success: boolean }>(`/api/wireguard/client/${enc(id)}/profile`, { method: 'PATCH', body: JSON.stringify({ profileId }) }),
   deleteClient:  (id: string) => request<{ success: boolean }>(`/api/wireguard/client/${enc(id)}`, { method: 'DELETE' }),
   enableClient:  (id: string) => request<{ success: boolean }>(`/api/wireguard/client/${enc(id)}/enable`, { method: 'POST' }),
   disableClient: (id: string) => request<{ success: boolean }>(`/api/wireguard/client/${enc(id)}/disable`, { method: 'POST' }),
@@ -62,7 +75,6 @@ export const api = {
   configDownloadUrl: (id: string) => `/api/wireguard/client/${enc(id)}/configuration`,
   vpnDownloadUrl:    (id: string) => `/api/wireguard/client/${enc(id)}/amnezia.vpn`,
 
-  // ─── Stats / events ───
   overview:    () => request<Overview>('/api/stats/overview'),
   series:      (range = '24h') => request<Series>(`/api/stats/series?range=${encodeURIComponent(range)}`),
   clientStats: (id: string) => request<ClientStats>(`/api/wireguard/client/${enc(id)}/stats`),
@@ -70,10 +82,9 @@ export const api = {
     request<AppEvent[] | null>(`/api/wireguard/client/${enc(id)}/events?limit=${limit}`),
   events: (limit = 30) => request<AppEvent[] | null>(`/api/events?limit=${limit}`),
 
-  // ─── Admin ───
   backupUrl: () => '/api/backup',
   importClient: (body: {
-    name: string; publicKey: string;
+    name: string; publicKey: string; profileId?: string;
     privateKey?: string; preSharedKey?: string; address?: string; notes?: string;
   }) => request<Client>('/api/wireguard/client/import', {
     method: 'POST', body: JSON.stringify(body),
