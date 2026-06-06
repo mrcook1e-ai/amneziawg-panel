@@ -8,12 +8,11 @@ const props = defineProps<{ clients: Client[] }>()
 defineEmits<{
   (e: 'toggle', id: string, enabled: boolean): void
   (e: 'remove', id: string): void
-  (e: 'rename', id: string, name: string): void
   (e: 'show-config', id: string): void
   (e: 'show-qr', id: string): void
 }>()
 
-type Group = { key: 'online' | 'offline'; title: string; items: Client[] }
+type Group = { key: 'online' | 'offline'; label: string; items: Client[] }
 
 const groups = computed<Group[]>(() => {
   const online: Client[] = []
@@ -24,16 +23,19 @@ const groups = computed<Group[]>(() => {
     else offline.push(c)
   }
   const out: Group[] = []
-  if (online.length)  out.push({ key: 'online',  title: `Active · ${online.length}`,  items: online })
-  if (offline.length) out.push({ key: 'offline', title: `Inactive · ${offline.length}`, items: offline })
+  if (online.length)  out.push({ key: 'online',  label: `Онлайн · ${online.length}`,  items: online })
+  if (offline.length) out.push({ key: 'offline', label: `Офлайн · ${offline.length}`, items: offline })
   return out
 })
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="space-y-8">
     <section v-for="g in groups" :key="g.key">
-      <div class="section-title">{{ g.title }}</div>
+      <div class="flex items-center gap-4 mb-3">
+        <div class="eyebrow">{{ g.label }}</div>
+        <div class="hairline flex-1 origin-left animate-wipe" />
+      </div>
       <div class="card overflow-hidden">
         <ClientItem
           v-for="(c, i) in g.items" :key="c.id"
@@ -41,7 +43,6 @@ const groups = computed<Group[]>(() => {
           :show-divider="i < g.items.length - 1"
           @toggle="v => $emit('toggle', c.id, v)"
           @remove="$emit('remove', c.id)"
-          @rename="n => $emit('rename', c.id, n)"
           @show-config="$emit('show-config', c.id)"
           @show-qr="$emit('show-qr', c.id)"
         />

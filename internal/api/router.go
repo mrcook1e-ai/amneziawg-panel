@@ -30,12 +30,15 @@ func spaHandler(fsys fs.FS) http.Handler {
 	})
 }
 
-func NewRouter(mgr *awg.Manager, auth *Auth, webFS http.FileSystem) http.Handler {
+func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broker, webFS http.FileSystem) http.Handler {
 	h := &Handlers{Mgr: mgr, Auth: auth}
+	admin := &AdminHandlers{Mgr: mgr}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+
+	r.Get("/healthz", h.healthz)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/session", h.sessionGet)
@@ -44,6 +47,8 @@ func NewRouter(mgr *awg.Manager, auth *Auth, webFS http.FileSystem) http.Handler
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware)
 			r.Delete("/session", h.sessionDelete)
+			r.Get("/backup", admin.backup)
+			r.Post("/restore", admin.restore)
 
 			r.Route("/wireguard/server", func(r chi.Router) {
 				r.Get("/", h.serverInfo)
@@ -55,6 +60,7 @@ func NewRouter(mgr *awg.Manager, auth *Auth, webFS http.FileSystem) http.Handler
 			r.Route("/wireguard/client", func(r chi.Router) {
 				r.Get("/", h.clientsList)
 				r.Post("/", h.clientCreate)
+				r.Post("/import", admin.importClient)
 				r.Delete("/{id}", h.clientDelete)
 				r.Post("/{id}/enable", h.clientEnable)
 				r.Post("/{id}/disable", h.clientDisable)
@@ -64,7 +70,24 @@ func NewRouter(mgr *awg.Manager, auth *Auth, webFS http.FileSystem) http.Handler
 				r.Get("/{id}/qrcode.svg", h.clientQR)
 				r.Get("/{id}/amnezia.vpn", h.clientVPN)
 				r.Get("/{id}/amnezia-qrcode.svg", h.clientVPNQR)
+				if stats != nil {
+					r.Patch("/{id}", stats.clientPatch)
+					r.Get("/{id}/stats", stats.clientStats)
+					r.Get("/{id}/events", stats.clientEvents)
+				}
 			})
+
+			if stats != nil {
+				r.Route("/stats", func(r chi.Router) {
+					r.Get("/overview", stats.overview)
+					r.Get("/series", stats.series)
+				})
+				r.Get("/events", stats.eventsTail)
+			}
+
+			if broker != nil {
+				r.Get("/stream", broker.stream)
+			}
 		})
 	})
 

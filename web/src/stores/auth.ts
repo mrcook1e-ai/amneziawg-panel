@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { api, ApiError } from '@/lib/api'
+import { startStream, stopStream } from '@/lib/stream'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -17,12 +18,14 @@ export const useAuthStore = defineStore('auth', {
         this.authenticated = false
       } finally {
         this.ready = true
+        if (this.authenticated) startStream()
       }
     },
     async login(password: string) {
       try {
         await api.login(password)
         this.authenticated = true
+        startStream()
         return true
       } catch (e) {
         if (e instanceof ApiError) return false
@@ -32,6 +35,7 @@ export const useAuthStore = defineStore('auth', {
     async logout() {
       try { await api.logout() } catch { /* ignore */ }
       this.authenticated = false
+      stopStream()
     },
   },
 })

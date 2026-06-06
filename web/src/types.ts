@@ -10,6 +10,16 @@ export interface Client {
   transferRx: number
   transferTx: number
   persistentKeepalive: string
+
+  // Extended fields (Phase 1 backend).
+  notes?: string
+  expiresAt?: string | null
+  dnsOverride?: string
+  allowedIPsOverride?: string
+  mtuOverride?: number
+  totalRx?: number
+  totalTx?: number
+  lastHandshakeAt?: string | null
 }
 
 export interface SessionState {
@@ -47,4 +57,78 @@ export interface Toast {
   id: number
   kind: ToastKind
   message: string
+}
+
+// ─── Stats (Phase 2 backend) ───────────────────────────────────────────────
+
+export interface TopRow {
+  clientId: string
+  rx: number
+  tx: number
+}
+
+export interface Overview {
+  windowSeconds: number   // 300
+  rxLast: number          // bytes in last 5 min
+  txLast: number
+  rxToday: number
+  txToday: number
+  top: TopRow[] | null
+  asof: string
+}
+
+export interface SeriesPoint {
+  ts: number   // unix seconds
+  rx: number
+  tx: number
+}
+
+export interface Series {
+  bucketSeconds: number
+  points: SeriesPoint[]
+}
+
+export interface ClientStats {
+  windowSeconds: number
+  rxLast: number
+  txLast: number
+  rx24h: number
+  tx24h: number
+  rx7d: number
+  tx7d: number
+  onlineRatio7d: number
+  series: SeriesPoint[]
+}
+
+// ─── Events ────────────────────────────────────────────────────────────────
+
+export type EventKind =
+  | 'client.created'
+  | 'client.deleted'
+  | 'client.enabled'
+  | 'client.disabled'
+  | 'client.renamed'
+  | 'client.expired'
+  | 'client.patched'
+  | 'server.restart'
+  | 'server.regen_magic'
+  | 'server.reset_clients'
+
+export interface AppEvent {
+  id: number
+  ts: string
+  kind: EventKind
+  clientId?: string
+  payload?: Record<string, unknown> | null
+}
+
+// ─── Client patch ──────────────────────────────────────────────────────────
+
+export interface ClientPatch {
+  notes?: string
+  expiresAt?: string | null
+  clearExpiresAt?: boolean
+  dnsOverride?: string
+  allowedIPsOverride?: string
+  mtuOverride?: number
 }

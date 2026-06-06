@@ -13,18 +13,18 @@ const props = withDefaults(defineProps<{
   block?: boolean
 }>(), { variant: 'secondary', size: 'md', type: 'button' })
 
-const base = 'inline-flex items-center justify-center gap-2 font-medium rounded-lg select-none transition focus-ring disabled:opacity-50 disabled:cursor-not-allowed'
+const base = 'inline-flex items-center justify-center gap-2 font-medium rounded-lg select-none transition focus-ring disabled:opacity-50 disabled:cursor-not-allowed tracking-chrome'
 
 const sizes: Record<Size, string> = {
-  sm: 'h-8 px-3 text-[13px]',
-  md: 'h-10 px-4 text-sm',
+  sm: 'h-8 px-3 text-[12.5px]',
+  md: 'h-10 px-4 text-[13.5px]',
 }
 
 const variants: Record<Variant, string> = {
   primary:   'bg-ink-900 text-ink-50 hover:bg-ink-800 active:bg-ink-950',
-  secondary: 'bg-surface text-ink-900 border border-ink-200 hover:bg-ink-100 active:bg-ink-200',
+  secondary: 'bg-surface text-ink-900 border border-ink-900/10 hover:bg-ink-100 active:bg-ink-200',
   ghost:     'bg-transparent text-ink-700 hover:bg-ink-100 active:bg-ink-200',
-  danger:    'bg-danger text-ink-50 hover:opacity-90 active:opacity-100',
+  danger:    'bg-ink-900 text-ink-50 hover:bg-ink-800 active:bg-ink-950',
 }
 
 const cls = computed(() => [base, sizes[props.size], variants[props.variant], props.block && 'w-full'])

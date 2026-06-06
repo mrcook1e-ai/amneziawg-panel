@@ -44,7 +44,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     >
       <div :class="['w-full bg-surface rounded-3xl shadow-pop pointer-events-auto overflow-hidden', widths[size]]" role="dialog" aria-modal="true">
         <header v-if="title || $slots.title" class="flex items-center justify-between gap-4 px-6 pt-5 pb-3">
-          <h2 class="text-[17px] font-semibold text-ink-900 tracking-tight">
+          <h2 class="text-[19px] font-semibold text-ink-900 tracking-tight">
             <slot name="title">{{ title }}</slot>
           </h2>
           <IconButton size="sm" title="Close" @click="$emit('close')"><Icon name="x" :size="16" /></IconButton>

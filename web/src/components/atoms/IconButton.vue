@@ -13,7 +13,9 @@ const cls = computed(() => [
   'inline-flex items-center justify-center rounded-lg transition focus-ring disabled:opacity-40',
   props.size === 'sm' ? 'h-8 w-8' : 'h-9 w-9',
   props.variant === 'ghost' ? 'hover:bg-ink-100' : 'bg-ink-100 hover:bg-ink-200',
-  props.tone === 'danger' ? 'text-danger hover:bg-danger-soft' : 'text-ink-700',
+  // Default to higher-contrast ink — small monochrome icons need ink-800,
+  // not ink-700, to stay legible against the paper/graphite surfaces.
+  props.tone === 'danger' ? 'text-danger hover:bg-danger-soft' : 'text-ink-800',
 ])
 </script>
 

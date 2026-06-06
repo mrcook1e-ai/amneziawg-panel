@@ -13,9 +13,21 @@ import (
 )
 
 type Handlers struct {
-	Mgr  *awg.Manager
-	Auth *Auth
-	Lang string
+	Mgr     *awg.Manager
+	Auth    *Auth
+	Lang    string
+	limiter *loginLimiter
+}
+
+func (h *Handlers) loginLimiter() *loginLimiter {
+	if h.limiter == nil {
+		h.limiter = newLoginLimiter()
+	}
+	return h.limiter
+}
+
+func (h *Handlers) healthz(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
 func (h *Handlers) sessionGet(w http.ResponseWriter, r *http.Request) {
@@ -32,6 +44,10 @@ func (h *Handlers) sessionGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) sessionPost(w http.ResponseWriter, r *http.Request) {
+	if !h.loginLimiter().allow(clientIP(r)) {
+		writeJSON(w, 429, map[string]string{"error": "Too many attempts — try again in a minute"})
+		return
+	}
 	var in struct{ Password string `json:"password"` }
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "Bad Request"})

@@ -10,7 +10,7 @@ withDefaults(defineProps<{
   cancelText?: string
   tone?: 'neutral' | 'danger'
   loading?: boolean
-}>(), { confirmText: 'Confirm', cancelText: 'Cancel', tone: 'neutral' })
+}>(), { confirmText: 'Подтвердить', cancelText: 'Отмена', tone: 'neutral' })
 
 const emit = defineEmits<{ (e: 'confirm'): void; (e: 'cancel'): void }>()
 </script>

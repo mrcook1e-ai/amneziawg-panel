@@ -2,6 +2,13 @@
 import { useToastStore } from '@/stores/toasts'
 import Icon from '@/components/atoms/Icon.vue'
 
+/*
+  Тосты живут наверху по центру в виде glass-пилюли. Иконка слева
+  окрашена по типу: success → зелёный, warning → янтарный, danger → красный.
+  Текст и фон остаются нейтральными, чтобы цвет работал как индикатор, а не
+  кричал на весь экран.
+*/
+
 const toasts = useToastStore()
 
 const iconFor = (kind: string): 'check' | 'x' | 'info' => ({
@@ -10,6 +17,13 @@ const iconFor = (kind: string): 'check' | 'x' | 'info' => ({
   warning: 'info' as const,
   danger:  'x' as const,
 }[kind] || 'info')
+
+const iconColor = (kind: string): string => ({
+  info:    'text-ink-700',
+  success: 'text-success',
+  warning: 'text-warning',
+  danger:  'text-danger',
+}[kind] || 'text-ink-700')
 </script>
 
 <template>
@@ -27,9 +41,13 @@ const iconFor = (kind: string): 'check' | 'x' | 'info' => ({
         v-for="t in toasts.items" :key="t.id"
         type="button"
         @click="toasts.dismiss(t.id)"
-        class="glass rounded-full px-4 h-10 flex items-center gap-2.5 pointer-events-auto max-w-md focus-ring"
+        class="glass rounded-full pl-3 pr-4 h-10 flex items-center gap-2.5 pointer-events-auto max-w-md focus-ring"
       >
-        <Icon :name="iconFor(t.kind)" :size="14" />
+        <span
+          :class="['inline-flex h-5 w-5 rounded-full items-center justify-center', iconColor(t.kind)]"
+        >
+          <Icon :name="iconFor(t.kind)" :size="14" />
+        </span>
         <span class="text-[13px] font-medium text-ink-900 truncate">{{ t.message }}</span>
       </button>
     </transition-group>

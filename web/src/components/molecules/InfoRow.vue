@@ -15,12 +15,12 @@ defineProps<{
       <div class="flex-1 min-w-0 flex justify-end items-center gap-2">
         <span
           v-if="value !== undefined"
-          :class="['text-[13px] text-ink-500 truncate', mono && 'font-mono']"
+          :class="['text-[13px] text-ink-500 truncate', mono && 'mono tnum']"
           :title="value"
         >{{ value }}</span>
         <slot />
       </div>
     </div>
-    <div v-if="showDivider" class="ml-4 mr-4 border-t border-ink-100/80" />
+    <div v-if="showDivider" class="hairline mx-4" />
   </div>
 </template>

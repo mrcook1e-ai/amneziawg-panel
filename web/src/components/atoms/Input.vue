@@ -2,7 +2,9 @@
 import { computed } from 'vue'
 
 const props = withDefaults(defineProps<{
-  modelValue: string
+  // Принимаем и string, и number — позволяет v-model.number без приведений
+  // на стороне родителя (например, MTU override).
+  modelValue: string | number
   size?: 'sm' | 'md'
   placeholder?: string
   type?: string

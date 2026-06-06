@@ -4,8 +4,9 @@ import { useAuthStore } from '@/stores/auth'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
-    { path: '/', name: 'clients', component: () => import('@/views/ClientsView.vue') },
+    { path: '/login',    name: 'login',    component: () => import('@/views/LoginView.vue'), meta: { public: true } },
+    { path: '/',         name: 'clients',  component: () => import('@/views/ClientsView.vue') },
+    { path: '/clients/:id', name: 'client', component: () => import('@/views/ClientDetailView.vue') },
     { path: '/settings', name: 'settings', component: () => import('@/views/SettingsView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

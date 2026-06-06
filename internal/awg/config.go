@@ -32,6 +32,21 @@ type Client struct {
 	Enabled      bool      `json:"enabled"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
+
+	// User-editable metadata.
+	Notes     string     `json:"notes,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+
+	// Per-client overrides — empty/zero means "fall back to server default".
+	DNSOverride        string `json:"dnsOverride,omitempty"`
+	AllowedIPsOverride string `json:"allowedIPsOverride,omitempty"`
+	MTUOverride        int    `json:"mtuOverride,omitempty"`
+
+	// Lifetime counters — survive interface restarts (collector reconciles
+	// when the kernel counter resets to zero).
+	TotalRx           uint64     `json:"totalRx,omitempty"`
+	TotalTx           uint64     `json:"totalTx,omitempty"`
+	LastHandshakeAt   *time.Time `json:"lastHandshakeAt,omitempty"`
 }
 
 type Config struct {
@@ -123,6 +138,18 @@ type ClientRenderArgs struct {
 }
 
 func RenderClient(a ClientRenderArgs) ([]byte, error) {
+	// Apply per-client overrides on top of server defaults.
+	if a.Client != nil {
+		if a.Client.DNSOverride != "" {
+			a.DNS = a.Client.DNSOverride
+		}
+		if a.Client.AllowedIPsOverride != "" {
+			a.AllowedIPs = a.Client.AllowedIPsOverride
+		}
+		if a.Client.MTUOverride > 0 {
+			a.MTU = a.Client.MTUOverride
+		}
+	}
 	var buf bytes.Buffer
 	err := clientTmpl.Execute(&buf, a)
 	return buf.Bytes(), err

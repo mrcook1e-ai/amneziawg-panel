@@ -1,42 +1,94 @@
 <script setup lang="ts">
-// Tiny inline icon set. Add cases as needed; SVG path data lives here so we
-// don't pull a runtime icon library and every icon stays one DOM node.
+/*
+  Обёртка над @tabler/icons-vue. Иконки приходят как отдельные Vue-компоненты,
+  Vite tree-shake'ит неиспользованные — в бандл попадает только то, что мы
+  упомянули ниже в карте `map`.
+
+  Зачем обёртка, а не прямой импорт по месту:
+    1. Единая точка для размера / stroke-width / окраски — не таскаем
+       `:size="16" :stroke="1.5"` в каждый шаблон.
+    2. Уже существующие <Icon name="..."> по всему коду продолжают работать,
+       без правок 60+ файлов.
+    3. Можно подменить любую иконку на свой SVG не трогая call-site (раньше
+       так и делали — этот контракт оставляем).
+*/
+
+import {
+  IconPlus,
+  IconTrash,
+  IconCopy,
+  IconQrcode,
+  IconDownload,
+  IconUpload,
+  IconPencil,
+  IconCheck,
+  IconX,
+  IconLogout,
+  IconShield,
+  IconEye,
+  IconEyeOff,
+  IconChevronDown,
+  IconChevronRight,
+  IconChevronLeft,
+  IconSettings,
+  IconRefresh,
+  IconPower,
+  IconInfoCircle,
+  IconSun,
+  IconMoon,
+  IconSparkles,
+  IconSearch,
+} from '@tabler/icons-vue'
 
 type Name =
-  | 'plus' | 'trash' | 'copy' | 'qrcode' | 'download' | 'edit'
-  | 'check' | 'x' | 'logout' | 'shield' | 'eye' | 'eye-off' | 'chevron-down'
-  | 'settings' | 'refresh' | 'power' | 'chevron-right' | 'info'
+  | 'plus' | 'trash' | 'copy' | 'qrcode' | 'download' | 'upload' | 'edit'
+  | 'check' | 'x' | 'logout' | 'shield' | 'eye' | 'eye-off'
+  | 'chevron-down' | 'chevron-right' | 'chevron-left'
+  | 'settings' | 'refresh' | 'power' | 'info'
+  | 'sun' | 'moon' | 'sparkles' | 'search'
 
-const props = withDefaults(defineProps<{ name: Name; size?: number }>(), { size: 16 })
+const props = withDefaults(defineProps<{
+  name: Name
+  size?: number
+  /** Толщина обводки Tabler. 1.5 — спокойная, 2 — стандартная. */
+  stroke?: number
+}>(), { size: 16, stroke: 1.75 })
 
-const paths: Record<Name, string> = {
-  'plus':         'M12 5v14M5 12h14',
-  'trash':        'M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6',
-  'copy':         'M9 9V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-4M5 9h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z',
-  'qrcode':       'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3zM14 19h2v2h-2z',
-  'download':     'M12 3v12M7 10l5 5 5-5M5 21h14',
-  'edit':         'M16 3l5 5-11 11H5v-5L16 3zM14 5l5 5',
-  'check':        'M5 12l5 5L20 7',
-  'x':            'M6 6l12 12M18 6L6 18',
-  'logout':       'M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l-5-5 5-5M5 12h12',
-  'shield':       'M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6l8-3z',
-  'eye':          'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
-  'eye-off':      'M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c6 0 10 6 10 6a17 17 0 0 1-3.2 3.9M6.2 6.2A17 17 0 0 0 2 12s4 7 10 7c1 0 1.9-.1 2.8-.4M9.9 14.1A3 3 0 0 1 12 9',
-  'chevron-down': 'M6 9l6 6 6-6',
-  'chevron-right':'M9 6l6 6-6 6',
-  'settings':     'M4 6h10M4 12h6M4 18h10M16 4v4M14 18v4M20 10v4M12 10v4M18 18v4',
-  'refresh':      'M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.2L3 16M3 21v-5h5',
-  'power':        'M12 3v9M5.6 7.6a9 9 0 1 0 12.8 0',
-  'info':         'M12 8h.01M11 12h1v5h1',
+// Маппинг внутренних имён → компонент Tabler. Если потребуется заменить
+// конкретную иконку (например, custom QR) — просто меняем правую часть.
+const map: Record<Name, any> = {
+  'plus':         IconPlus,
+  'trash':        IconTrash,
+  'copy':         IconCopy,
+  'qrcode':       IconQrcode,
+  'download':     IconDownload,
+  'upload':       IconUpload,
+  'edit':         IconPencil,
+  'check':        IconCheck,
+  'x':            IconX,
+  'logout':       IconLogout,
+  'shield':       IconShield,
+  'eye':          IconEye,
+  'eye-off':      IconEyeOff,
+  'chevron-down':  IconChevronDown,
+  'chevron-right': IconChevronRight,
+  'chevron-left':  IconChevronLeft,
+  'settings':     IconSettings,
+  'refresh':      IconRefresh,
+  'power':        IconPower,
+  'info':         IconInfoCircle,
+  'sun':          IconSun,
+  'moon':         IconMoon,
+  'sparkles':     IconSparkles,
+  'search':       IconSearch,
 }
 </script>
 
 <template>
-  <svg
-    :width="size" :height="size" viewBox="0 0 24 24"
-    fill="none" stroke="currentColor" stroke-width="1.75"
-    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
-  >
-    <path :d="paths[props.name]" />
-  </svg>
+  <component
+    :is="map[props.name]"
+    :size="props.size"
+    :stroke-width="props.stroke"
+    aria-hidden="true"
+  />
 </template>

@@ -1,0 +1,95 @@
+<script setup lang="ts">
+/*
+  Импорт существующего клиента по уже выданному публичному ключу. Сценарий:
+  у пользователя сохранён конфиг на устройстве, но в панели его нет — например,
+  после переустановки сервера. Привязываем peer обратно по pubkey, IP-адрес
+  можно указать вручную (если он зафиксирован в конфиге) или дать выделить
+  автоматически.
+*/
+import { ref, watch } from 'vue'
+import Modal from '@/components/molecules/Modal.vue'
+import Field from '@/components/molecules/Field.vue'
+import Input from '@/components/atoms/Input.vue'
+import Button from '@/components/atoms/Button.vue'
+
+const props = defineProps<{ open: boolean; busy?: boolean }>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'submit', body: { name: string; publicKey: string; privateKey?: string; preSharedKey?: string; address?: string; notes?: string }): void
+}>()
+
+const name = ref('')
+const publicKey = ref('')
+const privateKey = ref('')
+const preSharedKey = ref('')
+const address = ref('')
+const notes = ref('')
+const err = ref('')
+
+watch(() => props.open, (v) => {
+  if (v) {
+    name.value = ''; publicKey.value = ''; privateKey.value = ''
+    preSharedKey.value = ''; address.value = ''; notes.value = ''
+    err.value = ''
+  }
+})
+
+function submit() {
+  const n = name.value.trim()
+  const pk = publicKey.value.trim()
+  if (!n) { err.value = 'Введите имя'; return }
+  if (!pk) { err.value = 'Публичный ключ обязателен'; return }
+  emit('submit', {
+    name: n, publicKey: pk,
+    privateKey: privateKey.value.trim() || undefined,
+    preSharedKey: preSharedKey.value.trim() || undefined,
+    address: address.value.trim() || undefined,
+    notes: notes.value.trim() || undefined,
+  })
+}
+</script>
+
+<template>
+  <Modal :open="open" size="lg" title="Импорт клиента" @close="emit('close')">
+    <div class="space-y-4">
+      <p class="text-[12.5px] text-ink-500 leading-relaxed">
+        Если у клиента уже есть конфиг, можно привязать его обратно по публичному ключу.
+        Приватный ключ нужен только для повторного скачивания конфига с панели — без него
+        peer работает, но новый .conf панель не покажет.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Имя">
+          <Input v-model="name" placeholder="например, iPhone-возврат" autofocus />
+        </Field>
+        <Field label="IP в подсети" hint="Оставьте пусто — выделится автоматически">
+          <Input v-model="address" placeholder="10.99.0.42" />
+        </Field>
+      </div>
+
+      <Field label="Публичный ключ">
+        <Input v-model="publicKey" placeholder="base64..." />
+      </Field>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Приватный ключ" hint="Опционально — для перевыдачи конфига">
+          <Input v-model="privateKey" placeholder="base64..." />
+        </Field>
+        <Field label="Pre-shared key" hint="Если используется">
+          <Input v-model="preSharedKey" placeholder="base64..." />
+        </Field>
+      </div>
+
+      <Field label="Описание">
+        <Input v-model="notes" placeholder="Комментарий для себя" />
+      </Field>
+
+      <p v-if="err" class="text-[12px] text-danger">{{ err }}</p>
+    </div>
+
+    <template #footer>
+      <Button variant="ghost" size="sm" @click="emit('close')">Отмена</Button>
+      <Button variant="primary" size="sm" :loading="busy" @click="submit">Импортировать</Button>
+    </template>
+  </Modal>
+</template>

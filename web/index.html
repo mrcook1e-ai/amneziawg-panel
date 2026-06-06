@@ -1,11 +1,32 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AmneziaWG Panel</title>
+    <title>Amnezia · Panel</title>
+    <!--
+      Favicon — тот же ассет, что и логотип в TopBar. PNG прозрачный,
+      по умолчанию светлый (рассчитан на тёмный фон). Браузер сам
+      подгонит размер под вкладку / закладку / dock.
+    -->
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <meta name="theme-color" content="#161618" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#fffefb" media="(prefers-color-scheme: light)" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      Onest — variable axis (100..900), excellent Cyrillic coverage, refined
+      geometric grotesk. We use it for ALL UI text including the big numerals;
+      tabular nums + careful tracking carry the visual identity.
+      JetBrains Mono — only for technical data (IPs, keys, ports).
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Onest:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
   </head>
-  <body class="text-ink-900 antialiased">
+  <body class="antialiased">
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

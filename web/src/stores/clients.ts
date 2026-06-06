@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { api } from '@/lib/api'
-import type { Client } from '@/types'
+import type { Client, ClientPatch } from '@/types'
 import { useToastStore } from '@/stores/toasts'
 
 export const useClientsStore = defineStore('clients', {
@@ -10,6 +10,9 @@ export const useClientsStore = defineStore('clients', {
     error: '' as string,
     lastFetchedAt: 0,
   }),
+  getters: {
+    byId: (s) => (id: string) => s.items.find((c) => c.id === id) || null,
+  },
   actions: {
     async fetch(silent = false) {
       if (!silent) this.loading = true
@@ -44,6 +47,18 @@ export const useClientsStore = defineStore('clients', {
       const t = useToastStore()
       try { await api.renameClient(id, name); await this.fetch(true) }
       catch (e: any) { t.error(e?.message || 'Rename failed') }
+    },
+    async patch(id: string, patch: ClientPatch) {
+      const t = useToastStore()
+      try {
+        const updated = await api.patchClient(id, patch)
+        const i = this.items.findIndex(c => c.id === id)
+        if (i >= 0) this.items[i] = { ...this.items[i], ...updated }
+        t.success('Saved')
+        return updated
+      } catch (e: any) {
+        t.error(e?.message || 'Save failed'); throw e
+      }
     },
   },
 })

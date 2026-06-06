@@ -15,19 +15,19 @@ watch(() => props.open, (v) => { if (v) { name.value = ''; err.value = '' } })
 
 function submit() {
   const n = name.value.trim()
-  if (!n) { err.value = 'Name is required'; return }
+  if (!n) { err.value = 'Введите имя'; return }
   emit('submit', n)
 }
 </script>
 
 <template>
-  <Modal :open="open" title="New client" @close="emit('close')">
-    <Field label="Name" :error="err" hint="Shown in the panel and in the downloaded config file name.">
-      <Input v-model="name" autofocus placeholder="e.g. iPhone, Laptop" @keydown.enter="submit" />
+  <Modal :open="open" title="Новый клиент" @close="emit('close')">
+    <Field label="Имя" :error="err" hint="Отображается в панели и попадает в имя файла конфига.">
+      <Input v-model="name" autofocus placeholder="например, iPhone, Ноутбук" @keydown.enter="submit" />
     </Field>
     <template #footer>
-      <Button variant="ghost" size="sm" @click="emit('close')">Cancel</Button>
-      <Button variant="primary" size="sm" :loading="busy" @click="submit">Create</Button>
+      <Button variant="ghost" size="sm" @click="emit('close')">Отмена</Button>
+      <Button variant="primary" size="sm" :loading="busy" @click="submit">Создать</Button>
     </template>
   </Modal>
 </template>

@@ -30,8 +30,8 @@ const dlUrl = computed(() => {
 })
 
 const hint = computed(() => format.value === 'vpn'
-  ? 'AmneziaVPN: copy the vpn:// link and tap it on your phone — opens the app directly. QR works for short configs but a 900-char vpn:// link is dense.'
-  : 'Scan with the AmneziaWG dedicated app, or any client that supports raw WireGuard config.')
+  ? 'Откройте AmneziaVPN на телефоне и наведите камеру. Если QR не сканируется — скопируйте ссылку vpn:// и откройте её в браузере телефона.'
+  : 'Сканируйте в приложении AmneziaWG или любом клиенте WireGuard.')
 
 function download() {
   const a = document.createElement('a')
@@ -46,32 +46,52 @@ async function copyLink() {
     : await api.clientConfig(props.clientId)
   if (await copy(text)) {
     copied.value = true
-    toasts.success('Link copied — paste on phone to open in AmneziaVPN')
+    toasts.success('Ссылка скопирована')
     setTimeout(() => (copied.value = false), 1500)
   }
 }
 </script>
 
 <template>
-  <Modal :open="open" :title="clientName ? `QR · ${clientName}` : 'QR code'" size="sm" @close="emit('close')">
-    <div class="flex flex-col items-center gap-3">
+  <!--
+    Crank up the modal to "lg" so the QR has room to breathe. The QR image
+    itself is rendered at 1024×1024 by the server — here we display it at
+    ~420px which keeps it pin-sharp on retina, and at full-width on mobile.
+  -->
+  <Modal :open="open" :title="clientName ? `QR · ${clientName}` : 'QR-код'" size="lg" @close="emit('close')">
+    <div class="flex flex-col items-center gap-5 py-2">
       <Segmented
         v-model="format"
-        :options="[{ value: 'vpn', label: 'AmneziaVPN' }, { value: 'conf', label: 'Plain WG' }]"
+        :options="[{ value: 'vpn', label: 'AmneziaVPN' }, { value: 'conf', label: 'WireGuard' }]"
       />
-      <div class="p-3 bg-white rounded-xl">
-        <img v-if="clientId" :key="qrSrc" :src="qrSrc" alt="Configuration QR code" width="256" height="256" class="block" />
+
+      <!--
+        White inner card — QR encoders work best on pure white regardless of
+        page theme. We pin a 1:1 aspect ratio and let the image fill it.
+      -->
+      <div class="w-full max-w-[440px]">
+        <div class="bg-white rounded-2xl p-5 shadow-card border border-ink-900/5 aspect-square grid place-items-center">
+          <img
+            v-if="clientId"
+            :key="qrSrc"
+            :src="qrSrc"
+            alt="QR-код конфигурации"
+            class="block w-full h-full object-contain"
+            draggable="false"
+          />
+        </div>
+        <p class="mt-3 text-[12px] text-ink-500 text-center leading-relaxed">{{ hint }}</p>
       </div>
-      <p class="text-[12px] text-ink-500 text-center max-w-xs">{{ hint }}</p>
     </div>
     <template #footer>
-      <Button variant="ghost" size="sm" @click="emit('close')">Close</Button>
+      <Button variant="ghost" size="sm" @click="emit('close')">Закрыть</Button>
       <Button variant="secondary" size="sm" @click="copyLink">
         <Icon :name="copied ? 'check' : 'copy'" :size="14" />
-        {{ copied ? 'Copied' : 'Copy link' }}
+        {{ copied ? 'Скопировано' : 'Копировать ссылку' }}
       </Button>
       <Button variant="primary" size="sm" @click="download">
-        Download {{ format === 'vpn' ? '.vpn' : '.conf' }}
+        <Icon name="download" :size="14" />
+        Скачать {{ format === 'vpn' ? '.vpn' : '.conf' }}
       </Button>
     </template>
   </Modal>

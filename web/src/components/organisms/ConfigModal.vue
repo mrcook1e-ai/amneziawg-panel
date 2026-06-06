@@ -42,22 +42,22 @@ function download() {
 </script>
 
 <template>
-  <Modal :open="open" :title="clientName ? `Config · ${clientName}` : 'Configuration'" size="lg" @close="emit('close')">
+  <Modal :open="open" :title="clientName ? `Конфиг · ${clientName}` : 'Конфигурация'" size="lg" @close="emit('close')">
     <div class="space-y-3">
       <div class="flex items-center justify-between">
         <Segmented
           v-model="format"
-          :options="[{ value: 'vpn', label: 'AmneziaVPN' }, { value: 'conf', label: 'Plain WG' }]"
+          :options="[{ value: 'vpn', label: 'AmneziaVPN' }, { value: 'conf', label: 'WireGuard' }]"
         />
-        <span class="text-[11px] text-ink-500">{{ format === 'vpn' ? 'vpn:// link' : 'WireGuard .conf' }}</span>
+        <span class="text-[11px] text-ink-500">{{ format === 'vpn' ? 'ссылка vpn://' : 'файл .conf' }}</span>
       </div>
       <div v-if="loading" class="py-10 grid place-items-center"><Spinner :size="20" /></div>
       <CodeBlock v-else :code="code" />
     </div>
     <template #footer>
-      <Button variant="ghost" size="sm" @click="emit('close')">Close</Button>
+      <Button variant="ghost" size="sm" @click="emit('close')">Закрыть</Button>
       <Button variant="primary" size="sm" :disabled="!code" @click="download">
-        Download {{ format === 'vpn' ? '.vpn' : '.conf' }}
+        Скачать {{ format === 'vpn' ? '.vpn' : '.conf' }}
       </Button>
     </template>
   </Modal>
