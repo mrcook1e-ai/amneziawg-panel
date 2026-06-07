@@ -90,6 +90,8 @@ export const api = {
   deleteSubscriber: (id: string) =>
     request<{ success: boolean }>(`/api/subscribers/${enc(id)}`, { method: 'DELETE' }),
 
+  subscriberStats: (id: string) => request<ClientStats>(`/api/subscribers/${enc(id)}/stats`),
+
   // Cabinet (public — token in URL is the credential)
   cabinetGet: (token: string) =>
     request<CabinetView>(`/api/cabinet/${enc(token)}`),

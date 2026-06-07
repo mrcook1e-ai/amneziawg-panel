@@ -3,10 +3,23 @@ package stats
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mrcook1e/amneziawg-panel/internal/db"
 )
+
+// inClause builds a SQL "IN (?,?,?)" clause and a matching args slice.
+// Returns ("IN (?)", []any{"x"}) for a single ID, and so on.
+func inClause(ids []string) (string, []any) {
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	return "IN (" + placeholders + ")", args
+}
 
 // Overview is the headline dashboard tile data.
 type Overview struct {
@@ -147,6 +160,95 @@ type ClientStats struct {
 	Tx7d           uint64  `json:"tx7d"`
 	OnlineRatio7d  float64 `json:"onlineRatio7d"`
 	Series         []Point `json:"series"`
+}
+
+// GetSubscriberStats aggregates stats across all a subscriber's devices.
+// clientIDs is the list of client IDs belonging to the subscriber.
+// Returns zero-value stats if clientIDs is empty.
+func GetSubscriberStats(ctx context.Context, d *db.DB, clientIDs []string) (ClientStats, error) {
+	if len(clientIDs) == 0 {
+		return ClientStats{WindowSeconds: 300}, nil
+	}
+	now := time.Now().UTC()
+	out := ClientStats{WindowSeconds: 300}
+	in, inArgs := inClause(clientIDs)
+
+	row := d.QueryRowContext(ctx,
+		fmt.Sprintf(`SELECT COALESCE(SUM(rx_delta),0), COALESCE(SUM(tx_delta),0)
+		 FROM peer_samples WHERE client_id %s AND ts >= ?`, in),
+		append(inArgs, now.Unix()-300)...)
+	if err := row.Scan(&out.RxLast, &out.TxLast); err != nil {
+		return out, err
+	}
+
+	row = d.QueryRowContext(ctx,
+		fmt.Sprintf(`SELECT COALESCE(SUM(rx_delta),0), COALESCE(SUM(tx_delta),0)
+		 FROM peer_samples WHERE client_id %s AND ts >= ?`, in),
+		append(inArgs, now.Unix()-86400)...)
+	if err := row.Scan(&out.Rx24h, &out.Tx24h); err != nil {
+		return out, err
+	}
+
+	day7 := dayBucket(now.Add(-7 * 24 * time.Hour))
+	row = d.QueryRowContext(ctx,
+		fmt.Sprintf(`SELECT COALESCE(SUM(rx),0), COALESCE(SUM(tx),0), COALESCE(SUM(online_seconds),0)
+		 FROM peer_daily WHERE client_id %s AND day >= ?`, in),
+		append(inArgs, day7)...)
+	var online7 int64
+	if err := row.Scan(&out.Rx7d, &out.Tx7d, &online7); err != nil {
+		return out, err
+	}
+	// For a subscriber, online_ratio = combined uptime / (nDevices × 7 days)
+	// but since devices often share the same time window, we cap at 1.
+	maxOnline := int64(len(clientIDs)) * 7 * 86400
+	out.OnlineRatio7d = float64(online7) / float64(maxOnline)
+	if out.OnlineRatio7d > 1 {
+		out.OnlineRatio7d = 1
+	}
+
+	// Series: aggregate all devices into the same buckets.
+	bSec := int64((15 * time.Minute).Seconds())
+	winSec := int64((24 * time.Hour).Seconds())
+	fromBucket := (now.Unix() - winSec) / bSec * bSec
+	toBucket := now.Unix()/bSec*bSec + bSec
+
+	seriesArgs := append([]any{bSec, bSec}, inArgs...)
+	seriesArgs = append(seriesArgs, fromBucket, toBucket)
+	q := fmt.Sprintf(`
+		SELECT (ts / ?) * ? AS b,
+		       COALESCE(SUM(rx_delta),0),
+		       COALESCE(SUM(tx_delta),0)
+		FROM peer_samples
+		WHERE client_id %s AND ts >= ? AND ts < ?
+		GROUP BY b
+		ORDER BY b ASC
+	`, in)
+	rows, err := d.QueryContext(ctx, q, seriesArgs...)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	have := make(map[int64]Point)
+	for rows.Next() {
+		var p Point
+		if err := rows.Scan(&p.Ts, &p.Rx, &p.Tx); err != nil {
+			return out, err
+		}
+		have[p.Ts] = p
+	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	pts := make([]Point, 0, (toBucket-fromBucket)/bSec)
+	for t := fromBucket; t < toBucket; t += bSec {
+		if p, ok := have[t]; ok {
+			pts = append(pts, p)
+		} else {
+			pts = append(pts, Point{Ts: t})
+		}
+	}
+	out.Series = pts
+	return out, nil
 }
 
 func GetClientStats(ctx context.Context, d *db.DB, clientID string) (ClientStats, error) {

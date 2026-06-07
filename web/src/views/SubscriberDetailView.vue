@@ -8,7 +8,7 @@ import { useToastStore } from '@/stores/toasts'
 import { useInterval } from '@/composables/useInterval'
 import { useTitle } from '@/composables/useTitle'
 import { handshakeFreshness, relativeTime } from '@/lib/format'
-import type { Subscriber } from '@/types'
+import type { Subscriber, ClientStats } from '@/types'
 
 import { Download, QrCode } from 'lucide-vue-next'
 import TopBar from '@/components/organisms/TopBar.vue'
@@ -22,6 +22,8 @@ import Badge from '@/components/atoms/Badge.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
 import Icon from '@/components/atoms/Icon.vue'
+import StatBlock from '@/components/molecules/StatBlock.vue'
+import Sparkline from '@/components/molecules/Sparkline.vue'
 
 const route   = useRoute()
 const router  = useRouter()
@@ -32,6 +34,8 @@ const toasts  = useToastStore()
 const id      = computed(() => route.params.id as string)
 const sub     = ref<Subscriber | null>(null)
 const loading = ref(true)
+const cs      = ref<ClientStats | null>(null)
+const statsLoading = ref(true)
 
 useTitle(() => sub.value ? `${sub.value.name} · Amnezia Panel` : 'Клиент · Amnezia Panel')
 
@@ -52,8 +56,18 @@ async function loadSub(opts: { redirectOnFail?: boolean } = {}) {
   }
 }
 
-onMounted(async () => { await Promise.all([clients.fetch(), loadSub({ redirectOnFail: true })]) })
-useInterval(() => Promise.all([clients.fetch(true), loadSub()]), 5000, { pauseHidden: true })
+async function loadStats() {
+  try {
+    cs.value = await api.subscriberStats(id.value)
+  } catch { /* stats are non-critical */ } finally {
+    statsLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  await Promise.all([clients.fetch(), loadSub({ redirectOnFail: true }), loadStats()])
+})
+useInterval(() => Promise.all([clients.fetch(true), loadSub(), loadStats()]), 8000, { pauseHidden: true })
 
 // ── Devices ─────────────────────────────────────────────────────────────────
 const devices = computed(() => sub.value?.devices ?? [])
@@ -267,6 +281,40 @@ async function doRegen() {
           </button>
         </template>
       </header>
+
+      <!-- ── Статистика пользователя ── -->
+      <section class="space-y-6 animate-rise delay-2">
+        <div class="flex items-center gap-4">
+          <h2 class="eyebrow">Статистика · все устройства</h2>
+          <div class="hairline flex-1" />
+        </div>
+
+        <!-- Метрики -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-4">
+          <template v-if="statsLoading">
+            <div v-for="i in 4" :key="i" class="space-y-2">
+              <Skeleton width="80" height="10" />
+              <Skeleton width="70%" height="36" rounded="lg" />
+            </div>
+          </template>
+          <template v-else>
+            <StatBlock eyebrow="За 5 минут"      :value="cs?.rxLast || 0" />
+            <StatBlock eyebrow="За 24 часа"      :value="cs?.rx24h || 0" />
+            <StatBlock eyebrow="За 7 дней"       :value="cs?.rx7d || 0" />
+            <StatBlock eyebrow="Онлайн · 7 дн"   :raw="Math.round((cs?.onlineRatio7d || 0) * 100) + '%'" />
+          </template>
+        </div>
+
+        <!-- Sparkline 24ч -->
+        <div class="card p-5 sm:p-7">
+          <div class="eyebrow mb-4 text-ink-500">Входящий трафик за 24 часа</div>
+          <Sparkline v-if="cs && cs.series.length" :points="cs.series" :height="100" />
+          <Skeleton v-else-if="statsLoading" height="100" rounded="lg" />
+          <div v-else class="h-[100px] grid place-items-center text-[12px] text-ink-500">
+            Трафика за последние 24 часа не было.
+          </div>
+        </div>
+      </section>
 
       <!-- ── Devices ── -->
       <section class="space-y-4 animate-rise delay-3">

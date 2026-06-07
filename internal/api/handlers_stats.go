@@ -75,6 +75,24 @@ func (s *StatsHandlers) eventsTail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, ev)
 }
 
+func (s *StatsHandlers) subscriberStats(w http.ResponseWriter, r *http.Request) {
+	sv, err := s.Mgr.SubscriberDetail(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	ids := make([]string, len(sv.Devices))
+	for i, d := range sv.Devices {
+		ids[i] = d.ID
+	}
+	cs, err := stats.GetSubscriberStats(r.Context(), s.DB, ids)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, cs)
+}
+
 func (s *StatsHandlers) clientPatch(w http.ResponseWriter, r *http.Request) {
 	var in awg.ClientPatch
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {

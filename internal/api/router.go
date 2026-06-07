@@ -85,6 +85,9 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 				r.Patch("/{id}", h.subscriberPatch)
 				r.Delete("/{id}", h.subscriberDelete)
 				r.Post("/{id}/regenerate-token", h.subscriberRegenToken)
+				if stats != nil {
+					r.Get("/{id}/stats", stats.subscriberStats)
+				}
 			})
 			r.Delete("/session", h.sessionDelete)
 			r.Get("/backup", admin.backup)
