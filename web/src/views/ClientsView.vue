@@ -15,6 +15,7 @@ import EmptyState from '@/components/molecules/EmptyState.vue'
 import Button from '@/components/atoms/Button.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
 import Icon from '@/components/atoms/Icon.vue'
+import { ArrowDown, ArrowUp } from 'lucide-vue-next'
 import type { Subscriber } from '@/types'
 
 const clients = useClientsStore()
@@ -248,7 +249,7 @@ async function doRegen() {
         <span class="mono normal-case tracking-normal text-ink-500">
           {{ onlineNow }} / {{ clients.items.length }} онлайн
           <template v-if="hasActivity">
-            · ↓ {{ bytes(stats.overview!.rxToday) }} · ↑ {{ bytes(stats.overview!.txToday) }}
+            · <ArrowDown :size="10" class="inline-block align-middle" /> {{ bytes(stats.overview!.rxToday) }} · <ArrowUp :size="10" class="inline-block align-middle" /> {{ bytes(stats.overview!.txToday) }}
           </template>
         </span>
       </footer>

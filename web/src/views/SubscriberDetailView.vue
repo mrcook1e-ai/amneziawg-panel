@@ -9,6 +9,7 @@ import { useInterval } from '@/composables/useInterval'
 import { handshakeFreshness, relativeTime } from '@/lib/format'
 import type { Subscriber } from '@/types'
 
+import { Download, QrCode } from 'lucide-vue-next'
 import TopBar from '@/components/organisms/TopBar.vue'
 import QrModal from '@/components/organisms/QrModal.vue'
 import ConfigModal from '@/components/organisms/ConfigModal.vue'
@@ -282,16 +283,16 @@ async function doRegen() {
                 :download="`${d.name}.vpn`"
                 class="h-7 px-2.5 flex items-center gap-1 rounded-lg bg-ink-100 text-ink-700 text-[11.5px] font-medium hover:bg-ink-200 transition-colors"
                 title="Скачать .vpn для AmneziaVPN">
-                ⬇ .vpn
+                <Download :size="13" /> .vpn
               </a>
               <!-- Amnezia QR — opens 768px QR in new tab -->
               <a
                 :href="api.amneziaQrUrl(d.id)"
                 target="_blank"
                 rel="noopener"
-                class="h-7 w-7 flex items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 transition-colors text-[13px]"
+                class="h-7 w-7 flex items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 transition-colors"
                 title="QR-код для AmneziaVPN">
-                ▣
+                <QrCode :size="14" />
               </a>
               <!-- .conf — secondary, for WireGuard clients -->
               <Button size="sm" variant="ghost" @click="cfgFor = d.id" title="WireGuard .conf">

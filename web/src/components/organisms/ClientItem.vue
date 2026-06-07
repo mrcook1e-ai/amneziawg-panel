@@ -7,6 +7,7 @@ import StatusDot from '@/components/atoms/StatusDot.vue'
 import Switch from '@/components/atoms/Switch.vue'
 import IconButton from '@/components/atoms/IconButton.vue'
 import Icon from '@/components/atoms/Icon.vue'
+import { ArrowDown, ArrowUp } from 'lucide-vue-next'
 
 const props = defineProps<{ client: Client; showDivider?: boolean }>()
 const emit = defineEmits<{
@@ -59,8 +60,8 @@ function open() {
 
     <!-- Право: трафик -->
     <div class="hidden sm:flex flex-col items-end text-right shrink-0 mr-1 tnum">
-      <span class="text-[13.5px] text-ink-900 font-medium mono">↓ {{ bytes(client.transferRx) }}</span>
-      <span class="text-[11.5px] text-ink-500 mono mt-0.5">↑ {{ bytes(client.transferTx) }}</span>
+      <span class="text-[13.5px] text-ink-900 font-medium mono flex items-center gap-0.5"><ArrowDown :size="11" class="text-ink-400 shrink-0" /> {{ bytes(client.transferRx) }}</span>
+      <span class="text-[11.5px] text-ink-500 mono mt-0.5 flex items-center gap-0.5"><ArrowUp :size="10" class="shrink-0" /> {{ bytes(client.transferTx) }}</span>
     </div>
 
     <!--

@@ -8,6 +8,7 @@ import { useThemeStore } from '@/stores/theme'
 import { bytes, handshakeFreshness } from '@/lib/format'
 import IconButton from '@/components/atoms/IconButton.vue'
 import Icon from '@/components/atoms/Icon.vue'
+import { ArrowDown, ArrowUp } from 'lucide-vue-next'
 
 /*
   Functional top bar. Left: wordmark + live status (онлайн X из Y · ↓rate ↑rate).
@@ -117,15 +118,15 @@ function cycleTheme() { theme.set(nextTheme.value.next) }
 
           <!-- Скорость в моменте. Серый когда тишина, ink когда что-то идёт. -->
           <div class="hidden sm:flex items-center gap-3 tnum">
-            <span class="flex items-baseline gap-1">
-              <span class="text-[10.5px] uppercase tracking-[0.12em] text-ink-500">↓</span>
+            <span class="flex items-center gap-1">
+              <ArrowDown :size="11" class="text-ink-500 shrink-0" />
               <span
                 class="text-[12.5px] font-medium mono"
                 :class="idle ? 'text-ink-400' : 'text-ink-900'"
               >{{ idle ? '—' : bytes(rxRate) + '/с' }}</span>
             </span>
-            <span class="flex items-baseline gap-1">
-              <span class="text-[10.5px] uppercase tracking-[0.12em] text-ink-500">↑</span>
+            <span class="flex items-center gap-1">
+              <ArrowUp :size="11" class="text-ink-500 shrink-0" />
               <span
                 class="text-[12.5px] font-medium mono"
                 :class="idle ? 'text-ink-400' : 'text-ink-900'"
