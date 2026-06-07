@@ -9,6 +9,7 @@ import {
 
 import { api } from '@/lib/api'
 import { useThemeStore } from '@/stores/theme'
+import { useToastStore } from '@/stores/toasts'
 import type { CabinetView, CabinetDevice, AddDeviceResult } from '@/types'
 import { genCfg } from '@/utils/generator'
 import Button from '@/components/atoms/Button.vue'
@@ -17,6 +18,7 @@ import Badge from '@/components/atoms/Badge.vue'
 const route = useRoute()
 const token  = computed(() => String(route.params.token || ''))
 const theme  = useThemeStore()
+const toasts = useToastStore()
 
 type Phase = 'loading' | 'invalid' | 'ready'
 const phase   = ref<Phase>('loading')
@@ -183,21 +185,29 @@ const justCopied = ref(false)
 
 async function copyVpn(devId: string) {
   try {
-    const text = await fetch(amneziaVpn(devId)).then(r => r.text())
+    const res = await fetch(amneziaVpn(devId))
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const text = await res.text()
     await navigator.clipboard.writeText(text)
     copiedId.value = devId
     setTimeout(() => { if (copiedId.value === devId) copiedId.value = null }, 2200)
-  } catch { /* ignore */ }
+  } catch (e: any) {
+    toasts.error('Не удалось скопировать. Попробуйте «Скачать .vpn»')
+  }
 }
 
 async function copyJustAddedVpn() {
   if (!justAdded.value) return
   try {
-    const text = await fetch(amneziaVpn(justAdded.value.deviceId)).then(r => r.text())
+    const res = await fetch(amneziaVpn(justAdded.value.deviceId))
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const text = await res.text()
     await navigator.clipboard.writeText(text)
     justCopied.value = true
     setTimeout(() => { justCopied.value = false }, 2500)
-  } catch { /* ignore */ }
+  } catch (e: any) {
+    toasts.error('Не удалось скопировать. Используйте кнопку скачивания')
+  }
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────

@@ -59,12 +59,18 @@ export const useSubscribersStore = defineStore('subscribers', {
     },
     async remove(id: string) {
       const t = useToastStore()
+      // Optimistic remove — restore on failure.
+      const idx = this.items.findIndex(x => x.id === id)
+      const backup = idx >= 0 ? this.items[idx] : null
+      if (idx >= 0) this.items.splice(idx, 1)
       try {
         await api.deleteSubscriber(id)
         t.success('Клиент и все его устройства удалены')
-        await this.fetch(true)
+        this.fetch(true)
       } catch (e: any) {
-        t.error(e?.message || 'Не удалось удалить'); throw e
+        if (backup) this.items.splice(idx, 0, backup)
+        t.error(e?.message || 'Не удалось удалить')
+        throw e
       }
     },
   },

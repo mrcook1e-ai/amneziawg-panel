@@ -38,8 +38,19 @@ export const useClientsStore = defineStore('clients', {
     },
     async remove(id: string) {
       const t = useToastStore()
-      try { await api.deleteClient(id); t.success('Клиент удалён'); await this.fetch(true) }
-      catch (e: any) { t.error(e?.message || 'Ошибка удаления') }
+      // Optimistic: drop from local list immediately so the UI feels instant.
+      // On server error, put it back at the original index.
+      const idx = this.items.findIndex(c => c.id === id)
+      const backup = idx >= 0 ? this.items[idx] : null
+      if (idx >= 0) this.items.splice(idx, 1)
+      try {
+        await api.deleteClient(id)
+        t.success('Клиент удалён')
+        this.fetch(true) // background reconcile, no await
+      } catch (e: any) {
+        if (backup) this.items.splice(idx, 0, backup)
+        t.error(e?.message || 'Ошибка удаления')
+      }
     },
     async setEnabled(id: string, enabled: boolean) {
       const t = useToastStore()

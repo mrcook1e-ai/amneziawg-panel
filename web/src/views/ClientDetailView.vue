@@ -83,22 +83,30 @@ function syncFormFromClient() {
   form.value.allowedIPsOverride = c.allowedIPsOverride ?? ''
   form.value.mtuOverride        = c.mtuOverride ?? 0
 }
-watch(client, syncFormFromClient, { immediate: true })
+// Sync form ONLY when navigating to a different client. Polling updates
+// (every 5s) must not blow away whatever the user is currently typing into
+// notes / DNS / MTU / etc.
+watch(() => client.value?.id, syncFormFromClient, { immediate: true })
 
 async function loadAll() {
-  if (!id.value) return
+  const myId = id.value
+  if (!myId) return
   loading.value = true
   try {
     const [s, ev] = await Promise.all([
-      api.clientStats(id.value),
-      api.clientEvents(id.value, 20),
+      api.clientStats(myId),
+      api.clientEvents(myId, 20),
     ])
+    // Guard against stale writes — if the user navigated to a different
+    // client mid-flight, drop the late response on the floor.
+    if (id.value !== myId) return
     cs.value = s
     events.value = ev ?? []
   } catch (e: any) {
+    if (id.value !== myId) return
     toasts.error(e?.message || 'Ошибка загрузки')
   } finally {
-    loading.value = false
+    if (id.value === myId) loading.value = false
   }
 }
 onMounted(async () => {
@@ -184,9 +192,7 @@ async function saveOverrides() {
                             : undefined,
       clearExpiresAt:     form.value.expiresAt === '' && !!c.expiresAt,
     })
-    toasts.success('Сохранено')
-  } catch (e: any) {
-    toasts.error(e?.message || 'Не удалось сохранить')
+    // clients.patch() already toasts success/error — don't double-toast.
   } finally {
     savingId.value = null
   }

@@ -32,18 +32,23 @@ const sub     = ref<Subscriber | null>(null)
 const loading = ref(true)
 
 // ── Data loading ────────────────────────────────────────────────────────────
-async function loadSub() {
+// `redirectOnFail` is true only for the FIRST load — polling errors (transient
+// 404 from a parallel admin edit, network blip) must not kick the user off
+// the page mid-session.
+async function loadSub(opts: { redirectOnFail?: boolean } = {}) {
   try {
     sub.value = await api.getSubscriber(id.value)
   } catch (e: any) {
-    toasts.error(e?.message || 'Клиент не найден')
-    router.replace({ name: 'clients' })
+    if (opts.redirectOnFail) {
+      toasts.error(e?.message || 'Клиент не найден')
+      router.replace({ name: 'clients' })
+    }
   } finally {
     loading.value = false
   }
 }
 
-onMounted(async () => { await Promise.all([clients.fetch(), loadSub()]) })
+onMounted(async () => { await Promise.all([clients.fetch(), loadSub({ redirectOnFail: true })]) })
 useInterval(() => Promise.all([clients.fetch(true), loadSub()]), 5000, { pauseHidden: true })
 
 // ── Devices ─────────────────────────────────────────────────────────────────
