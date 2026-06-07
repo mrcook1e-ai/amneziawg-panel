@@ -1,16 +1,32 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
+import {
+  Shield, Lock, Key, Smartphone, Laptop, Monitor,
+  QrCode, Download, Copy, Check, Trash2, X,
+  Sun, Moon, SunMoon, Plus, RefreshCw,
+} from 'lucide-vue-next'
+
 import { api } from '@/lib/api'
+import { useThemeStore } from '@/stores/theme'
 import type { CabinetView, CabinetDevice, AddDeviceResult } from '@/types'
 import { genCfg } from '@/utils/generator'
 
 const route = useRoute()
 const token = computed(() => String(route.params.token || ''))
+const theme  = useThemeStore()
 
 type Phase = 'loading' | 'invalid' | 'ready'
 const phase   = ref<Phase>('loading')
 const cabinet = ref<CabinetView | null>(null)
+
+// ── Theme toggle ──────────────────────────────────────────────────────
+const themeOptions = {
+  auto:  { icon: SunMoon, label: 'Авто',    next: 'light' as const },
+  light: { icon: Sun,     label: 'Светлая', next: 'dark'  as const },
+  dark:  { icon: Moon,    label: 'Тёмная',  next: 'auto'  as const },
+}
+function cycleTheme() { theme.set(themeOptions[theme.mode].next) }
 
 // ── Add-device wizard ─────────────────────────────────────────────────
 type WizardStep = 'pick' | 'creating' | 'done'
@@ -23,11 +39,12 @@ type DeviceTemplate = 'phone' | 'laptop' | 'desktop' | 'other'
 const pickedTemplate = ref<DeviceTemplate>('phone')
 const customName     = ref('')
 
-const templates: Array<{ key: DeviceTemplate; icon: string; label: string }> = [
-  { key: 'phone',   icon: '📱', label: 'Телефон'   },
-  { key: 'laptop',  icon: '💻', label: 'Ноутбук'   },
-  { key: 'desktop', icon: '🖥',  label: 'Компьютер' },
-  { key: 'other',   icon: '🔑', label: 'Другое'    },
+interface Template { key: DeviceTemplate; icon: any; label: string }
+const templates: Template[] = [
+  { key: 'phone',   icon: Smartphone, label: 'Телефон'   },
+  { key: 'laptop',  icon: Laptop,     label: 'Ноутбук'   },
+  { key: 'desktop', icon: Monitor,    label: 'Компьютер' },
+  { key: 'other',   icon: Key,        label: 'Другое'    },
 ]
 
 const defaultName: Record<DeviceTemplate, string> = {
@@ -58,18 +75,14 @@ function openWizard(tpl: DeviceTemplate = 'phone') {
   wizardStep.value     = 'pick'
   wizardOpen.value     = true
 }
-
-function closeWizard() {
-  wizardOpen.value = false
-  justAdded.value  = null
-}
+function closeWizard() { wizardOpen.value = false; justAdded.value = null }
 
 async function createDevice() {
   wizardErr.value  = ''
   const name       = customName.value.trim() || defaultName[pickedTemplate.value]
   wizardStep.value = 'creating'
 
-  const cfg    = genCfg({
+  const cfg = genCfg({
     version: '2.0', intensity: 'medium', profile: 'quic_initial',
     customHost: '', mimicAll: false, useTagC: false,
     useTagT: true, useTagR: true, useTagRC: true, useTagRD: true,
@@ -99,8 +112,10 @@ const amneziaQr  = (id: string) => api.cabinetDeviceAmneziaQrUrl(token.value, id
 const amneziaVpn = (id: string) => api.cabinetDeviceAmneziaVpnUrl(token.value, id)
 const confUrl    = (id: string) => api.cabinetDeviceConfUrl(token.value, id)
 
-// ── Copy vpn:// to clipboard ─────────────────────────────────────────────
-const copiedId = ref<string | null>(null)
+// ── Copy vpn:// ───────────────────────────────────────────────────────────
+const copiedId   = ref<string | null>(null)
+const justCopied = ref(false)
+
 async function copyVpn(devId: string) {
   try {
     const text = await fetch(amneziaVpn(devId)).then(r => r.text())
@@ -110,7 +125,6 @@ async function copyVpn(devId: string) {
   } catch { /* ignore */ }
 }
 
-const justCopied = ref(false)
 async function copyJustAddedVpn() {
   if (!justAdded.value) return
   try {
@@ -137,8 +151,8 @@ type DevStatus = 'online' | 'recent' | 'away' | 'never'
 function devStatus(d: CabinetDevice): DevStatus {
   if (!d.latestHandshakeAt) return 'never'
   const ms = Date.now() - new Date(d.latestHandshakeAt).getTime()
-  if (ms < 3 * 60_000)  return 'online'
-  if (ms < 60 * 60_000) return 'recent'
+  if (ms < 3 * 60_000)   return 'online'
+  if (ms < 60 * 60_000)  return 'recent'
   return 'away'
 }
 
@@ -146,26 +160,25 @@ function relTime(s?: string | null): string {
   if (!s) return 'никогда'
   try {
     const ms = Date.now() - new Date(s).getTime()
-    if (ms < 60_000)     return 'только что'
-    if (ms < 3_600_000)  return `${Math.floor(ms / 60_000)} мин назад`
-    if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)} ч назад`
+    if (ms < 60_000)      return 'только что'
+    if (ms < 3_600_000)   return `${Math.floor(ms / 60_000)} мин назад`
+    if (ms < 86_400_000)  return `${Math.floor(ms / 3_600_000)} ч назад`
     return `${Math.floor(ms / 86_400_000)} д назад`
   } catch { return s }
 }
 
 function fmtDate(s: string): string {
-  try {
-    return new Date(s).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-  } catch { return '' }
+  try { return new Date(s).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) }
+  catch { return '' }
 }
 
-function devIcon(name: string): string {
+function devIcon(name: string) {
   const n = name.toLowerCase()
-  if (/phone|iphone|android|телефон|самсунг|samsung|pixel/.test(n)) return '📱'
-  if (/laptop|ноутбук|macbook|ноут|notebook/.test(n))               return '💻'
-  if (/desktop|компьютер|пк|\bpc\b|mac mini/.test(n))               return '🖥'
-  if (/tablet|ipad|планшет/.test(n))                                 return '📱'
-  return '🔑'
+  if (/phone|iphone|android|телефон|самсунг|samsung|pixel/.test(n)) return Smartphone
+  if (/laptop|ноутбук|macbook|ноут|notebook/.test(n))               return Laptop
+  if (/desktop|компьютер|пк|\bpc\b|mac mini/.test(n))               return Monitor
+  if (/tablet|ipad|планшет/.test(n))                                 return Smartphone
+  return Key
 }
 
 const onlineCount = computed(() =>
@@ -176,7 +189,7 @@ const onlineCount = computed(() =>
 <template>
   <div class="min-h-screen antialiased bg-ink-50 text-ink-900">
 
-    <!-- Ambient background glow — dark only -->
+    <!-- Ambient glow dark only -->
     <div
       class="pointer-events-none fixed inset-0 opacity-0 dark:opacity-100"
       style="background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(232,160,65,0.07) 0%, transparent 70%)"
@@ -188,16 +201,20 @@ const onlineCount = computed(() =>
       <div class="flex flex-col items-center gap-6">
         <div class="relative w-14 h-14">
           <span class="absolute inset-0 rounded-full border-2 border-ink-200 border-t-ink-600 animate-spin block" />
-          <span class="absolute inset-[6px] rounded-full bg-ink-100 flex items-center justify-center text-[20px]">🛡</span>
+          <span class="absolute inset-[6px] rounded-full bg-ink-100 flex items-center justify-center">
+            <Shield :size="20" class="text-ink-600" />
+          </span>
         </div>
-        <p class="text-[13px] text-ink-500 tracking-wide">Загружаем кабинет…</p>
+        <p class="text-[13px] text-ink-500">Загружаем кабинет…</p>
       </div>
     </div>
 
     <!-- ─── Invalid ──────────────────────────────────────────────────── -->
     <div v-else-if="phase === 'invalid'" class="min-h-screen flex items-center justify-center p-6">
       <div class="card w-full max-w-sm p-10 text-center space-y-5">
-        <div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto text-[28px]">🔒</div>
+        <div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto">
+          <Lock :size="28" class="text-danger/70" />
+        </div>
         <div class="space-y-2">
           <h1 class="text-[18px] font-semibold">Кабинет недоступен</h1>
           <p class="text-[13.5px] text-ink-500 leading-relaxed">
@@ -209,19 +226,29 @@ const onlineCount = computed(() =>
 
     <!-- ─── Ready ─────────────────────────────────────────────────────── -->
     <template v-else-if="cabinet">
-      <div class="relative max-w-md mx-auto px-4 pt-14 pb-24">
+      <div class="relative max-w-md mx-auto px-4 pt-12 pb-24">
+
+        <!-- Theme toggle — top right -->
+        <div class="absolute top-4 right-4">
+          <button
+            class="h-9 w-9 flex items-center justify-center rounded-xl btn-ghost"
+            :title="`Тема: ${themeOptions[theme.mode].label}`"
+            @click="cycleTheme">
+            <component :is="themeOptions[theme.mode].icon" :size="18" />
+          </button>
+        </div>
 
         <!-- Header -->
         <header class="mb-10 animate-rise text-center">
           <div class="inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.18em] text-ink-500 font-medium mb-5">
-            <span>🛡</span>
+            <Shield :size="12" />
             <span>Личный кабинет · AmneziaVPN</span>
           </div>
           <h1 class="stat-hero text-[52px] sm:text-[64px] text-ink-900 mb-4 leading-none">
             {{ cabinet.name }}
           </h1>
 
-          <!-- Status summary chips -->
+          <!-- Status chips -->
           <div class="flex items-center justify-center gap-2 flex-wrap">
             <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-ink-100 text-[12px] text-ink-600 font-medium">
               {{ cabinet.devices.length }}
@@ -246,24 +273,28 @@ const onlineCount = computed(() =>
           v-if="!cabinet.devices.length"
           class="rounded-3xl border-2 border-dashed border-ink-200 p-10 text-center space-y-7 animate-rise">
           <div class="space-y-3">
-            <p class="text-[40px]">🔑</p>
+            <div class="w-16 h-16 rounded-full bg-ink-100 flex items-center justify-center mx-auto">
+              <Key :size="28" class="text-ink-500" />
+            </div>
             <p class="text-[17px] font-semibold">Каждое устройство — свой ключ</p>
             <p class="text-[13px] text-ink-500 leading-relaxed max-w-[260px] mx-auto">
               Телефон, ноутбук, планшет — у каждого отдельный VPN-ключ.
               Потеряли устройство — отзываете только его ключ.
             </p>
           </div>
+
           <div class="grid grid-cols-3 gap-2.5 max-w-[280px] mx-auto">
             <button
               v-for="t in templates.slice(0, 3)" :key="t.key"
-              class="flex flex-col items-center gap-2 p-3 rounded-2xl border border-ink-200 hover:border-ink-400 hover:bg-ink-100/50 transition-all active:scale-[0.96]"
+              class="flex flex-col items-center gap-2.5 p-3.5 rounded-2xl border border-ink-200 hover:border-ink-400 hover:bg-ink-100/50 transition-all active:scale-[0.96]"
               @click="openWizard(t.key)">
-              <span class="text-[26px]">{{ t.icon }}</span>
+              <component :is="t.icon" :size="24" class="text-ink-600" />
               <span class="text-[11px] font-semibold text-ink-600">{{ t.label }}</span>
             </button>
           </div>
+
           <button
-            class="btn-primary w-full max-w-[280px] mx-auto flex items-center justify-center gap-2"
+            class="btn-primary w-full max-w-[280px] mx-auto flex items-center justify-center gap-2 h-12"
             @click="openWizard()">
             Добавить первое устройство
           </button>
@@ -278,20 +309,26 @@ const onlineCount = computed(() =>
             class="card device-card p-5 animate-rise"
             :class="`delay-${Math.min(i + 1, 6)}`">
 
-            <!-- Top row: icon + name + status -->
+            <!-- Top row -->
             <div class="flex items-start gap-3.5">
-              <!-- Device icon with status ring -->
+              <!-- Icon + status badge -->
               <div class="relative shrink-0">
                 <div
-                  class="w-11 h-11 rounded-[16px] flex items-center justify-center text-[22px]"
+                  class="w-11 h-11 rounded-[16px] flex items-center justify-center"
                   :class="{
-                    'bg-success/12 dark:bg-success/15': devStatus(d) === 'online',
-                    'bg-warning/10':                    devStatus(d) === 'recent',
-                    'bg-ink-100':                       devStatus(d) === 'away' || devStatus(d) === 'never',
+                    'bg-success/12': devStatus(d) === 'online',
+                    'bg-warning/10': devStatus(d) === 'recent',
+                    'bg-ink-100':    devStatus(d) === 'away' || devStatus(d) === 'never',
                   }">
-                  {{ devIcon(d.name) }}
+                  <component
+                    :is="devIcon(d.name)"
+                    :size="20"
+                    :class="{
+                      'text-success':  devStatus(d) === 'online',
+                      'text-warning':  devStatus(d) === 'recent',
+                      'text-ink-500':  devStatus(d) === 'away' || devStatus(d) === 'never',
+                    }" />
                 </div>
-                <!-- Status dot badge -->
                 <span
                   v-if="devStatus(d) === 'online'"
                   class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-success border-2 border-surface"
@@ -305,7 +342,7 @@ const onlineCount = computed(() =>
 
               <!-- Name + meta -->
               <div class="flex-1 min-w-0 pt-0.5">
-                <div class="flex items-center gap-2 flex-wrap mb-1">
+                <div class="flex items-center gap-2 flex-wrap mb-1.5">
                   <span class="text-[15px] font-semibold truncate">{{ d.name }}</span>
                   <span
                     v-if="!d.enabled"
@@ -313,18 +350,17 @@ const onlineCount = computed(() =>
                     выкл
                   </span>
                 </div>
-                <!-- IP + last seen -->
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <span class="mono text-[11.5px] text-ink-500 bg-ink-100 px-2 py-0.5 rounded-lg">{{ d.address }}</span>
                   <span class="text-ink-300 text-[10px]">·</span>
                   <span
                     class="text-[11.5px]"
                     :class="{
-                      'text-success font-medium':  devStatus(d) === 'online',
-                      'text-warning font-medium':  devStatus(d) === 'recent',
-                      'text-ink-500':              devStatus(d) === 'away' || devStatus(d) === 'never',
+                      'text-success font-medium': devStatus(d) === 'online',
+                      'text-warning font-medium': devStatus(d) === 'recent',
+                      'text-ink-500':             devStatus(d) === 'away' || devStatus(d) === 'never',
                     }">
-                    <template v-if="devStatus(d) === 'online'">● онлайн</template>
+                    <template v-if="devStatus(d) === 'online'">онлайн</template>
                     <template v-else>{{ relTime(d.latestHandshakeAt) }}</template>
                   </span>
                 </div>
@@ -337,27 +373,21 @@ const onlineCount = computed(() =>
               <span class="text-ink-200">·</span>
               <span class="mono">AmneziaWG 2.0</span>
               <span class="ml-auto inline-flex items-center gap-1 text-ink-400">
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-                </svg>
+                <Lock :size="11" />
                 зашифровано
               </span>
             </div>
 
-            <!-- Action row -->
+            <!-- Actions -->
             <div class="flex items-center gap-2 mt-3">
-              <!-- QR — primary, explicit amber accent -->
+              <!-- QR — primary amber -->
               <a
                 :href="amneziaQr(d.id)"
                 target="_blank"
                 rel="noopener"
-                class="btn-primary flex-1 flex items-center justify-center gap-1.5 h-10 text-[12.5px]">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
-                  <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="3" height="3"/>
-                  <rect x="18" y="14" width="3" height="3"/><rect x="14" y="18" width="3" height="3"/>
-                  <rect x="18" y="18" width="3" height="3"/>
-                </svg>
+                class="btn-primary flex-1 flex items-center justify-center gap-1.5 h-10 text-[12.5px]"
+                title="QR-код для AmneziaVPN">
+                <QrCode :size="14" />
                 QR-код
               </a>
 
@@ -365,27 +395,20 @@ const onlineCount = computed(() =>
               <a
                 :href="amneziaVpn(d.id)"
                 :download="`${d.name}.vpn`"
-                class="btn-secondary flex-1 flex items-center justify-center gap-1.5 h-10 text-[12.5px]">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                </svg>
+                class="btn-secondary flex-1 flex items-center justify-center gap-1.5 h-10 text-[12.5px]"
+                title="Скачать .vpn">
+                <Download :size="14" />
                 .vpn
               </a>
 
               <!-- Copy vpn:// -->
               <button
-                class="h-10 w-10 flex items-center justify-center rounded-xl transition-all text-[13px]"
-                :class="copiedId === d.id
-                  ? 'bg-success/15 text-success'
-                  : 'btn-ghost'"
+                class="h-10 w-10 flex items-center justify-center rounded-xl transition-all"
+                :class="copiedId === d.id ? 'bg-success/15 text-success' : 'btn-ghost'"
                 :title="copiedId === d.id ? 'Скопировано' : 'Скопировать vpn://'"
                 @click="copyVpn(d.id)">
-                <svg v-if="copiedId === d.id" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                </svg>
-                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
-                  <rect x="9" y="9" width="13" height="13" rx="2"/><path stroke-linecap="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-                </svg>
+                <Check v-if="copiedId === d.id" :size="15" />
+                <Copy v-else :size="15" />
               </button>
 
               <!-- Delete -->
@@ -393,9 +416,7 @@ const onlineCount = computed(() =>
                 class="h-10 w-10 flex items-center justify-center rounded-xl text-ink-400 hover:bg-danger/10 hover:text-danger transition-all"
                 title="Удалить устройство"
                 @click="deleteFor = d">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                </svg>
+                <Trash2 :size="15" />
               </button>
             </div>
 
@@ -405,7 +426,7 @@ const onlineCount = computed(() =>
           <button
             class="w-full h-14 flex items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-ink-200 text-ink-500 text-[14px] font-medium hover:border-ink-400 hover:text-ink-700 dark:hover:text-ink-300 active:scale-[0.99] transition-all mt-1"
             @click="openWizard()">
-            <span class="text-[18px] leading-none">+</span>
+            <Plus :size="18" />
             Добавить устройство
           </button>
         </section>
@@ -428,36 +449,39 @@ const onlineCount = computed(() =>
 
           <div class="sheet-panel relative w-full sm:max-w-md bg-surface-raised rounded-t-[32px] sm:rounded-[32px] shadow-pop overflow-hidden">
 
-            <!-- Step: Pick -->
+            <!-- ── Step: Pick ── -->
             <div v-if="wizardStep === 'pick'" class="p-6 space-y-6">
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <h3 class="text-[19px] font-semibold">Новый VPN-ключ</h3>
                   <p class="text-[12.5px] text-ink-500 mt-0.5">Каждый ключ — только для одного устройства</p>
                 </div>
-                <button class="w-9 h-9 rounded-full flex items-center justify-center text-ink-400 hover:bg-ink-100 transition-colors shrink-0 mt-0.5" @click="closeWizard">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                <button
+                  class="w-9 h-9 rounded-full flex items-center justify-center text-ink-400 hover:bg-ink-100 transition-colors shrink-0"
+                  @click="closeWizard">
+                  <X :size="16" />
                 </button>
               </div>
 
-              <!-- Type chips -->
               <div>
                 <p class="text-[11px] font-semibold text-ink-500 uppercase tracking-[0.12em] mb-3">Тип устройства</p>
                 <div class="grid grid-cols-4 gap-2">
                   <button
                     v-for="t in templates" :key="t.key"
-                    class="flex flex-col items-center gap-2 py-3 px-1 rounded-2xl border-2 transition-all active:scale-[0.95]"
+                    class="flex flex-col items-center gap-2.5 py-3.5 px-1 rounded-2xl border-2 transition-all active:scale-[0.95]"
                     :class="pickedTemplate === t.key
                       ? 'border-amber-400 bg-amber-50 dark:bg-amber-400/10'
-                      : 'border-ink-200 hover:border-ink-300 bg-ink-50'"
+                      : 'border-ink-200 hover:border-ink-300 bg-ink-50 dark:bg-ink-100/30'"
                     @click="pickedTemplate = t.key">
-                    <span class="text-[26px]">{{ t.icon }}</span>
-                    <span class="text-[10.5px] font-semibold text-ink-700 dark:text-ink-600 leading-tight">{{ t.label }}</span>
+                    <component
+                      :is="t.icon"
+                      :size="22"
+                      :class="pickedTemplate === t.key ? 'text-amber-500' : 'text-ink-500'" />
+                    <span class="text-[10.5px] font-semibold text-ink-600 dark:text-ink-500 leading-tight">{{ t.label }}</span>
                   </button>
                 </div>
               </div>
 
-              <!-- Custom name -->
               <div class="space-y-2">
                 <label class="text-[11px] font-semibold text-ink-500 uppercase tracking-[0.12em] block">
                   Название <span class="normal-case tracking-normal font-normal text-ink-400">— необязательно</span>
@@ -471,8 +495,10 @@ const onlineCount = computed(() =>
 
               <p v-if="wizardErr" class="text-[12.5px] text-danger bg-danger/10 rounded-xl px-4 py-3">{{ wizardErr }}</p>
 
-              <button class="btn-primary w-full h-14 flex items-center justify-center gap-2 text-[15px]" @click="createDevice">
-                Получить VPN-ключ →
+              <button
+                class="btn-primary w-full h-14 flex items-center justify-center gap-2 text-[15px]"
+                @click="createDevice">
+                Получить VPN-ключ
               </button>
 
               <p class="text-[11.5px] text-ink-500 text-center pb-1">
@@ -480,11 +506,14 @@ const onlineCount = computed(() =>
               </p>
             </div>
 
-            <!-- Step: Creating -->
-            <div v-else-if="wizardStep === 'creating'" class="p-10 flex flex-col items-center gap-7 min-h-[300px] justify-center">
+            <!-- ── Step: Creating ── -->
+            <div v-else-if="wizardStep === 'creating'"
+                 class="p-10 flex flex-col items-center gap-7 min-h-[300px] justify-center">
               <div class="relative w-[72px] h-[72px]">
                 <span class="absolute inset-0 rounded-full border-[3px] border-ink-200 border-t-amber-400 animate-spin block" />
-                <span class="absolute inset-[10px] rounded-full bg-ink-100 flex items-center justify-center text-[26px]">🔑</span>
+                <span class="absolute inset-[10px] rounded-full bg-ink-100 flex items-center justify-center">
+                  <Key :size="22" class="text-ink-600" />
+                </span>
               </div>
               <div class="text-center space-y-1.5">
                 <p class="text-[16px] font-semibold">Создаём ключ…</p>
@@ -492,13 +521,13 @@ const onlineCount = computed(() =>
               </div>
             </div>
 
-            <!-- Step: Done -->
+            <!-- ── Step: Done ── -->
             <div v-else-if="wizardStep === 'done' && justAdded" class="p-6 space-y-5 animate-fade-in">
               <div class="flex items-start justify-between gap-3">
                 <div class="space-y-1">
                   <div class="flex items-center gap-2">
-                    <div class="w-6 h-6 rounded-full bg-success/15 flex items-center justify-center text-success">
-                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                    <div class="w-6 h-6 rounded-full bg-success/15 flex items-center justify-center">
+                      <Check :size="13" class="text-success" />
                     </div>
                     <h3 class="text-[18px] font-semibold">Ключ готов!</h3>
                   </div>
@@ -506,15 +535,20 @@ const onlineCount = computed(() =>
                     {{ justAdded.name }} <span class="mono">· {{ justAdded.address }}</span>
                   </p>
                 </div>
-                <button class="w-9 h-9 rounded-full flex items-center justify-center text-ink-400 hover:bg-ink-100 transition-colors shrink-0" @click="closeWizard">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                <button
+                  class="w-9 h-9 rounded-full flex items-center justify-center text-ink-400 hover:bg-ink-100 transition-colors shrink-0"
+                  @click="closeWizard">
+                  <X :size="16" />
                 </button>
               </div>
 
               <!-- Amnezia QR hero -->
               <div class="flex flex-col items-center gap-3 py-1">
                 <div class="p-4 bg-white rounded-3xl border border-ink-100 shadow-sm inline-block">
-                  <img :src="amneziaQr(justAdded.deviceId)" alt="AmneziaVPN QR" class="block w-[220px] h-[220px] sm:w-[252px] sm:h-[252px]" />
+                  <img
+                    :src="amneziaQr(justAdded.deviceId)"
+                    alt="AmneziaVPN QR"
+                    class="block w-[220px] h-[220px] sm:w-[252px] sm:h-[252px]" />
                 </div>
                 <div class="text-center">
                   <p class="text-[12.5px] font-semibold text-ink-800 dark:text-ink-700">Отсканируйте в приложении AmneziaVPN</p>
@@ -526,7 +560,7 @@ const onlineCount = computed(() =>
                 :href="amneziaVpn(justAdded.deviceId)"
                 :download="`${justAdded.name}.vpn`"
                 class="btn-primary flex w-full h-13 items-center justify-center gap-2 text-[14.5px] py-3.5">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                <Download :size="16" />
                 Скачать .vpn файл
               </a>
 
@@ -535,8 +569,8 @@ const onlineCount = computed(() =>
                   class="flex-1 h-11 flex items-center justify-center gap-1.5 rounded-xl text-[12.5px] font-semibold transition-all"
                   :class="justCopied ? 'bg-success/15 text-success' : 'btn-secondary'"
                   @click="copyJustAddedVpn">
-                  <svg v-if="justCopied" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                  <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path stroke-linecap="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                  <Check v-if="justCopied" :size="14" />
+                  <Copy v-else :size="14" />
                   {{ justCopied ? 'Скопировано' : 'Скопировать vpn://' }}
                 </button>
                 <a
@@ -552,8 +586,11 @@ const onlineCount = computed(() =>
                 Каждое устройство — свой ключ.
               </p>
 
-              <button class="w-full h-11 flex items-center justify-center gap-1.5 rounded-xl border border-ink-200 text-ink-600 dark:text-ink-500 text-[13px] font-medium hover:bg-ink-100/50 transition-colors" @click="openWizard()">
-                + Добавить ещё устройство
+              <button
+                class="w-full h-11 flex items-center justify-center gap-1.5 rounded-xl border border-ink-200 text-ink-600 dark:text-ink-500 text-[13px] font-medium hover:bg-ink-100/50 transition-colors"
+                @click="openWizard()">
+                <Plus :size="15" />
+                Добавить ещё устройство
               </button>
             </div>
 
@@ -581,7 +618,7 @@ const onlineCount = computed(() =>
               :disabled="deleteBusy"
               @click="confirmDelete">
               <span v-if="deleteBusy" class="flex items-center justify-center gap-2">
-                <span class="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin inline-block" />
+                <RefreshCw :size="14" class="animate-spin" />
                 Удаляем…
               </span>
               <span v-else>Удалить</span>
