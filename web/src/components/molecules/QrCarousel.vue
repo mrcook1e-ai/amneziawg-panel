@@ -15,7 +15,8 @@ import { Loader2, ChevronLeft, ChevronRight, Download } from 'lucide-vue-next'
 import { api } from '@/lib/api'
 
 const props = defineProps<{
-  token: string
+  /** Cabinet flow: subscriber token. Omit in admin flow. */
+  token?: string
   deviceId: string
   deviceName?: string
   /** Visual size of the QR canvas in px. */
@@ -58,7 +59,9 @@ async function load() {
   error.value  = false
   loading.value = true
   try {
-    const res = await api.cabinetDeviceAmneziaQrChunks(props.token, props.deviceId, props.allowedIPs)
+    const res = props.token
+      ? await api.cabinetDeviceAmneziaQrChunks(props.token, props.deviceId, props.allowedIPs)
+      : await api.amneziaQrChunks(props.deviceId)
     chunks.value = res.chunks
     startTimer()
   } catch {
@@ -82,7 +85,11 @@ function next() {
   startTimer()
 }
 
-const vpnUrl = computed(() => api.cabinetDeviceAmneziaVpnUrl(props.token, props.deviceId, props.allowedIPs))
+const vpnUrl = computed(() =>
+  props.token
+    ? api.cabinetDeviceAmneziaVpnUrl(props.token, props.deviceId, props.allowedIPs)
+    : api.amneziaVpnUrl(props.deviceId)
+)
 </script>
 
 <template>

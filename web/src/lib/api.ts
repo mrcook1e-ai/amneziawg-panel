@@ -127,6 +127,8 @@ export const api = {
   // Admin: Amnezia-native format URLs
   amneziaVpnUrl: (id: string) => `/api/wireguard/client/${enc(id)}/amnezia.vpn`,
   amneziaQrUrl:  (id: string) => `/api/wireguard/client/${enc(id)}/amnezia-qrcode.svg`,
+  amneziaQrChunks: (id: string) =>
+    request<{ chunks: string[] }>(`/api/wireguard/client/${enc(id)}/amnezia-qr-chunks`),
 
   backupUrl: () => '/api/backup',
   importClient: (body: {

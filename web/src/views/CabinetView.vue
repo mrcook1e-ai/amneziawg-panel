@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useTitle } from '@/composables/useTitle'
 import { useRoute } from 'vue-router'
 import {
   Shield, Lock, Key, Smartphone, Laptop, Monitor,
   QrCode, Download, Copy, Check, Trash2, X,
   Sun, Moon, Plus, RefreshCw, ChevronLeft, ChevronRight, Loader2,
-  Compass,
+  Compass, MoreHorizontal,
 } from 'lucide-vue-next'
 
 import { api } from '@/lib/api'
@@ -148,6 +148,30 @@ function qrNext() {
   qrIdx.value = (qrIdx.value + 1) % qrChunks.value.length
   startQrTimer()
 }
+
+// ── Per-card overflow menu (compass/copy/delete on narrow screens) ─────
+const menuFor = ref<string | null>(null)
+function toggleMenu(id: string) {
+  menuFor.value = menuFor.value === id ? null : id
+}
+function closeMenu() { menuFor.value = null }
+
+// Close menu on outside pointerdown / Escape.
+function onDocPointer(e: MouseEvent) {
+  const t = e.target as HTMLElement
+  if (!t.closest('[data-card-menu]')) closeMenu()
+}
+function onDocKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') closeMenu()
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocPointer)
+  document.addEventListener('keydown', onDocKey)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocPointer)
+  document.removeEventListener('keydown', onDocKey)
+})
 
 // ── Delete state ───────────────────────────────────────────────────────
 const deleteFor  = ref<CabinetDevice | null>(null)
@@ -420,7 +444,7 @@ const qrDeviceName = computed(() =>
         <!-- ── Empty state ── -->
         <div
           v-if="!cabinet.devices.length"
-          class="rounded-3xl border-2 border-dashed border-ink-200 dark:border-ink-300/40 p-10 text-center space-y-7 animate-rise">
+          class="rounded-3xl bg-ink-100/60 dark:bg-ink-200/30 p-10 text-center space-y-7 animate-rise">
           <div class="space-y-3">
             <div class="w-16 h-16 rounded-full bg-ink-100 dark:bg-ink-200/50 flex items-center justify-center mx-auto">
               <Key :size="28" class="text-ink-500" />
@@ -535,42 +559,72 @@ const qrDeviceName = computed(() =>
                   .vpn
                 </a>
 
-                <!-- Routes — split tunnel sheet -->
-                <button
-                  class="h-10 w-10 flex items-center justify-center rounded-xl text-ink-400 hover:text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-all shrink-0"
-                  title="Маршруты — выбрать сервисы для VPN"
-                  :aria-label="`Настроить маршруты для ${d.name}`"
-                  @click="openRoutes(d)">
-                  <Compass :size="15" />
-                </button>
+                <!--
+                  Overflow menu — Routes / Copy vpn:// / Delete.
+                  Bundled together so the QR + .vpn primary actions stay
+                  large-tappable on narrow phones (<360 px) without the
+                  row wrapping. Active-style: ⋯ becomes amber-tinted when
+                  the menu is open.
+                -->
+                <div class="relative shrink-0" data-card-menu>
+                  <button
+                    class="h-10 w-10 flex items-center justify-center rounded-xl transition-all"
+                    :class="menuFor === d.id
+                      ? 'bg-amber-400/15 text-amber-600'
+                      : 'text-ink-400 hover:text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50'"
+                    :aria-haspopup="true"
+                    :aria-expanded="menuFor === d.id"
+                    :aria-label="`Действия с ${d.name}`"
+                    title="Ещё"
+                    @click.stop="toggleMenu(d.id)">
+                    <MoreHorizontal :size="16" />
+                  </button>
 
-                <!-- Copy vpn:// -->
-                <button
-                  class="h-10 w-10 flex items-center justify-center rounded-xl transition-all shrink-0"
-                  :class="copiedId === d.id
-                    ? 'bg-success/12 text-success'
-                    : 'text-ink-400 hover:text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50'"
-                  :title="copiedId === d.id ? 'Скопировано' : 'Скопировать vpn://'"
-                  @click="copyVpn(d.id)">
-                  <Check v-if="copiedId === d.id" :size="15" />
-                  <Copy v-else :size="15" />
-                </button>
-
-                <!-- Delete -->
-                <button
-                  class="h-10 w-10 flex items-center justify-center rounded-xl text-ink-400 hover:bg-danger/10 hover:text-danger transition-all shrink-0"
-                  title="Удалить устройство"
-                  @click="deleteFor = d">
-                  <Trash2 :size="15" />
-                </button>
+                  <Transition
+                    enter-active-class="transition duration-120 ease-out"
+                    enter-from-class="opacity-0 scale-95 -translate-y-1"
+                    enter-to-class="opacity-100 scale-100 translate-y-0"
+                    leave-active-class="transition duration-100 ease-in"
+                    leave-from-class="opacity-100"
+                    leave-to-class="opacity-0">
+                    <div
+                      v-if="menuFor === d.id"
+                      role="menu"
+                      class="absolute right-0 top-12 z-20 w-52 rounded-2xl bg-surface-raised shadow-pop py-1.5 origin-top-right">
+                      <button
+                        role="menuitem"
+                        class="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-colors"
+                        @click="closeMenu(); openRoutes(d)">
+                        <Compass :size="15" class="text-ink-500" />
+                        Маршруты
+                      </button>
+                      <button
+                        role="menuitem"
+                        class="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-colors"
+                        @click="closeMenu(); copyVpn(d.id)">
+                        <Check v-if="copiedId === d.id" :size="15" class="text-success" />
+                        <Copy  v-else :size="15" class="text-ink-500" />
+                        {{ copiedId === d.id ? 'Скопировано' : 'Скопировать vpn://' }}
+                      </button>
+                      <div class="my-1 mx-3 hairline" />
+                      <button
+                        role="menuitem"
+                        class="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-danger hover:bg-danger/10 transition-colors"
+                        @click="closeMenu(); deleteFor = d">
+                        <Trash2 :size="15" />
+                        Удалить устройство
+                      </button>
+                    </div>
+                  </Transition>
+                </div>
               </div>
             </div>
 
           </div>
 
-          <!-- Add more -->
+          <!-- Add more — tinted fill instead of dashed border, matches empty-state language. -->
           <button
-            class="w-full h-14 flex items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-ink-200 dark:border-ink-300/40 text-ink-500 dark:text-ink-600 text-[14px] font-medium hover:border-ink-400 dark:hover:border-ink-400/60 hover:text-ink-700 dark:hover:text-ink-500 active:scale-[0.99] transition-all mt-1"
+            class="w-full h-14 flex items-center justify-center gap-2 rounded-3xl bg-ink-100/60 dark:bg-ink-200/30 text-ink-500 dark:text-ink-600 text-[14px] font-medium hover:bg-ink-200 dark:hover:bg-ink-200/50 hover:text-ink-700 active:scale-[0.99] transition-all mt-1"
             @click="openWizard()">
             <Plus :size="18" />
             Добавить устройство
