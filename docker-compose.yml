@@ -52,7 +52,14 @@ services:
       WG_ALLOWED_IPS: ${WG_ALLOWED_IPS:-0.0.0.0/0, ::/0}
       WG_MTU: ${WG_MTU:-0}
       WG_PERSISTENT_KEEPALIVE: ${WG_PERSISTENT_KEEPALIVE:-25}
-      WG_EGRESS_IFACE: ${WG_EGRESS_IFACE:-eth0}
+      # Leave WG_EGRESS_IFACE unset by default so the panel's runtime
+      # auto-detection (parses `ip route show default` inside the container)
+      # picks the correct egress NIC. Hardcoding eth0 broke multi-network
+      # setups like dokploy/swarm where the default gateway routes through
+      # eth2 (bridge) while eth0 is the overlay — MASQUERADE would no-op
+      # and clients got "handshake works but no internet". If you really
+      # need to pin the interface, set WG_EGRESS_IFACE in your deploy env.
+      WG_EGRESS_IFACE: ${WG_EGRESS_IFACE:-}
 
       # HTTP-сервер панели
       PORT: ${HTTP_PORT:-51821}
