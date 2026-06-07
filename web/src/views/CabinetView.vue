@@ -9,6 +9,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/lib/api'
 import type { CabinetView, CabinetDevice, AddDeviceResult } from '@/types'
+import { genCfg, type Intensity } from '@/utils/generator'
 
 const route = useRoute()
 const token = computed(() => String(route.params.token || ''))
@@ -24,6 +25,49 @@ const deviceName = ref('')
 const snippet = ref('')
 const addErr = ref('')
 const justAdded = ref<AddDeviceResult | null>(null)
+
+const genIntensity = ref<Intensity>('medium')
+
+function generateSnippet() {
+  const cfg = genCfg({
+    version: '2.0',
+    intensity: genIntensity.value,
+    profile: 'quic_initial',
+    customHost: '',
+    mimicAll: false,
+    useTagC: false,
+    useTagT: true,
+    useTagR: true,
+    useTagRC: true,
+    useTagRD: true,
+    useBrowserFp: false,
+    browserProfile: '',
+    mtu: 1500,
+    junkLevel: 5,
+    iterCount: 0,
+    routerMode: false,
+    useExtremeMax: false,
+  })
+  snippet.value = [
+    '[Interface]',
+    `H1 = ${cfg.h1}`,
+    `H2 = ${cfg.h2}`,
+    `H3 = ${cfg.h3}`,
+    `H4 = ${cfg.h4}`,
+    `S1 = ${cfg.s1}`,
+    `S2 = ${cfg.s2}`,
+    `S3 = ${cfg.s3}`,
+    `S4 = ${cfg.s4}`,
+    `Jc = ${cfg.jc}`,
+    `Jmin = ${cfg.jmin}`,
+    `Jmax = ${cfg.jmax}`,
+    `I1 = ${cfg.i1}`,
+    `I2 = ${cfg.i2}`,
+    `I3 = ${cfg.i3}`,
+    `I4 = ${cfg.i4}`,
+    `I5 = ${cfg.i5}`,
+  ].join('\n')
+}
 
 const deleteFor = ref<CabinetDevice | null>(null)
 const deleteBusy = ref(false)
@@ -208,24 +252,43 @@ function relTime(s?: string | null) {
               <h3 class="text-[16px] font-semibold">Добавить устройство</h3>
               <button class="text-ink-500 hover:text-ink-900 text-[18px]" @click="closeAdd">×</button>
             </div>
-            <p class="text-[12px] text-ink-500 leading-relaxed">
-              Сгенерируйте параметры обфускации в
-              <a class="underline" target="_blank" rel="noopener" href="https://vadim-khristenko.github.io/AmneziaWG-Architect/">AmneziaWG-Architect</a>
-              (AWG 2.0), скопируйте блок <code class="mono">[Interface]</code> и вставьте сюда.
-              На каждом устройстве свой snippet — обфускация не должна совпадать между ними.
-            </p>
-
             <div class="space-y-1.5">
               <label class="text-[12px] text-ink-700 font-medium">Имя устройства</label>
               <input v-model="deviceName" class="w-full p-2.5 rounded-lg bg-ink-100/60 border border-ink-900/10 text-[13px] focus-ring"
                      placeholder="iPhone / MacBook / ноут жены" />
             </div>
 
+            <!-- Встроенный генератор обфускации -->
+            <div class="rounded-xl border border-ink-900/10 bg-ink-50/60 p-4 space-y-3">
+              <div class="text-[12px] text-ink-700 font-medium">Параметры обфускации</div>
+              <p class="text-[11px] text-ink-500 leading-relaxed">
+                Генерируется уникальный набор параметров для этого устройства. На каждом устройстве должен быть свой — не используйте один snippet дважды.
+              </p>
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-ink-500 shrink-0">Интенсивность:</span>
+                <div class="flex rounded-lg border border-ink-900/10 overflow-hidden text-[11px] font-medium">
+                  <button v-for="lvl in (['low', 'medium', 'high'] as Intensity[])" :key="lvl"
+                    class="px-3 py-1.5 transition-colors"
+                    :class="genIntensity === lvl ? 'bg-ink-900 text-white' : 'bg-white text-ink-700 hover:bg-ink-100'"
+                    @click="genIntensity = lvl">
+                    {{ lvl === 'low' ? 'Низкая' : lvl === 'medium' ? 'Средняя' : 'Высокая' }}
+                  </button>
+                </div>
+                <button class="ml-auto text-[11px] px-3 py-1.5 rounded-lg bg-ink-900 text-white hover:bg-ink-800 font-medium shrink-0"
+                        @click="generateSnippet">
+                  {{ snippet ? '↺ Перегенерировать' : '✦ Сгенерировать' }}
+                </button>
+              </div>
+            </div>
+
             <div class="space-y-1.5">
-              <label class="text-[12px] text-ink-700 font-medium">Блок [Interface]</label>
-              <textarea v-model="snippet" rows="12"
+              <div class="flex items-center justify-between">
+                <label class="text-[12px] text-ink-700 font-medium">Блок [Interface]</label>
+                <span class="text-[10px] text-ink-400">или вставьте из <a class="underline" href="https://vadim-khristenko.github.io/AmneziaWG-Architect/" target="_blank" rel="noopener">Architect</a></span>
+              </div>
+              <textarea v-model="snippet" rows="10"
                         class="w-full p-3 rounded-lg bg-ink-100/60 border border-ink-900/10 text-[11.5px] mono leading-snug focus-ring"
-                        :placeholder="`[Interface]\nJc = 4\nJmin = 362\nJmax = 943\nS1 = 43\nS2 = 65\nS3 = 35\nS4 = 28\nH1 = 320858491-320865164\nH2 = 1445464973-1445512660\nH3 = 3235131120-3235164350\nH4 = 3875042355-3875063814\nI1 = <b 0x...>`" />
+                        placeholder="Нажмите «Сгенерировать» или вставьте блок [Interface] из AmneziaWG-Architect" />
             </div>
 
             <p v-if="addErr" class="text-[12px] text-danger">{{ addErr }}</p>
