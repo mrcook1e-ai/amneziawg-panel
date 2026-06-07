@@ -130,6 +130,63 @@ func (h *Handlers) cabinetDeviceConfig(w http.ResponseWriter, r *http.Request) {
 	w.Write(conf)
 }
 
+// cabinetDeviceAmneziaVPN / QR — same data as the admin endpoint but auth via
+// cabinet token, and verifies ownership before exposing the URL.
+func (h *Handlers) cabinetDeviceAmneziaVPN(w http.ResponseWriter, r *http.Request) {
+	sub, err := h.Mgr.FindSubscriberByToken(chi.URLParam(r, "token"))
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"error": "cabinet not found"})
+		return
+	}
+	devID := chi.URLParam(r, "devId")
+	c, _, err := h.Mgr.ClientConfig(devID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if c.SubscriberID != sub.ID {
+		writeJSON(w, 404, map[string]string{"error": "device not in this cabinet"})
+		return
+	}
+	url, err := h.Mgr.AmneziaVPNURL(devID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(url))
+}
+
+func (h *Handlers) cabinetDeviceAmneziaQR(w http.ResponseWriter, r *http.Request) {
+	sub, err := h.Mgr.FindSubscriberByToken(chi.URLParam(r, "token"))
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"error": "cabinet not found"})
+		return
+	}
+	devID := chi.URLParam(r, "devId")
+	c, _, err := h.Mgr.ClientConfig(devID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if c.SubscriberID != sub.ID {
+		writeJSON(w, 404, map[string]string{"error": "device not in this cabinet"})
+		return
+	}
+	url, err := h.Mgr.AmneziaVPNURL(devID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	png, err := qrcode.Encode(url, qrcode.Low, 768)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "qr encode failed"})
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Write(png)
+}
+
 func (h *Handlers) cabinetDeviceQR(w http.ResponseWriter, r *http.Request) {
 	sub, err := h.Mgr.FindSubscriberByToken(chi.URLParam(r, "token"))
 	if err != nil {

@@ -182,8 +182,33 @@ func (h *Handlers) clientQR(w http.ResponseWriter, r *http.Request) {
 	w.Write(png)
 }
 
-// AmneziaVPN-format ("vpn://" container) export removed in the AWG 2.0-only
-// migration. Clients consume the plain .conf via clientConfig / clientQR.
+func (h *Handlers) clientAmneziaVPN(w http.ResponseWriter, r *http.Request) {
+	url, err := h.Mgr.AmneziaVPNURL(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(url))
+}
+
+func (h *Handlers) clientAmneziaQR(w http.ResponseWriter, r *http.Request) {
+	url, err := h.Mgr.AmneziaVPNURL(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	// vpn:// URLs are long (often 1-2 KB) — High error correction would push us
+	// past QR version 40's capacity. Low EC + larger image keeps phone cameras
+	// happy.
+	png, err := qrcode.Encode(url, qrcode.Low, 768)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Write(png)
+}
 
 // serverResetClients keeps the existing "wipe every client" surface but it now
 // wipes across all profiles.

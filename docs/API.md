@@ -213,6 +213,12 @@ Body: `{ "address": "10.8.0.7" }`. Валидируется по /24 и uniquene
 ### `GET /api/wireguard/client/{id}/qrcode.svg`
 **Возвращает PNG** (несмотря на расширение в URL). `Content-Type: image/png`, 512×512. То же содержимое что `.conf`.
 
+### `GET /api/wireguard/client/{id}/amnezia.vpn`
+`Content-Type: text/plain`. Возвращает `vpn://AAAN...` строку для импорта в **официальный AmneziaVPN клиент** (Android/iOS/Win/Mac/Linux). Совместимый формат: 4-байтная BE-длина + zlib(JSON ServerConfig) + base64url-без-padding.
+
+### `GET /api/wireguard/client/{id}/amnezia-qrcode.svg`
+**PNG 768×768**, error-correction уровень Low (vpn-URL длинный, 1–2 KB; Medium/High не влезает в QR-version 40). Кодирует ту же `vpn://...` строку — поднеси к камере, AmneziaVPN сам распознает.
+
 ### `GET /api/wireguard/client/{id}/stats`
 Метрики из SQLite (per-client история).
 
@@ -277,6 +283,12 @@ Backend парсит snippet (см. [snippet формат](#snippet-формат
 
 ### `GET /api/cabinet/{token}/devices/{devId}/qrcode.svg`
 Повторный QR. PNG, 512×512.
+
+### `GET /api/cabinet/{token}/devices/{devId}/amnezia.vpn`
+То же что admin-эндпоинт (`vpn://...` строка), но с проверкой что device принадлежит owner-у токена.
+
+### `GET /api/cabinet/{token}/devices/{devId}/amnezia-qrcode.svg`
+PNG 768×768 с `vpn://...` для AmneziaVPN-клиента.
 
 ---
 
