@@ -31,6 +31,7 @@ import {
   Moon,
   Sparkles,
   Search,
+  AlertTriangle,
 } from 'lucide-vue-next'
 
 type Name =
@@ -38,7 +39,7 @@ type Name =
   | 'check' | 'x' | 'logout' | 'shield' | 'eye' | 'eye-off'
   | 'chevron-down' | 'chevron-right' | 'chevron-left'
   | 'settings' | 'refresh' | 'power' | 'info'
-  | 'sun' | 'moon' | 'sparkles' | 'search'
+  | 'sun' | 'moon' | 'sparkles' | 'search' | 'alert-triangle'
 
 const props = withDefaults(defineProps<{
   name: Name
@@ -71,6 +72,7 @@ const map: Record<Name, any> = {
   'moon':          Moon,
   'sparkles':      Sparkles,
   'search':        Search,
+  'alert-triangle': AlertTriangle,
 }
 </script>
 

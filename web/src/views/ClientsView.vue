@@ -17,6 +17,7 @@ import Input from '@/components/atoms/Input.vue'
 import Button from '@/components/atoms/Button.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
 import Icon from '@/components/atoms/Icon.vue'
+import Badge from '@/components/atoms/Badge.vue'
 import { ArrowDown, ArrowUp } from 'lucide-vue-next'
 import type { Subscriber } from '@/types'
 
@@ -113,15 +114,29 @@ async function copyCabinetUrl(url: string) {
   catch { toasts.error('Не удалось скопировать') }
 }
 
-// ── Search ───────────────────────────────────────────────────────────────
+// ── Search + "empty-only" filter ──────────────────────────────────────
+// "Empty" = subscriber with zero peers yet. Flagged separately because
+// after server migrations or first onboarding these are the rows the
+// admin needs to chase (cabinet link → user → import .vpn).
 const search = ref('')
+const onlyEmpty = ref(false)
+function isEmpty(s: Subscriber): boolean {
+  return deviceCountOf(s) === 0
+}
+const emptyCount = computed(() => subs.items.filter(isEmpty).length)
 const filteredSubs = computed(() => {
   const q = search.value.trim().toLowerCase()
-  if (!q) return subs.items
-  return subs.items.filter(s =>
-    s.name.toLowerCase().includes(q) ||
-    (s.notes ?? '').toLowerCase().includes(q),
-  )
+  let list = subs.items
+  if (onlyEmpty.value) list = list.filter(isEmpty)
+  if (q) {
+    list = list.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      (s.notes ?? '').toLowerCase().includes(q),
+    )
+  }
+  // Within the visible list, put empties first — they're what the admin
+  // needs to act on. Stable sort keeps everything else in incoming order.
+  return [...list].sort((a, b) => Number(isEmpty(b)) - Number(isEmpty(a)))
 })
 
 async function doDeleteSub() {
@@ -191,11 +206,31 @@ async function doRegen() {
 
       <!-- ── Subscriber list ── -->
       <section class="space-y-4 animate-rise delay-2">
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-3 flex-wrap">
           <h2 class="eyebrow">
             Все клиенты
-            <template v-if="subs.items.length"> · {{ filteredSubs.length }}<span v-if="search">/{{ subs.items.length }}</span></template>
+            <template v-if="subs.items.length"> · {{ filteredSubs.length }}<span v-if="search || onlyEmpty">/{{ subs.items.length }}</span></template>
           </h2>
+
+          <!--
+            Filter chip — "X без устройств". Toggle-pressed binds to
+            onlyEmpty so the click acts like a chip-style filter.
+            Hidden when there's nothing to chase (emptyCount === 0).
+          -->
+          <button
+            v-if="emptyCount > 0"
+            type="button"
+            :aria-pressed="onlyEmpty"
+            class="inline-flex items-center gap-1.5 h-6 px-2 rounded-full text-[11px] font-medium tracking-wide transition-colors"
+            :class="onlyEmpty
+              ? 'bg-warning text-white'
+              : 'bg-warning/12 text-warning hover:bg-warning/20'"
+            :title="onlyEmpty ? 'Показать всех' : 'Показать только без устройств'"
+            @click="onlyEmpty = !onlyEmpty">
+            <Icon name="alert-triangle" :size="11" />
+            {{ emptyCount }} без устройств
+          </button>
+
           <div class="hairline flex-1" />
         </div>
 
@@ -250,10 +285,18 @@ async function doRegen() {
             class="px-5 py-4 flex items-center gap-4 transition-colors group"
             :class="onlineOf(s) > 0 ? 'hover:bg-success/4' : 'hover:bg-ink-100/40'">
 
-            <!-- Online pulse / dot -->
+            <!--
+              Status dot — three states:
+                · online (≥1 peer with fresh handshake) → live-dot
+                · empty  (0 peers — no device added yet) → amber warning dot
+                · idle   (peers exist but none online)  → ink-200 mute
+            -->
             <div class="shrink-0 flex items-center">
               <template v-if="onlineOf(s) > 0">
                 <span class="live-dot" />
+              </template>
+              <template v-else-if="isEmpty(s)">
+                <span class="w-2.5 h-2.5 rounded-full bg-warning block" />
               </template>
               <template v-else>
                 <span class="w-2.5 h-2.5 rounded-full bg-ink-200 block" />
@@ -266,7 +309,16 @@ async function doRegen() {
                 <span class="text-[15px] font-semibold text-ink-900 group-hover:text-ink-950 transition-colors">
                   {{ s.name }}
                 </span>
-                <span class="text-[11.5px] text-ink-500 mono">
+                <!--
+                  Empty-state badge replaces the "X устр." caption for
+                  subscribers with zero peers. Calls out the row that
+                  needs action (cabinet link sent? user imported config?)
+                -->
+                <Badge v-if="isEmpty(s)" tone="warning" size="xs">
+                  <Icon name="alert-triangle" :size="10" />
+                  нет устройств
+                </Badge>
+                <span v-else class="text-[11.5px] text-ink-500 mono">
                   {{ deviceCountOf(s) }} устр.
                   <template v-if="onlineOf(s) > 0">
                     · <span class="text-success font-medium">{{ onlineOf(s) }} онлайн</span>
@@ -275,7 +327,8 @@ async function doRegen() {
               </div>
               <div class="text-[11.5px] text-ink-400 mt-0.5 truncate">
                 <template v-if="s.notes">{{ s.notes }} · </template>
-                {{ lastSeenOf(s) ? relativeTime(lastSeenOf(s)) : 'не подключались' }}
+                <template v-if="isEmpty(s)">кабинет ещё не использован</template>
+                <template v-else>{{ lastSeenOf(s) ? relativeTime(lastSeenOf(s)) : 'не подключались' }}</template>
               </div>
             </div>
 
