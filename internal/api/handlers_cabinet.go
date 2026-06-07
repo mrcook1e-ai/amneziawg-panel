@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net"
 	"net/http"
 	"strings"
 
@@ -11,6 +12,45 @@ import (
 
 	"github.com/mrcook1e/amneziawg-panel/internal/awg"
 )
+
+// sanitizeAllowedIPs accepts a comma-separated AllowedIPs string from an
+// untrusted source (cabinet query string) and returns the normalized form
+// or "" if the input is empty / fully invalid. Each entry must parse as a
+// CIDR (net.ParseCIDR). Invalid entries are dropped silently — partial
+// validity beats a 400 here because the cabinet UI builds the string from
+// a curated CIDR list, and we want graceful degradation if a stale list
+// leaks a malformed entry. Hard cap at 4096 entries / 32 KiB total to keep
+// the URL bounded.
+func sanitizeAllowedIPs(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > 32*1024 {
+		return ""
+	}
+	parts := strings.Split(raw, ",")
+	if len(parts) > 4096 {
+		parts = parts[:4096]
+	}
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		t := strings.TrimSpace(p)
+		if t == "" {
+			continue
+		}
+		// Accept both "1.2.3.4/24" and the IPv4-default sentinel "0.0.0.0/0".
+		_, ipnet, err := net.ParseCIDR(t)
+		if err != nil {
+			continue
+		}
+		norm := ipnet.String()
+		if _, dup := seen[norm]; dup {
+			continue
+		}
+		seen[norm] = struct{}{}
+		out = append(out, norm)
+	}
+	return strings.Join(out, ", ")
+}
 
 // Public cabinet — auth is the token in URL (magic-link). Subscriber sees
 // their own devices, can add new ones (each device gets its own awgN
@@ -148,10 +188,17 @@ func (h *Handlers) cabinetDeviceAmneziaVPN(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, 404, map[string]string{"error": "device not in this cabinet"})
 		return
 	}
-	url, err := h.Mgr.AmneziaVPNURL(devID)
+	// Optional ?allowed_ips=… — sanitized CIDR list from cabinet split-tunnel UI.
+	override := sanitizeAllowedIPs(r.URL.Query().Get("allowed_ips"))
+	url, err := h.Mgr.AmneziaVPNURLWith(devID, override)
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	// Override-bearing responses must not be cached — different requests
+	// for the same device can carry different AllowedIPs.
+	if override != "" {
+		w.Header().Set("Cache-Control", "no-store")
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Write([]byte(url))
@@ -173,7 +220,8 @@ func (h *Handlers) cabinetDeviceAmneziaQR(w http.ResponseWriter, r *http.Request
 		writeJSON(w, 404, map[string]string{"error": "device not in this cabinet"})
 		return
 	}
-	url, err := h.Mgr.AmneziaVPNURL(devID)
+	override := sanitizeAllowedIPs(r.URL.Query().Get("allowed_ips"))
+	url, err := h.Mgr.AmneziaVPNURLWith(devID, override)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -182,6 +230,9 @@ func (h *Handlers) cabinetDeviceAmneziaQR(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "qr encode failed"})
 		return
+	}
+	if override != "" {
+		w.Header().Set("Cache-Control", "no-store")
 	}
 	w.Header().Set("Content-Type", "image/png")
 	w.Write(png)
@@ -203,10 +254,14 @@ func (h *Handlers) cabinetDeviceAmneziaQRChunks(w http.ResponseWriter, r *http.R
 		writeJSON(w, 404, map[string]string{"error": "device not in this cabinet"})
 		return
 	}
-	pngs, err := h.Mgr.AmneziaVPNChunks(devID)
+	override := sanitizeAllowedIPs(r.URL.Query().Get("allowed_ips"))
+	pngs, err := h.Mgr.AmneziaVPNChunksWith(devID, override)
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	if override != "" {
+		w.Header().Set("Cache-Control", "no-store")
 	}
 	writeQRChunks(w, pngs)
 }

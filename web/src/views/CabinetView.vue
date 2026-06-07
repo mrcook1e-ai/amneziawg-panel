@@ -6,6 +6,7 @@ import {
   Shield, Lock, Key, Smartphone, Laptop, Monitor,
   QrCode, Download, Copy, Check, Trash2, X,
   Sun, Moon, Plus, RefreshCw, ChevronLeft, ChevronRight, Loader2,
+  Compass,
 } from 'lucide-vue-next'
 
 import { api } from '@/lib/api'
@@ -16,6 +17,7 @@ import { genCfg } from '@/utils/generator'
 import Button from '@/components/atoms/Button.vue'
 import Badge from '@/components/atoms/Badge.vue'
 import QrCarousel from '@/components/molecules/QrCarousel.vue'
+import SplitTunnelPicker from '@/components/molecules/SplitTunnelPicker.vue'
 
 const route = useRoute()
 const token  = computed(() => String(route.params.token || ''))
@@ -50,6 +52,35 @@ const justAdded      = ref<AddDeviceResult | null>(null)
 type DeviceTemplate = 'phone' | 'laptop' | 'desktop' | 'other'
 const pickedTemplate = ref<DeviceTemplate>('phone')
 const customName     = ref('')
+
+// ── Advanced obfuscation params (collapsed by default) ──────────────────
+// genCfg() takes ~15 toggles; exposing them all to end-users is overwhelming
+// and most are admin-territory (browser fingerprint, junk iteration count).
+// We surface the four that meaningfully change behavior in restrictive
+// networks: obfuscation intensity, mimicry profile, MTU, and an "extreme"
+// fallback for networks that block "medium".
+import type { Intensity, MimicProfile } from '@/utils/generator'
+
+const advIntensity   = ref<Intensity>('medium')
+const advProfile     = ref<MimicProfile>('quic_initial')
+const advMtu         = ref<number>(1500)
+const advExtreme     = ref<boolean>(false)
+
+const INTENSITIES: { v: Intensity; label: string; hint: string }[] = [
+  { v: 'low',    label: 'Лёгкая',  hint: 'быстрее, меньше нагрузки' },
+  { v: 'medium', label: 'Средняя', hint: 'баланс — рекомендуется'   },
+  { v: 'high',   label: 'Сильная', hint: 'устойчивее к блокировкам' },
+]
+// Curated subset of generator MimicProfile values that the user can
+// reasonably reason about. Esoteric ones (dtls, sip, dns_query) stay
+// admin-only — exposing them adds confusion without changing outcomes
+// for the common "is anything blocked" use case.
+const PROFILES: { v: MimicProfile; label: string }[] = [
+  { v: 'quic_initial',     label: 'QUIC' },
+  { v: 'tls_client_hello', label: 'TLS · HTTPS' },
+  { v: 'http3',            label: 'HTTP/3' },
+  { v: 'random',           label: 'Случайно' },
+]
 
 interface Template { key: DeviceTemplate; icon: any; label: string }
 const templates: Template[] = [
@@ -122,6 +153,28 @@ function qrNext() {
 const deleteFor  = ref<CabinetDevice | null>(null)
 const deleteBusy = ref(false)
 
+// ── Routes (split tunnel) sheet ───────────────────────────────────────
+// Per-device, ephemeral. Picked services are not persisted server-side —
+// the user re-imports the resulting .vpn / QR; server only learns the
+// override at request time. See AmneziaVPNURLWith on the backend.
+const routesFor       = ref<CabinetDevice | null>(null)
+const routesMode      = ref<'all' | 'selected'>('all')
+const routesAllowedIPs = ref('')
+
+function openRoutes(d: CabinetDevice) {
+  routesFor.value = d
+  routesMode.value = 'all'
+  routesAllowedIPs.value = ''
+}
+function closeRoutes() {
+  routesFor.value = null
+}
+// The override actually sent to the server. "all" mode → empty string,
+// which means "use server default" (0.0.0.0/0, ::/0 in most configs).
+const effectiveAllowedIPs = computed(() =>
+  routesMode.value === 'selected' ? routesAllowedIPs.value : ''
+)
+
 // ── Load ───────────────────────────────────────────────────────────────
 async function reload() {
   try {
@@ -150,12 +203,20 @@ async function createDevice() {
   const name       = customName.value.trim() || defaultName[pickedTemplate.value]
   wizardStep.value = 'creating'
 
+  // Map the user-facing knobs onto genCfg's full parameter surface. "extreme"
+  // mode pins intensity to 'high' and flips useExtremeMax — the underlying
+  // junk parameters scale up automatically inside the generator.
+  const intensity = advExtreme.value ? 'high' : advIntensity.value
   const cfg = genCfg({
-    version: '2.0', intensity: 'medium', profile: 'quic_initial',
+    version: '2.0',
+    intensity,
+    profile: advProfile.value,
     customHost: '', mimicAll: false, useTagC: false,
     useTagT: true, useTagR: true, useTagRC: true, useTagRD: true,
-    useBrowserFp: false, browserProfile: '', mtu: 1500,
-    junkLevel: 5, iterCount: 0, routerMode: false, useExtremeMax: false,
+    useBrowserFp: false, browserProfile: '',
+    mtu: Math.max(576, Math.min(1500, Number(advMtu.value) || 1500)),
+    junkLevel: 5, iterCount: 0, routerMode: false,
+    useExtremeMax: advExtreme.value,
   })
   const snippet = [
     '[Interface]',
@@ -178,6 +239,8 @@ async function createDevice() {
 // ── URL helpers ──────────────────────────────────────────────────────────
 const amneziaQr  = (id: string) => api.cabinetDeviceAmneziaQrUrl(token.value, id)
 const amneziaVpn = (id: string) => api.cabinetDeviceAmneziaVpnUrl(token.value, id)
+const amneziaVpnWith = (id: string, allowedIPs: string) =>
+  api.cabinetDeviceAmneziaVpnUrl(token.value, id, allowedIPs)
 
 // ── Copy vpn:// ───────────────────────────────────────────────────────────
 const copiedId   = ref<string | null>(null)
@@ -472,6 +535,15 @@ const qrDeviceName = computed(() =>
                   .vpn
                 </a>
 
+                <!-- Routes — split tunnel sheet -->
+                <button
+                  class="h-10 w-10 flex items-center justify-center rounded-xl text-ink-400 hover:text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-all shrink-0"
+                  title="Маршруты — выбрать сервисы для VPN"
+                  :aria-label="`Настроить маршруты для ${d.name}`"
+                  @click="openRoutes(d)">
+                  <Compass :size="15" />
+                </button>
+
                 <!-- Copy vpn:// -->
                 <button
                   class="h-10 w-10 flex items-center justify-center rounded-xl transition-all shrink-0"
@@ -514,17 +586,18 @@ const qrDeviceName = computed(() =>
     </template>
 
     <!-- ─── QR Fullscreen carousel ───────────────────────────────────── -->
+    <!--
+      Uses the .scrim class (with a heavier local override of --scrim-alpha)
+      so the backdrop-filter is composited from the first frame, matching
+      the lag-free behavior of the regular modal scrim. Bare black at 0.96
+      is dark enough that the QR (white card) reads cleanly.
+    -->
     <Teleport to="body">
-      <Transition
-        enter-active-class="transition-opacity duration-200"
-        leave-active-class="transition-opacity duration-150"
-        enter-from-class="opacity-0"
-        leave-to-class="opacity-0">
-        <div
-          v-if="qrOpenFor"
-          class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4"
-          style="background: rgba(0,0,0,0.94); backdrop-filter: blur(20px)"
-          @click.self="closeQr">
+      <div
+        v-if="qrOpenFor"
+        class="fixed inset-0 z-50 scrim flex flex-col items-center justify-center gap-4"
+        style="--scrim-alpha: 0.96"
+        @click.self="closeQr">
 
           <!-- Close -->
           <button
@@ -630,7 +703,6 @@ const qrDeviceName = computed(() =>
             Скачать .vpn
           </a>
         </div>
-      </Transition>
     </Teleport>
 
     <!-- ─── Add-device wizard ────────────────────────────────────────── -->
@@ -690,6 +762,81 @@ const qrDeviceName = computed(() =>
                   :placeholder="defaultName[pickedTemplate]"
                   @keydown.enter="createDevice" />
               </div>
+
+              <!-- ── Advanced (collapsed) ── -->
+              <details class="rounded-2xl bg-ink-100/60 dark:bg-ink-200/30 group">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 select-none">
+                  <span class="text-[12px] font-semibold text-ink-600 dark:text-ink-500">
+                    Дополнительно
+                  </span>
+                  <ChevronRight :size="14" class="text-ink-400 transition-transform group-open:rotate-90" />
+                </summary>
+                <div class="px-4 pb-4 pt-1 space-y-4">
+
+                  <!-- Intensity -->
+                  <div>
+                    <label class="text-[10.5px] font-semibold text-ink-500 uppercase tracking-[0.12em] block mb-2">
+                      Уровень обфускации
+                    </label>
+                    <div class="grid grid-cols-3 gap-1.5">
+                      <button
+                        v-for="i in INTENSITIES" :key="i.v"
+                        type="button"
+                        class="flex flex-col items-start py-2 px-2.5 rounded-xl text-left transition-colors duration-150 active:translate-y-px"
+                        :class="advIntensity === i.v
+                          ? 'bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)]'
+                          : 'bg-ink-100 hover:bg-ink-200'"
+                        @click="advIntensity = i.v">
+                        <span class="text-[12px] font-semibold leading-tight">{{ i.label }}</span>
+                        <span class="text-[10px] text-ink-500 leading-tight mt-0.5">{{ i.hint }}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Mimic profile -->
+                  <div>
+                    <label class="text-[10.5px] font-semibold text-ink-500 uppercase tracking-[0.12em] block mb-2">
+                      Маскировка под
+                    </label>
+                    <div class="grid grid-cols-2 gap-1.5">
+                      <button
+                        v-for="p in PROFILES" :key="p.v"
+                        type="button"
+                        class="py-2 px-3 rounded-xl text-[12px] font-semibold transition-colors duration-150 active:translate-y-px"
+                        :class="advProfile === p.v
+                          ? 'bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)]'
+                          : 'bg-ink-100 hover:bg-ink-200'"
+                        @click="advProfile = p.v">{{ p.label }}</button>
+                    </div>
+                  </div>
+
+                  <!-- MTU -->
+                  <div>
+                    <label class="text-[10.5px] font-semibold text-ink-500 uppercase tracking-[0.12em] block mb-2">
+                      MTU
+                    </label>
+                    <input
+                      v-model.number="advMtu"
+                      type="number" min="576" max="1500" step="1"
+                      class="w-full h-10 px-3.5 rounded-xl bg-ink-100 text-[13px] text-ink-900 outline-none focus:bg-amber-50 dark:focus:bg-amber-400/10 transition-colors"
+                    />
+                    <p class="mt-1 text-[10.5px] text-ink-500">По умолчанию 1500. Уменьшите до 1280, если есть проблемы со связью.</p>
+                  </div>
+
+                  <!-- Extreme toggle -->
+                  <label class="flex items-start gap-3 cursor-pointer p-3 rounded-xl bg-ink-100 hover:bg-ink-200 transition-colors">
+                    <input
+                      v-model="advExtreme"
+                      type="checkbox"
+                      class="mt-0.5 h-4 w-4 rounded accent-amber-500"
+                    />
+                    <div class="min-w-0 flex-1">
+                      <p class="text-[12.5px] font-semibold leading-tight">Усиленный режим</p>
+                      <p class="text-[11px] text-ink-500 mt-0.5 leading-snug">Для самых строгих сетей (Иран, Туркменистан, школьный WiFi). Включает максимальное junk-наполнение.</p>
+                    </div>
+                  </label>
+                </div>
+              </details>
 
               <p v-if="wizardErr" class="text-[12.5px] text-danger bg-danger/10 rounded-xl px-4 py-3">{{ wizardErr }}</p>
 
@@ -827,6 +974,98 @@ const qrDeviceName = computed(() =>
                 @click="confirmDelete">
                 {{ deleteBusy ? 'Удаляем…' : 'Удалить' }}
               </Button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ─── Routes (split tunnel) sheet ──────────────────────────────── -->
+    <Teleport to="body">
+      <div v-if="routesFor" class="fixed inset-0 z-50 scrim" @click="closeRoutes" />
+      <Transition name="sheet">
+        <div
+          v-if="routesFor"
+          class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 pointer-events-none">
+          <div class="sheet-panel relative w-full sm:max-w-lg bg-surface-raised rounded-t-5xl sm:rounded-5xl shadow-pop overflow-hidden pointer-events-auto max-h-[92vh] flex flex-col">
+
+            <!-- Header -->
+            <div class="flex items-start justify-between gap-3 px-6 pt-5 pb-3 shrink-0">
+              <div class="space-y-0.5">
+                <h3 class="text-[18px] font-semibold leading-tight">Маршруты</h3>
+                <p class="text-[12px] text-ink-500">
+                  {{ routesFor.name }} · <span class="mono">{{ routesFor.address }}</span>
+                </p>
+              </div>
+              <button
+                class="w-9 h-9 rounded-full flex items-center justify-center text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-colors shrink-0"
+                aria-label="Закрыть"
+                @click="closeRoutes">
+                <X :size="16" />
+              </button>
+            </div>
+
+            <!-- Mode picker + body — scroll if tall -->
+            <div class="px-6 pb-5 pt-1 space-y-5 overflow-y-auto">
+
+              <!-- Mode radios -->
+              <div class="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  class="text-left p-3.5 rounded-2xl transition-colors duration-150 active:translate-y-px"
+                  :class="routesMode === 'all'
+                    ? 'bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)]'
+                    : 'bg-ink-100 hover:bg-ink-200'"
+                  @click="routesMode = 'all'">
+                  <div class="flex items-center gap-2 mb-1">
+                    <Shield :size="14" :class="routesMode === 'all' ? 'text-amber-500' : 'text-ink-500'" />
+                    <span class="text-[13px] font-semibold">Весь трафик</span>
+                  </div>
+                  <p class="text-[11.5px] text-ink-500 leading-snug">Полный VPN — всё уходит в туннель.</p>
+                </button>
+                <button
+                  type="button"
+                  class="text-left p-3.5 rounded-2xl transition-colors duration-150 active:translate-y-px"
+                  :class="routesMode === 'selected'
+                    ? 'bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)]'
+                    : 'bg-ink-100 hover:bg-ink-200'"
+                  @click="routesMode = 'selected'">
+                  <div class="flex items-center gap-2 mb-1">
+                    <Compass :size="14" :class="routesMode === 'selected' ? 'text-amber-500' : 'text-ink-500'" />
+                    <span class="text-[13px] font-semibold">Выбранные сервисы</span>
+                  </div>
+                  <p class="text-[11.5px] text-ink-500 leading-snug">Только нужные сайты пойдут через VPN.</p>
+                </button>
+              </div>
+
+              <!-- Service picker — only in selected mode -->
+              <SplitTunnelPicker
+                v-if="routesMode === 'selected'"
+                :value="routesAllowedIPs"
+                @update:value="v => routesAllowedIPs = v"
+              />
+
+              <!-- Preview: QR + .vpn — updates live when allowedIPs change -->
+              <div class="flex flex-col items-center gap-4 pt-2">
+                <QrCarousel
+                  :token="token"
+                  :device-id="routesFor.id"
+                  :device-name="routesFor.name"
+                  :allowed-ips="effectiveAllowedIPs"
+                  :size="220"
+                />
+                <a
+                  :href="amneziaVpnWith(routesFor.id, effectiveAllowedIPs)"
+                  :download="`${routesFor.name}.vpn`"
+                  class="btn-primary inline-flex items-center gap-2 px-5 h-11 text-[13.5px]">
+                  <Download :size="15" />
+                  Скачать .vpn с этими маршрутами
+                </a>
+                <p class="text-[11.5px] text-ink-500 text-center max-w-xs leading-relaxed">
+                  После импорта новый профиль заменит старый в приложении AmneziaVPN.
+                  Серверные ключи не меняются — это просто другой пресет маршрутов.
+                </p>
+              </div>
             </div>
           </div>
         </div>

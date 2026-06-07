@@ -26,7 +26,13 @@ import (
 // big-endian int32 length BEFORE the array bytes. Without this prefix the
 // Amnezia import controller cannot deserialise the chunk and silently rejects it.
 func (m *Manager) AmneziaVPNChunks(deviceID string) ([][]byte, error) {
-	url, err := m.AmneziaVPNURL(deviceID)
+	return m.AmneziaVPNChunksWith(deviceID, "")
+}
+
+// AmneziaVPNChunksWith mirrors AmneziaVPNChunks with an AllowedIPs override
+// for cabinet-driven split tunneling. See AmneziaVPNURLWith for precedence.
+func (m *Manager) AmneziaVPNChunksWith(deviceID, allowedIPsOverride string) ([][]byte, error) {
+	url, err := m.AmneziaVPNURLWith(deviceID, allowedIPsOverride)
 	if err != nil {
 		return nil, err
 	}

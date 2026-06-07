@@ -107,12 +107,22 @@ export const api = {
     `/api/cabinet/${enc(token)}/devices/${enc(devId)}/configuration`,
   cabinetDeviceQrUrl: (token: string, devId: string) =>
     `/api/cabinet/${enc(token)}/devices/${enc(devId)}/qrcode.svg`,
-  cabinetDeviceAmneziaVpnUrl: (token: string, devId: string) =>
-    `/api/cabinet/${enc(token)}/devices/${enc(devId)}/amnezia.vpn`,
-  cabinetDeviceAmneziaQrUrl: (token: string, devId: string) =>
-    `/api/cabinet/${enc(token)}/devices/${enc(devId)}/amnezia-qrcode.svg`,
-  cabinetDeviceAmneziaQrChunks: (token: string, devId: string) =>
-    request<{ chunks: string[] }>(`/api/cabinet/${enc(token)}/devices/${enc(devId)}/amnezia-qr-chunks`),
+  // Optional allowedIPs — cabinet split-tunnel override. Server validates
+  // CIDRs and silently drops invalid entries; empty / missing → server default.
+  cabinetDeviceAmneziaVpnUrl: (token: string, devId: string, allowedIPs?: string) =>
+    `/api/cabinet/${enc(token)}/devices/${enc(devId)}/amnezia.vpn${
+      allowedIPs ? `?allowed_ips=${encodeURIComponent(allowedIPs)}` : ''
+    }`,
+  cabinetDeviceAmneziaQrUrl: (token: string, devId: string, allowedIPs?: string) =>
+    `/api/cabinet/${enc(token)}/devices/${enc(devId)}/amnezia-qrcode.svg${
+      allowedIPs ? `?allowed_ips=${encodeURIComponent(allowedIPs)}` : ''
+    }`,
+  cabinetDeviceAmneziaQrChunks: (token: string, devId: string, allowedIPs?: string) =>
+    request<{ chunks: string[] }>(
+      `/api/cabinet/${enc(token)}/devices/${enc(devId)}/amnezia-qr-chunks${
+        allowedIPs ? `?allowed_ips=${encodeURIComponent(allowedIPs)}` : ''
+      }`,
+    ),
 
   // Admin: Amnezia-native format URLs
   amneziaVpnUrl: (id: string) => `/api/wireguard/client/${enc(id)}/amnezia.vpn`,

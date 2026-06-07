@@ -29,6 +29,22 @@ import (
 //   - last_config.config uses $PRIMARY_DNS / $SECONDARY_DNS placeholders
 //   - isThirdPartyConfig: true (skips server-side SSH/Docker on import)
 func (m *Manager) AmneziaVPNURL(deviceID string) (string, error) {
+	return m.AmneziaVPNURLWith(deviceID, "")
+}
+
+// AmneziaVPNURLWith builds the same payload as AmneziaVPNURL but with an
+// explicit AllowedIPs override, used by the user-facing split-tunnel UI
+// in the cabinet. Precedence (first non-empty wins):
+//
+//  1. allowedIPsOverride argument (request-time choice from cabinet)
+//  2. client.AllowedIPsOverride  (admin-set per-client default)
+//  3. m.cfg.AllowedIPs           (server default)
+//
+// The override is NOT persisted — different downloads of the same device
+// can carry different routes. This matches the user expectation: pick
+// services, scan QR / download .vpn, re-import. Admin-set override remains
+// the floor for users who never touch the cabinet's split-tunnel sheet.
+func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string, error) {
 	m.mu.Lock()
 	c, ok := m.clients[deviceID]
 	if !ok {
@@ -49,6 +65,13 @@ func (m *Manager) AmneziaVPNURL(deviceID string) (string, error) {
 	mtu        := m.cfg.MTU
 	keepalive  := m.cfg.PersistentKA
 	m.mu.Unlock()
+
+	switch {
+	case strings.TrimSpace(allowedIPsOverride) != "":
+		allowedIPs = strings.TrimSpace(allowedIPsOverride)
+	case strings.TrimSpace(clientCopy.AllowedIPsOverride) != "":
+		allowedIPs = strings.TrimSpace(clientCopy.AllowedIPsOverride)
+	}
 
 	portStr := strconv.Itoa(profCopy.Port)
 

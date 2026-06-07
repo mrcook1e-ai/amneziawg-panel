@@ -24,6 +24,8 @@ const props = defineProps<{
   controls?: boolean
   /** Show inline .vpn download link under the QR. */
   showDownload?: boolean
+  /** Cabinet split-tunnel override: comma-separated CIDRs. */
+  allowedIPs?: string
 }>()
 
 const chunks  = ref<string[]>([])
@@ -56,7 +58,7 @@ async function load() {
   error.value  = false
   loading.value = true
   try {
-    const res = await api.cabinetDeviceAmneziaQrChunks(props.token, props.deviceId)
+    const res = await api.cabinetDeviceAmneziaQrChunks(props.token, props.deviceId, props.allowedIPs)
     chunks.value = res.chunks
     startTimer()
   } catch {
@@ -66,7 +68,7 @@ async function load() {
   }
 }
 
-watch(() => [props.token, props.deviceId], load, { immediate: true })
+watch(() => [props.token, props.deviceId, props.allowedIPs], load, { immediate: true })
 onBeforeUnmount(stopTimer)
 
 function prev() {
@@ -80,7 +82,7 @@ function next() {
   startTimer()
 }
 
-const vpnUrl = computed(() => api.cabinetDeviceAmneziaVpnUrl(props.token, props.deviceId))
+const vpnUrl = computed(() => api.cabinetDeviceAmneziaVpnUrl(props.token, props.deviceId, props.allowedIPs))
 </script>
 
 <template>
