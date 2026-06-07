@@ -657,10 +657,10 @@ const qrDeviceName = computed(() =>
                 <div class="grid grid-cols-4 gap-2">
                   <button
                     v-for="t in templates" :key="t.key"
-                    class="flex flex-col items-center gap-2.5 py-3.5 px-1 rounded-2xl border-2 transition-all active:scale-[0.95]"
+                    class="flex flex-col items-center gap-2.5 py-3.5 px-1 rounded-2xl transition-colors duration-150 active:translate-y-px"
                     :class="pickedTemplate === t.key
-                      ? 'border-amber-400 bg-amber-50 dark:bg-amber-400/10'
-                      : 'border-ink-200 dark:border-ink-300/40 hover:border-ink-300 bg-ink-50 dark:bg-ink-100/20'"
+                      ? 'bg-amber-400/15 dark:bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)]'
+                      : 'bg-ink-100 hover:bg-ink-200'"
                     @click="pickedTemplate = t.key">
                     <component
                       :is="t.icon"
@@ -677,7 +677,7 @@ const qrDeviceName = computed(() =>
                 </label>
                 <input
                   v-model="customName"
-                  class="w-full h-12 px-4 rounded-2xl bg-ink-100 dark:bg-ink-200/40 border border-ink-200 dark:border-ink-300/30 text-[14px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:border-amber-400 transition-colors"
+                  class="w-full h-12 px-4 rounded-2xl bg-ink-100 text-[14px] text-ink-900 placeholder:text-ink-400 outline-none transition-[background-color,box-shadow] duration-150 focus:bg-ink-50 focus:shadow-[inset_2px_0_0_0_theme(colors.amber.400)]"
                   :placeholder="defaultName[pickedTemplate]"
                   @keydown.enter="createDevice" />
               </div>
@@ -769,7 +769,7 @@ const qrDeviceName = computed(() =>
               </p>
 
               <button
-                class="w-full h-11 flex items-center justify-center gap-1.5 rounded-xl border border-ink-200 dark:border-ink-300/40 text-ink-600 dark:text-ink-500 text-[13px] font-medium hover:bg-ink-100/60 dark:hover:bg-ink-200/30 transition-colors"
+                class="w-full h-11 flex items-center justify-center gap-1.5 rounded-xl bg-ink-100 hover:bg-ink-200 text-ink-700 text-[13px] font-medium transition-colors duration-150 active:translate-y-px"
                 @click="openWizard()">
                 <Plus :size="15" />
                 Добавить ещё устройство

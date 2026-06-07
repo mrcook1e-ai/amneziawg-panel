@@ -13,22 +13,27 @@ const props = withDefaults(defineProps<{
   block?: boolean
 }>(), { variant: 'secondary', size: 'md', type: 'button' })
 
-const base = 'inline-flex items-center justify-center gap-2 font-medium select-none transition focus-ring disabled:opacity-50 disabled:cursor-not-allowed tracking-chrome active:scale-[0.98]'
+// Editorial press: no scale, no border, no fake-luxury polish. The whole
+// button shifts 1px down on press — like a stamp on paper.
+const base =
+  'inline-flex items-center justify-center gap-2 font-medium select-none transition-colors ' +
+  'duration-150 focus-ring disabled:opacity-50 disabled:cursor-not-allowed tracking-chrome ' +
+  'active:translate-y-px'
 
-// Larger CTA sizes get larger corner radius to match the Amnezia client visual.
 const sizes: Record<Size, string> = {
-  sm: 'h-8 px-3 text-[12.5px] rounded-lg',
-  md: 'h-10 px-4 text-[13.5px] rounded-lg',
+  sm: 'h-8 px-3.5 text-[12.5px] rounded-xl',
+  md: 'h-10 px-4 text-[13.5px] rounded-xl',
   lg: 'h-12 px-5 text-[14px] font-semibold rounded-2xl',
   xl: 'h-14 px-6 text-[15px] font-semibold rounded-2xl',
 }
 
+// All variants are SOLID FILLS. No borders — borders on filled surfaces are
+// the shadcn signature. Color does the work.
 const variants: Record<Variant, string> = {
   primary:   'bg-ink-900 text-ink-50 hover:bg-ink-800 active:bg-ink-950',
-  secondary: 'bg-surface text-ink-900 border border-ink-900/10 hover:bg-ink-100 active:bg-ink-200',
+  secondary: 'bg-ink-100 text-ink-900 hover:bg-ink-200 active:bg-ink-300',
   ghost:     'bg-transparent text-ink-700 hover:bg-ink-100 active:bg-ink-200',
   danger:    'bg-danger text-white hover:bg-danger/90 active:bg-danger',
-  // Amnezia client accent — phosphor amber, dark ink text. Works on both themes.
   accent:    'bg-amber-400 text-amber-900 hover:bg-amber-500 dark:bg-amber-400 dark:text-[#0E0900] dark:hover:bg-amber-300',
 }
 

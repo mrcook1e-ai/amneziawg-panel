@@ -83,21 +83,26 @@
 }
 
 @layer components {
+  /*
+    Card / glass — no border. 0.5px subpixel borders on filled surfaces look
+    misaligned on most displays and read as generic shadcn. Edge comes from
+    surface-against-page contrast + a soft shadow only.
+  */
   .card {
     background-color: rgb(var(--surface-raised));
-    border: 0.5px solid rgb(var(--ink-900) / 0.08);
     @apply rounded-2xl;
-    box-shadow: 0 1px 2px rgb(var(--ink-900) / 0.025), 0 8px 24px -16px rgb(var(--ink-900) / 0.08);
+    box-shadow:
+      0 1px 2px rgb(var(--ink-900) / 0.04),
+      0 12px 32px -20px rgb(var(--ink-900) / 0.10);
   }
 
   .glass {
     background-color: rgb(var(--glass-bg) / var(--glass-alpha));
     backdrop-filter: blur(28px) saturate(180%);
     -webkit-backdrop-filter: blur(28px) saturate(180%);
-    border: 0.5px solid rgb(var(--ink-900) / 0.08);
     box-shadow:
       0 1px 0 rgb(var(--ink-950) / 0.04) inset,
-      0 16px 36px -18px rgba(0, 0, 0, 0.30);
+      0 16px 36px -18px rgba(0, 0, 0, 0.32);
   }
 
   .scrim {

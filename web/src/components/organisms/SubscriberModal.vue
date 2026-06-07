@@ -89,7 +89,7 @@ async function copyURL() {
         обновите токен в карточке клиента.
       </p>
 
-      <div class="p-3 rounded-lg bg-ink-100/60 border border-ink-900/10">
+      <div class="p-3.5 rounded-xl bg-ink-100">
         <div class="mono text-[11.5px] text-ink-900 break-all leading-snug select-all">{{ created.url }}</div>
       </div>
 

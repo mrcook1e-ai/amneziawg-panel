@@ -16,12 +16,14 @@ const props = withDefaults(defineProps<{
 
 defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 
-// Same visual language as Input.vue: filled, no border, soft focus.
+// Same focus language as Input — amber inset bar on the left, no border.
 const cls = computed(() => [
-  'block w-full bg-ink-100 text-ink-900 rounded-xl border-0 outline-none transition appearance-none pr-9',
-  'focus:bg-ink-200 focus-visible:outline-none',
+  'block w-full bg-ink-100 text-ink-900 rounded-2xl border-0 outline-none appearance-none pr-9',
+  'transition-[background-color,box-shadow] duration-150',
+  'focus:bg-ink-50',
+  'focus:shadow-[inset_2px_0_0_0_theme(colors.amber.400)]',
   props.size === 'sm' ? 'h-9 pl-3.5 text-[13.5px]' : 'h-11 pl-4 text-[15px]',
-  props.invalid && 'ring-2 ring-danger/50',
+  props.invalid && 'shadow-[inset_2px_0_0_0_theme(colors.danger.DEFAULT)]',
   props.disabled && 'opacity-50 cursor-not-allowed',
 ])
 </script>
@@ -42,7 +44,7 @@ const cls = computed(() => [
     </select>
     <ChevronDown
       :size="size === 'sm' ? 14 : 16"
-      class="absolute right-3 top-1/2 -translate-y-1/2 text-ink-500 pointer-events-none"
+      class="absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-500 pointer-events-none"
     />
   </div>
 </template>
