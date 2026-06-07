@@ -173,7 +173,6 @@ async function createDevice() {
 // ── URL helpers ──────────────────────────────────────────────────────────
 const amneziaQr  = (id: string) => api.cabinetDeviceAmneziaQrUrl(token.value, id)
 const amneziaVpn = (id: string) => api.cabinetDeviceAmneziaVpnUrl(token.value, id)
-const confUrl    = (id: string) => api.cabinetDeviceConfUrl(token.value, id)
 
 // ── Copy vpn:// ───────────────────────────────────────────────────────────
 const copiedId   = ref<string | null>(null)
@@ -756,12 +755,6 @@ const qrDeviceName = computed(() =>
                   <Copy v-else :size="14" />
                   {{ justCopied ? 'Скопировано' : 'Скопировать vpn://' }}
                 </button>
-                <a
-                  :href="confUrl(justAdded.deviceId)"
-                  :download="`${justAdded.name}.conf`"
-                  class="h-11 px-4 flex items-center justify-center rounded-xl btn-ghost text-[12px] font-medium whitespace-nowrap">
-                  .conf
-                </a>
               </div>
 
               <p class="text-[11.5px] text-ink-500 text-center leading-relaxed">
