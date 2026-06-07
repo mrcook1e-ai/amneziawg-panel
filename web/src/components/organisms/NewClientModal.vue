@@ -3,6 +3,7 @@ import { ref, watch, computed, onMounted } from 'vue'
 import Modal from '@/components/molecules/Modal.vue'
 import Field from '@/components/molecules/Field.vue'
 import Input from '@/components/atoms/Input.vue'
+import Select from '@/components/atoms/Select.vue'
 import Button from '@/components/atoms/Button.vue'
 import { useProfilesStore } from '@/stores/profiles'
 import type { CreateClientArgs } from '@/types'
@@ -51,12 +52,7 @@ function submit() {
       </Field>
 
       <Field label="Профиль подключения" hint="UDP-порт, ключ сервера и обфускация задаются профилем.">
-        <select
-          v-model="profileId"
-          class="w-full h-10 px-3 rounded-lg bg-ink-100/60 border border-ink-900/10 text-[13.5px] text-ink-900 focus-ring"
-        >
-          <option v-for="o in profileOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-        </select>
+        <Select v-model="profileId" size="sm" :options="profileOptions" aria-label="Профиль подключения" />
       </Field>
 
       <Field label="Описание (необязательно)" hint="Заметка для админа: чьё устройство, срок и т.п.">

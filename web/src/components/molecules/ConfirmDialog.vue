@@ -46,7 +46,13 @@ function onConfirm() {
         <span class="mono text-ink-900 bg-ink-100 px-1.5 py-0.5 rounded">{{ requireText }}</span>
         чтобы подтвердить.
       </p>
-      <Input v-model="typed" :placeholder="requireText" autofocus @keydown.enter="onConfirm" />
+      <Input
+        v-model="typed"
+        :placeholder="requireText"
+        :aria-label="`Введите ${requireText} для подтверждения`"
+        autofocus
+        @keydown.enter="onConfirm"
+      />
     </div>
 
     <template #footer>

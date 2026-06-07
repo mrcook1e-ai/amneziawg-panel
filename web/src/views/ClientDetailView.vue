@@ -170,6 +170,7 @@ async function toggleEnabled(v: boolean) {
 
 async function saveOverrides() {
   if (!client.value) return
+  if (savingId.value) return
   savingId.value = client.value.id
   try {
     const c = client.value
@@ -183,6 +184,9 @@ async function saveOverrides() {
                             : undefined,
       clearExpiresAt:     form.value.expiresAt === '' && !!c.expiresAt,
     })
+    toasts.success('Сохранено')
+  } catch (e: any) {
+    toasts.error(e?.message || 'Не удалось сохранить')
   } finally {
     savingId.value = null
   }
@@ -192,7 +196,7 @@ async function confirmDelete() {
   if (!client.value) return
   await clients.remove(client.value.id)
   delOpen.value = false
-  router.replace({ name: 'clients' })
+  router.push({ name: 'clients' })
 }
 </script>
 

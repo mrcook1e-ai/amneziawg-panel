@@ -215,23 +215,29 @@ async function doRegen() {
               </div>
             </div>
 
-            <!-- Hover actions -->
-            <div class="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+            <!-- Hover actions — visible on touch, fade-on-hover on pointer devices -->
+            <div class="flex items-center gap-1 shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
               <button
-                class="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-ink-200/70 transition-colors"
-                title="Скопировать ссылку кабинета"
+                type="button"
+                class="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-ink-200/70 focus-ring transition-colors"
+                :title="`Скопировать ссылку кабинета ${s.name}`"
+                :aria-label="`Скопировать ссылку кабинета ${s.name}`"
                 @click.prevent="copyCabinetUrl(s.url)">
                 <Icon name="copy" :size="13" class="text-ink-500" />
               </button>
               <button
-                class="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-ink-200/70 transition-colors"
-                title="Обновить ссылку"
+                type="button"
+                class="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-ink-200/70 focus-ring transition-colors"
+                :title="`Обновить ссылку ${s.name}`"
+                :aria-label="`Обновить ссылку кабинета ${s.name}`"
                 @click.prevent="regenFor = s">
                 <Icon name="refresh" :size="13" class="text-ink-500" />
               </button>
               <button
-                class="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-danger/10 transition-colors"
-                title="Удалить клиента"
+                type="button"
+                class="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-danger/10 focus-ring transition-colors"
+                :title="`Удалить ${s.name}`"
+                :aria-label="`Удалить клиента ${s.name}`"
                 @click.prevent="subDelFor = s">
                 <Icon name="trash" :size="13" class="text-ink-400 hover:text-danger transition-colors" />
               </button>

@@ -11,6 +11,8 @@ import { api } from '@/lib/api'
 import { useThemeStore } from '@/stores/theme'
 import type { CabinetView, CabinetDevice, AddDeviceResult } from '@/types'
 import { genCfg } from '@/utils/generator'
+import Button from '@/components/atoms/Button.vue'
+import Badge from '@/components/atoms/Badge.vue'
 
 const route = useRoute()
 const token  = computed(() => String(route.params.token || ''))
@@ -141,6 +143,7 @@ function openWizard(tpl: DeviceTemplate = 'phone') {
 function closeWizard() { wizardOpen.value = false; justAdded.value = null }
 
 async function createDevice() {
+  if (wizardStep.value === 'creating') return
   wizardErr.value  = ''
   const name       = customName.value.trim() || defaultName[pickedTemplate.value]
   wizardStep.value = 'creating'
@@ -199,7 +202,7 @@ async function copyJustAddedVpn() {
 
 // ── Delete ────────────────────────────────────────────────────────────────
 async function confirmDelete() {
-  if (!deleteFor.value) return
+  if (!deleteFor.value || deleteBusy.value) return
   deleteBusy.value = true
   try {
     await api.cabinetDeleteDevice(token.value, deleteFor.value.id)
@@ -404,11 +407,7 @@ const qrDeviceName = computed(() =>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 mb-1">
                     <span class="text-[15px] font-semibold leading-tight truncate text-ink-900">{{ d.name }}</span>
-                    <span
-                      v-if="!d.enabled"
-                      class="text-[10px] uppercase tracking-wide font-semibold text-danger/80 bg-danger/10 px-1.5 py-0.5 rounded-full shrink-0">
-                      выкл
-                    </span>
+                    <Badge v-if="!d.enabled" tone="danger" size="xs" class="shrink-0">выкл</Badge>
                   </div>
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <span class="mono text-[11px] text-ink-500 bg-ink-100 dark:bg-ink-200/50 px-1.5 py-0.5 rounded-md leading-tight">{{ d.address }}</span>
@@ -530,7 +529,7 @@ const qrDeviceName = computed(() =>
               <div class="flex items-center gap-1.5">
                 <span
                   v-for="(_, i) in qrChunks"
-                  :key="i"
+                  :key="`${qrOpenFor}-${i}`"
                   class="rounded-full transition-all duration-300"
                   :class="i === qrIdx
                     ? 'w-4 h-2 bg-amber-400'
@@ -791,19 +790,22 @@ const qrDeviceName = computed(() =>
               Восстановить нельзя — нужно создать заново.
             </p>
             <div class="flex gap-2 pt-1">
-              <button class="btn-secondary flex-1 h-12 rounded-2xl text-[13px] font-semibold" @click="deleteFor = null">
-                Отмена
-              </button>
-              <button
-                class="flex-1 h-12 rounded-2xl bg-danger text-white text-[13px] font-semibold hover:opacity-90 disabled:opacity-50 active:scale-[0.98] transition-all"
+              <Button
+                variant="secondary"
+                block
+                class="flex-1 !h-12 !rounded-2xl !text-[13px] !font-semibold"
                 :disabled="deleteBusy"
+                @click="deleteFor = null">
+                Отмена
+              </Button>
+              <Button
+                variant="danger"
+                block
+                class="flex-1 !h-12 !rounded-2xl !text-[13px] !font-semibold !bg-danger !text-white hover:!bg-danger/90"
+                :loading="deleteBusy"
                 @click="confirmDelete">
-                <span v-if="deleteBusy" class="flex items-center justify-center gap-2">
-                  <RefreshCw :size="14" class="animate-spin" />
-                  Удаляем…
-                </span>
-                <span v-else>Удалить</span>
-              </button>
+                {{ deleteBusy ? 'Удаляем…' : 'Удалить' }}
+              </Button>
             </div>
           </div>
         </div>

@@ -16,6 +16,7 @@ import ConfigModal from '@/components/organisms/ConfigModal.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import Section from '@/components/molecules/Section.vue'
 import Button from '@/components/atoms/Button.vue'
+import Badge from '@/components/atoms/Badge.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
 import Icon from '@/components/atoms/Icon.vue'
@@ -115,7 +116,7 @@ const regenOpen   = ref(false)
 async function doDeleteSub() {
   if (!sub.value) return
   await subs.remove(sub.value.id)
-  router.replace({ name: 'clients' })
+  router.push({ name: 'clients' })
 }
 
 async function doRegen() {
@@ -264,10 +265,7 @@ async function doRegen() {
             >
               <div class="flex items-center gap-2">
                 <span class="text-[14px] font-semibold text-ink-900 truncate">{{ d.name }}</span>
-                <span
-                  v-if="!d.enabled"
-                  class="text-[10px] uppercase tracking-[0.1em] font-medium text-danger bg-danger/10 px-1.5 py-0.5 rounded-md"
-                >выкл</span>
+                <Badge v-if="!d.enabled" tone="danger" size="xs">выкл</Badge>
               </div>
               <div class="text-[11.5px] text-ink-500 mono mt-0.5">
                 {{ d.address }}
