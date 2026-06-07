@@ -96,18 +96,19 @@ function cycleTheme() { theme.set(nextTheme.value.next) }
             @click="toClients"
             title="К клиентам"
           >
-            <span class="relative inline-flex h-2 w-2">
+            <!-- Live/idle indicator -->
+            <span class="relative inline-flex items-center justify-center w-2.5 h-2.5 shrink-0">
               <span
                 v-if="online > 0"
-                class="absolute inset-0 rounded-full bg-success animate-ping opacity-50"
+                class="absolute inset-0 rounded-full bg-success opacity-25 animate-ping-slow"
               />
               <span
-                class="relative h-2 w-2 rounded-full"
+                class="relative block w-2 h-2 rounded-full transition-colors"
                 :class="online > 0 ? 'bg-success' : 'bg-ink-300'"
               />
             </span>
             <span class="text-[12.5px] text-ink-900 tnum font-medium whitespace-nowrap">
-              {{ online }}<span class="text-ink-500"> / {{ total }}</span>
+              {{ online }}<span class="text-ink-400"> / {{ total }}</span>
             </span>
             <span class="hidden sm:inline text-[10.5px] uppercase tracking-[0.12em] text-ink-500 whitespace-nowrap">онлайн</span>
           </button>

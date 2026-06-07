@@ -105,6 +105,14 @@ export const api = {
     `/api/cabinet/${enc(token)}/devices/${enc(devId)}/configuration`,
   cabinetDeviceQrUrl: (token: string, devId: string) =>
     `/api/cabinet/${enc(token)}/devices/${enc(devId)}/qrcode.svg`,
+  cabinetDeviceAmneziaVpnUrl: (token: string, devId: string) =>
+    `/api/cabinet/${enc(token)}/devices/${enc(devId)}/amnezia.vpn`,
+  cabinetDeviceAmneziaQrUrl: (token: string, devId: string) =>
+    `/api/cabinet/${enc(token)}/devices/${enc(devId)}/amnezia-qrcode.svg`,
+
+  // Admin: Amnezia-native format URLs
+  amneziaVpnUrl: (id: string) => `/api/wireguard/client/${enc(id)}/amnezia.vpn`,
+  amneziaQrUrl:  (id: string) => `/api/wireguard/client/${enc(id)}/amnezia-qrcode.svg`,
 
   backupUrl: () => '/api/backup',
   importClient: (body: {

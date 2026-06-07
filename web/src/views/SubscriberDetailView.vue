@@ -274,13 +274,28 @@ async function doRegen() {
               </div>
             </router-link>
 
-            <!-- Actions -->
+            <!-- Actions — Amnezia-native format primary -->
             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Button size="sm" variant="ghost" @click="cfgFor = d.id">
-                <Icon name="download" :size="13" /> .conf
-              </Button>
-              <Button size="sm" variant="ghost" @click="qrFor = d.id">
-                QR
+              <!-- .vpn download — primary Amnezia format -->
+              <a
+                :href="api.amneziaVpnUrl(d.id)"
+                :download="`${d.name}.vpn`"
+                class="h-7 px-2.5 flex items-center gap-1 rounded-lg bg-ink-100 text-ink-700 text-[11.5px] font-medium hover:bg-ink-200 transition-colors"
+                title="Скачать .vpn для AmneziaVPN">
+                ⬇ .vpn
+              </a>
+              <!-- Amnezia QR — opens 768px QR in new tab -->
+              <a
+                :href="api.amneziaQrUrl(d.id)"
+                target="_blank"
+                rel="noopener"
+                class="h-7 w-7 flex items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 transition-colors text-[13px]"
+                title="QR-код для AmneziaVPN">
+                ▣
+              </a>
+              <!-- .conf — secondary, for WireGuard clients -->
+              <Button size="sm" variant="ghost" @click="cfgFor = d.id" title="WireGuard .conf">
+                <Icon name="download" :size="12" />
               </Button>
               <Button size="sm" variant="ghost" class="hover:text-danger hover:bg-danger/10" @click="devDelFor = { id: d.id, name: d.name }">
                 <Icon name="trash" :size="13" />

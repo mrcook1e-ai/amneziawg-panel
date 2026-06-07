@@ -171,4 +171,108 @@
   .delay-4 { animation-delay: 240ms; }
   .delay-5 { animation-delay: 320ms; }
   .delay-6 { animation-delay: 420ms; }
+  .delay-7 { animation-delay: 520ms; }
+  .delay-8 { animation-delay: 640ms; }
+}
+
+/* ── Cabinet (user-facing) background ─────────────────────────── */
+@layer utilities {
+  .cabinet-surface {
+    background-color: rgb(var(--surface));
+  }
+
+  /*
+    Live dot — shown next to online clients.
+    Two layers: inner solid + outer expanding ring.
+  */
+  .live-dot {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 10px;
+    height: 10px;
+  }
+  .live-dot::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: #34c759;
+    opacity: 0.25;
+    animation: ping-slow 2s cubic-bezier(0,0,0.2,1) infinite;
+  }
+  .live-dot::after {
+    content: '';
+    position: relative;
+    display: block;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background: #34c759;
+  }
+
+  /* Amber live dot variant — for topbar / admin accent */
+  .amber-dot {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 8px;
+    height: 8px;
+  }
+  .amber-dot::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 9999px;
+    background: #E8A041;
+    opacity: 0.2;
+    animation: ping-slow 2.8s cubic-bezier(0,0,0.2,1) infinite;
+  }
+  .amber-dot::after {
+    content: '';
+    position: relative;
+    display: block;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background: #E8A041;
+  }
+}
+
+/* ── Device card lift on hover ────────────────────────────────── */
+@layer components {
+  .device-card {
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+  }
+  .device-card:hover {
+    box-shadow: 0 2px 8px rgba(10,10,12,0.06), 0 12px 32px -12px rgba(10,10,12,0.12);
+    transform: translateY(-1px);
+  }
+}
+
+/* ── Stat hero number ─────────────────────────────────────────── */
+@layer components {
+  .stat-hero {
+    font-family: theme('fontFamily.sans');
+    font-weight: 700;
+    font-feature-settings: 'tnum' 1, 'lnum' 1, 'ss01' 1;
+    letter-spacing: -0.04em;
+    line-height: 0.9;
+  }
+}
+
+/* ── Bottom sheet transition ─────────────────────────────────── */
+.sheet-enter-active { transition: opacity 0.22s ease; }
+.sheet-leave-active { transition: opacity 0.18s ease; }
+.sheet-enter-active .sheet-panel { transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.sheet-leave-active .sheet-panel { transition: transform 0.22s cubic-bezier(0.4, 0, 1, 1); }
+.sheet-enter-from,
+.sheet-leave-to { opacity: 0; }
+.sheet-enter-from .sheet-panel,
+.sheet-leave-to  .sheet-panel { transform: translateY(24px); }
+@media (max-width: 640px) {
+  .sheet-enter-from .sheet-panel,
+  .sheet-leave-to  .sheet-panel { transform: translateY(100%); }
 }
