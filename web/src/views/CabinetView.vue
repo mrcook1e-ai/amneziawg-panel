@@ -6,7 +6,7 @@ import {
   Shield, Lock, Key, Smartphone, Laptop, Monitor,
   QrCode, Download, Copy, Check, Trash2, X,
   Sun, Moon, Plus, RefreshCw, ChevronLeft, ChevronRight, Loader2,
-  Compass, MoreHorizontal,
+  MoreHorizontal, Globe, ExternalLink,
 } from 'lucide-vue-next'
 
 import { api } from '@/lib/api'
@@ -17,7 +17,6 @@ import { genCfg } from '@/utils/generator'
 import Button from '@/components/atoms/Button.vue'
 import Badge from '@/components/atoms/Badge.vue'
 import QrCarousel from '@/components/molecules/QrCarousel.vue'
-import SplitTunnelPicker from '@/components/molecules/SplitTunnelPicker.vue'
 
 const route = useRoute()
 const token  = computed(() => String(route.params.token || ''))
@@ -177,27 +176,12 @@ onBeforeUnmount(() => {
 const deleteFor  = ref<CabinetDevice | null>(null)
 const deleteBusy = ref(false)
 
-// ── Routes (split tunnel) sheet ───────────────────────────────────────
-// Per-device, ephemeral. Picked services are not persisted server-side —
-// the user re-imports the resulting .vpn / QR; server only learns the
-// override at request time. See AmneziaVPNURLWith on the backend.
-const routesFor       = ref<CabinetDevice | null>(null)
-const routesMode      = ref<'all' | 'selected'>('all')
-const routesAllowedIPs = ref('')
-
-function openRoutes(d: CabinetDevice) {
-  routesFor.value = d
-  routesMode.value = 'all'
-  routesAllowedIPs.value = ''
-}
-function closeRoutes() {
-  routesFor.value = null
-}
-// The override actually sent to the server. "all" mode → empty string,
-// which means "use server default" (0.0.0.0/0, ::/0 in most configs).
-const effectiveAllowedIPs = computed(() =>
-  routesMode.value === 'selected' ? routesAllowedIPs.value : ''
-)
+// ── Blocked-resources list URL (account-wide, not per-device) ─────────
+// AmneziaVPN imports split-tunnel rules inside its own app — we don't
+// inject them into the .vpn config. So we just hand the user a download
+// link to the curated iplist.opencck.org "amnezia" format and show the
+// in-app import steps. One link covers all devices on the account.
+const IPLIST_URL = 'https://iplist.opencck.org/?format=amnezia&data=cidr4'
 
 // ── Load ───────────────────────────────────────────────────────────────
 async function reload() {
@@ -263,8 +247,6 @@ async function createDevice() {
 // ── URL helpers ──────────────────────────────────────────────────────────
 const amneziaQr  = (id: string) => api.cabinetDeviceAmneziaQrUrl(token.value, id)
 const amneziaVpn = (id: string) => api.cabinetDeviceAmneziaVpnUrl(token.value, id)
-const amneziaVpnWith = (id: string, allowedIPs: string) =>
-  api.cabinetDeviceAmneziaVpnUrl(token.value, id, allowedIPs)
 
 // ── Copy vpn:// ───────────────────────────────────────────────────────────
 const copiedId   = ref<string | null>(null)
@@ -594,13 +576,6 @@ const qrDeviceName = computed(() =>
                       <button
                         role="menuitem"
                         class="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-colors"
-                        @click="closeMenu(); openRoutes(d)">
-                        <Compass :size="15" class="text-ink-500" />
-                        Маршруты
-                      </button>
-                      <button
-                        role="menuitem"
-                        class="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-colors"
                         @click="closeMenu(); copyVpn(d.id)">
                         <Check v-if="copiedId === d.id" :size="15" class="text-success" />
                         <Copy  v-else :size="15" class="text-ink-500" />
@@ -629,6 +604,62 @@ const qrDeviceName = computed(() =>
             <Plus :size="18" />
             Добавить устройство
           </button>
+        </section>
+
+        <!--
+          Split tunneling — account-wide, imported INSIDE the Amnezia app.
+          We don't bake routes into the .vpn config (the app maintains its
+          own per-device site list); we just hand the user a curated
+          AmneziaVPN-format list and the in-app import steps. One link,
+          one button, no per-device toggles.
+        -->
+        <section v-if="cabinet.devices.length" class="mt-12 animate-rise">
+          <div class="card p-5 space-y-4">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-2xl bg-amber-400/15 flex items-center justify-center shrink-0">
+                <Globe :size="18" class="text-amber-500" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <h3 class="text-[14px] font-semibold leading-tight">Список заблокированных сайтов</h3>
+                <p class="text-[12px] text-ink-500 mt-1 leading-relaxed">
+                  Готовый набор для AmneziaVPN — через туннель пойдут только заблокированные ресурсы, всё остальное напрямую. Импорт делается внутри приложения.
+                </p>
+              </div>
+            </div>
+
+            <a
+              :href="IPLIST_URL"
+              target="_blank"
+              rel="noopener"
+              class="btn-primary flex items-center justify-center gap-2 h-11 text-[13.5px] w-full">
+              <Download :size="15" />
+              Скачать список сайтов
+              <ExternalLink :size="12" class="opacity-60" />
+            </a>
+
+            <details class="rounded-xl bg-ink-100/60 dark:bg-ink-200/30 group">
+              <summary class="cursor-pointer list-none flex items-center justify-between px-3.5 py-2.5 select-none">
+                <span class="text-[11.5px] font-semibold text-ink-600 dark:text-ink-500">Как импортировать</span>
+                <ChevronRight :size="12" class="text-ink-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <ol class="px-4 pb-4 pt-1 space-y-1.5 text-[12px] text-ink-600 dark:text-ink-500 leading-relaxed list-decimal list-inside marker:text-ink-400">
+                <li>Откройте приложение <span class="font-semibold text-ink-800 dark:text-ink-700">AmneziaVPN</span> и выберите устройство.</li>
+                <li>Перейдите в <span class="font-semibold text-ink-800 dark:text-ink-700">Раздельное туннелирование</span>.</li>
+                <li>Выберите режим <span class="font-semibold text-ink-800 dark:text-ink-700">Раздельное туннелирование сайтов</span>.</li>
+                <li>Нажмите <span class="mono font-semibold text-ink-800 dark:text-ink-700">•••</span> → <span class="font-semibold text-ink-800 dark:text-ink-700">Импорт</span> → <span class="font-semibold text-ink-800 dark:text-ink-700">Заменить список сайтами</span>.</li>
+                <li>Выберите скачанный файл — готово.</li>
+              </ol>
+            </details>
+
+            <p class="text-[11px] text-ink-500 leading-relaxed">
+              Источник:
+              <a
+                href="https://github.com/rekryt/iplist"
+                target="_blank" rel="noopener"
+                class="text-ink-700 dark:text-ink-600 hover:text-ink-900 underline decoration-ink-300 underline-offset-2">iplist</a>
+              — открытый реестр, обновляется регулярно. Если в туннель что-то не уходит, просто перекачайте файл и повторите импорт.
+            </p>
+          </div>
         </section>
 
         <p class="text-center text-[11.5px] text-ink-400 dark:text-ink-500 mt-12 leading-relaxed">
@@ -1028,98 +1059,6 @@ const qrDeviceName = computed(() =>
                 @click="confirmDelete">
                 {{ deleteBusy ? 'Удаляем…' : 'Удалить' }}
               </Button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
-
-    <!-- ─── Routes (split tunnel) sheet ──────────────────────────────── -->
-    <Teleport to="body">
-      <div v-if="routesFor" class="fixed inset-0 z-50 scrim" @click="closeRoutes" />
-      <Transition name="sheet">
-        <div
-          v-if="routesFor"
-          class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 pointer-events-none">
-          <div class="sheet-panel relative w-full sm:max-w-lg bg-surface-raised rounded-t-5xl sm:rounded-5xl shadow-pop overflow-hidden pointer-events-auto max-h-[92vh] flex flex-col">
-
-            <!-- Header -->
-            <div class="flex items-start justify-between gap-3 px-6 pt-5 pb-3 shrink-0">
-              <div class="space-y-0.5">
-                <h3 class="text-[18px] font-semibold leading-tight">Маршруты</h3>
-                <p class="text-[12px] text-ink-500">
-                  {{ routesFor.name }} · <span class="mono">{{ routesFor.address }}</span>
-                </p>
-              </div>
-              <button
-                class="w-9 h-9 rounded-full flex items-center justify-center text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-colors shrink-0"
-                aria-label="Закрыть"
-                @click="closeRoutes">
-                <X :size="16" />
-              </button>
-            </div>
-
-            <!-- Mode picker + body — scroll if tall -->
-            <div class="px-6 pb-5 pt-1 space-y-5 overflow-y-auto">
-
-              <!-- Mode radios -->
-              <div class="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  class="text-left p-3.5 rounded-2xl transition-colors duration-150 active:translate-y-px"
-                  :class="routesMode === 'all'
-                    ? 'bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)]'
-                    : 'bg-ink-100 hover:bg-ink-200'"
-                  @click="routesMode = 'all'">
-                  <div class="flex items-center gap-2 mb-1">
-                    <Shield :size="14" :class="routesMode === 'all' ? 'text-amber-500' : 'text-ink-500'" />
-                    <span class="text-[13px] font-semibold">Весь трафик</span>
-                  </div>
-                  <p class="text-[11.5px] text-ink-500 leading-snug">Полный VPN — всё уходит в туннель.</p>
-                </button>
-                <button
-                  type="button"
-                  class="text-left p-3.5 rounded-2xl transition-colors duration-150 active:translate-y-px"
-                  :class="routesMode === 'selected'
-                    ? 'bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)]'
-                    : 'bg-ink-100 hover:bg-ink-200'"
-                  @click="routesMode = 'selected'">
-                  <div class="flex items-center gap-2 mb-1">
-                    <Compass :size="14" :class="routesMode === 'selected' ? 'text-amber-500' : 'text-ink-500'" />
-                    <span class="text-[13px] font-semibold">Выбранные сервисы</span>
-                  </div>
-                  <p class="text-[11.5px] text-ink-500 leading-snug">Только нужные сайты пойдут через VPN.</p>
-                </button>
-              </div>
-
-              <!-- Service picker — only in selected mode -->
-              <SplitTunnelPicker
-                v-if="routesMode === 'selected'"
-                :value="routesAllowedIPs"
-                @update:value="v => routesAllowedIPs = v"
-              />
-
-              <!-- Preview: QR + .vpn — updates live when allowedIPs change -->
-              <div class="flex flex-col items-center gap-4 pt-2">
-                <QrCarousel
-                  :token="token"
-                  :device-id="routesFor.id"
-                  :device-name="routesFor.name"
-                  :allowed-ips="effectiveAllowedIPs"
-                  :size="220"
-                />
-                <a
-                  :href="amneziaVpnWith(routesFor.id, effectiveAllowedIPs)"
-                  :download="`${routesFor.name}.vpn`"
-                  class="btn-primary inline-flex items-center gap-2 px-5 h-11 text-[13.5px]">
-                  <Download :size="15" />
-                  Скачать .vpn с этими маршрутами
-                </a>
-                <p class="text-[11.5px] text-ink-500 text-center max-w-xs leading-relaxed">
-                  После импорта новый профиль заменит старый в приложении AmneziaVPN.
-                  Серверные ключи не меняются — это просто другой пресет маршрутов.
-                </p>
-              </div>
             </div>
           </div>
         </div>
