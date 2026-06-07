@@ -39,18 +39,25 @@ useInterval(() => subs.fetch(true),     5000, { immediate: true, pauseHidden: tr
 // Build one Map<subscriberId, {online, devices, lastSeen}> per data update,
 // so list rendering is O(N+M) instead of O(N*M) per render. Matters at scale:
 // 100 clients × 20 subs × 3 functions × render-on-every-poll was ~6k ops/tick.
-interface SubMetrics { online: number; devices: number; lastSeenMs: number }
+// Traffic field is the lifetime rx+tx across all the subscriber's peers.
+// We prefer total{Rx,Tx} (persistent counters that survive rekey) and
+// fall back to transfer{Rx,Tx} (running counters since last rekey) when
+// the long-form totals aren't available — typical for fresh peers.
+interface SubMetrics { online: number; devices: number; lastSeenMs: number; traffic: number }
 const metricsBySub = computed<Map<string, SubMetrics>>(() => {
   const m = new Map<string, SubMetrics>()
   for (const c of clients.items) {
     if (!c.subscriberId) continue
-    const cur = m.get(c.subscriberId) ?? { online: 0, devices: 0, lastSeenMs: 0 }
+    const cur = m.get(c.subscriberId) ?? { online: 0, devices: 0, lastSeenMs: 0, traffic: 0 }
     cur.devices += 1
     if (handshakeFreshness(c.latestHandshakeAt) === 'online') cur.online += 1
     if (c.latestHandshakeAt) {
       const ts = new Date(c.latestHandshakeAt).getTime()
       if (ts > cur.lastSeenMs) cur.lastSeenMs = ts
     }
+    const rx = c.totalRx ?? c.transferRx ?? 0
+    const tx = c.totalTx ?? c.transferTx ?? 0
+    cur.traffic += rx + tx
     m.set(c.subscriberId, cur)
   }
   return m
@@ -65,6 +72,9 @@ function deviceCountOf(sub: Subscriber): number {
 function lastSeenOf(sub: Subscriber): string | null {
   const ts = metricsBySub.value.get(sub.id)?.lastSeenMs ?? 0
   return ts ? new Date(ts).toISOString() : null
+}
+function trafficOf(sub: Subscriber): number {
+  return metricsBySub.value.get(sub.id)?.traffic ?? 0
 }
 
 // ── Totals ─────────────────────────────────────────────────────────────
@@ -267,6 +277,20 @@ async function doRegen() {
                 <template v-if="s.notes">{{ s.notes }} · </template>
                 {{ lastSeenOf(s) ? relativeTime(lastSeenOf(s)) : 'не подключались' }}
               </div>
+            </div>
+
+            <!--
+              Lifetime traffic for this subscriber — sum of all peers'
+              total{Rx,Tx} (falling back to transfer{Rx,Tx}). Tabular
+              numerals so the column aligns vertically across rows.
+              Hidden on phones to keep the row tight; reappears at sm+.
+            -->
+            <div
+              v-if="trafficOf(s) > 0"
+              class="flex flex-col items-end shrink-0 mr-1"
+              :title="`Всего трафика: ${bytes(trafficOf(s))}`">
+              <span class="hidden sm:block text-[10.5px] uppercase tracking-[0.12em] text-ink-400 font-medium leading-tight">Трафик</span>
+              <span class="text-[12.5px] mono tnum text-ink-700 dark:text-ink-600 leading-tight sm:mt-0.5">{{ bytes(trafficOf(s)) }}</span>
             </div>
 
             <!-- Hover actions — visible on touch, fade-on-hover on pointer devices -->
