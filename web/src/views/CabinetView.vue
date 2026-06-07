@@ -365,11 +365,9 @@ const qrDeviceName = computed(() =>
             </button>
           </div>
 
-          <button
-            class="btn-primary w-full max-w-[280px] mx-auto flex items-center justify-center gap-2 h-12"
-            @click="openWizard()">
+          <Button variant="accent" size="lg" block class="!max-w-[280px] mx-auto" @click="openWizard()">
             Добавить первое устройство
-          </button>
+          </Button>
         </div>
 
         <!-- ── Device list ── -->
@@ -440,13 +438,15 @@ const qrDeviceName = computed(() =>
               <!-- Actions -->
               <div class="flex items-center gap-2 pt-3.5">
                 <!-- QR — primary, opens inline fullscreen -->
-                <button
-                  class="btn-primary flex-1 flex items-center justify-center gap-1.5 h-10 text-[12.5px] font-semibold"
-                  title="QR-код для AmneziaVPN"
+                <Button
+                  variant="accent"
+                  class="flex-1 !text-[12.5px]"
+                  :title="`QR-код для ${d.name}`"
+                  :aria-label="`Открыть QR-код для ${d.name}`"
                   @click="openQr(d.id)">
                   <QrCode :size="14" />
                   QR-код
-                </button>
+                </Button>
 
                 <!-- .vpn download -->
                 <a
@@ -627,7 +627,7 @@ const qrDeviceName = computed(() =>
           class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6">
           <div class="absolute inset-0 scrim" @click="wizardStep !== 'creating' ? closeWizard() : undefined" />
 
-          <div class="sheet-panel relative w-full sm:max-w-md bg-surface-raised rounded-t-[32px] sm:rounded-[32px] shadow-pop overflow-hidden">
+          <div class="sheet-panel relative w-full sm:max-w-md bg-surface-raised rounded-t-5xl sm:rounded-5xl shadow-pop overflow-hidden">
 
             <!-- ── Step: Pick ── -->
             <div v-if="wizardStep === 'pick'" class="p-6 space-y-6">
@@ -675,11 +675,9 @@ const qrDeviceName = computed(() =>
 
               <p v-if="wizardErr" class="text-[12.5px] text-danger bg-danger/10 rounded-xl px-4 py-3">{{ wizardErr }}</p>
 
-              <button
-                class="btn-primary w-full h-14 flex items-center justify-center gap-2 text-[15px]"
-                @click="createDevice">
+              <Button variant="accent" size="xl" block @click="createDevice">
                 Получить VPN-ключ
-              </button>
+              </Button>
 
               <p class="text-[11.5px] text-ink-500 text-center pb-1">
                 Уникальная защита AmneziaWG 2.0 создаётся автоматически
@@ -783,7 +781,7 @@ const qrDeviceName = computed(() =>
         leave-to-class="opacity-0">
         <div v-if="deleteFor" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div class="absolute inset-0 scrim" @click="deleteFor = null" />
-          <div class="relative w-full sm:max-w-sm bg-surface-raised rounded-t-[28px] sm:rounded-[28px] shadow-pop p-6 space-y-4">
+          <div class="relative w-full sm:max-w-sm bg-surface-raised rounded-t-4xl sm:rounded-4xl shadow-pop p-6 space-y-4">
             <h3 class="text-[17px] font-semibold">Удалить устройство?</h3>
             <p class="text-[13.5px] text-ink-500 leading-relaxed">
               <span class="font-semibold text-ink-800 dark:text-ink-700">{{ deleteFor.name }}</span> сразу потеряет подключение.

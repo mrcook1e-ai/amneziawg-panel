@@ -41,7 +41,7 @@ export default {
           900: '#3D2408',
         },
       },
-      borderRadius: { lg: '10px', xl: '14px', '2xl': '18px', '3xl': '22px', '4xl': '28px' },
+      borderRadius: { lg: '10px', xl: '14px', '2xl': '18px', '3xl': '22px', '4xl': '28px', '5xl': '32px' },
       fontFamily: {
         // One sans for everything — Onest, variable, with Cyrillic.
         sans: ['"Onest"', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
