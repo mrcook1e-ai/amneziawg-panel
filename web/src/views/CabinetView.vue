@@ -16,6 +16,10 @@ import type { CabinetView, CabinetDevice, AddDeviceResult } from '@/types'
 import { genCfg } from '@/utils/generator'
 import Button from '@/components/atoms/Button.vue'
 import Badge from '@/components/atoms/Badge.vue'
+import IconButton from '@/components/atoms/IconButton.vue'
+import Input from '@/components/atoms/Input.vue'
+import Modal from '@/components/molecules/Modal.vue'
+import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import QrCarousel from '@/components/molecules/QrCarousel.vue'
 
 const route = useRoute()
@@ -364,14 +368,12 @@ const qrDeviceName = computed(() =>
               <Shield :size="11" class="shrink-0" />
               <span>AmneziaVPN · Личный кабинет</span>
             </div>
-            <button
-              class="h-9 w-9 flex items-center justify-center rounded-xl text-ink-500 hover:text-ink-900 hover:bg-ink-100 dark:hover:bg-ink-100/60 dark:hover:text-ink-900 transition-colors"
+            <IconButton
               :title="isDark ? 'Светлая тема' : 'Тёмная тема'"
-              :aria-label="isDark ? 'Включить светлую тему' : 'Включить тёмную тему'"
               @click="toggleTheme">
               <Sun v-if="isDark" :size="18" />
               <Moon v-else :size="18" />
-            </button>
+            </IconButton>
           </div>
 
           <div class="text-center">
@@ -380,23 +382,19 @@ const qrDeviceName = computed(() =>
             {{ cabinet.name }}
           </h1>
 
-          <!-- Status chips -->
+          <!-- Status chips — shared Badge atom for consistent tone/size -->
           <div class="flex items-center justify-center gap-2 flex-wrap">
-            <span class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-ink-100 dark:bg-ink-200/60 text-[12px] text-ink-600 dark:text-ink-500 font-medium">
+            <Badge tone="neutral">
               {{ cabinet.devices.length }}
               {{ cabinet.devices.length === 1 ? 'устройство' : cabinet.devices.length < 5 ? 'устройства' : 'устройств' }}
-            </span>
-            <span
-              v-if="onlineCount > 0"
-              class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-success/10 text-[12px] text-success font-semibold">
+            </Badge>
+            <Badge v-if="onlineCount > 0" tone="success">
               <span class="live-dot scale-75 shrink-0" />
               {{ onlineCount }} онлайн
-            </span>
-            <span
-              v-else-if="cabinet.devices.length > 0"
-              class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-ink-100 dark:bg-ink-200/60 text-[12px] text-ink-500 dark:text-ink-600">
+            </Badge>
+            <Badge v-else-if="cabinet.devices.length > 0" tone="neutral">
               нет подключений
-            </span>
+            </Badge>
           </div>
           </div>
         </header>
@@ -575,13 +573,11 @@ const qrDeviceName = computed(() =>
 
           </div>
 
-          <!-- Add more — tinted fill instead of dashed border, matches empty-state language. -->
-          <button
-            class="w-full h-14 flex items-center justify-center gap-2 rounded-3xl bg-ink-100/60 dark:bg-ink-200/30 text-ink-500 dark:text-ink-600 text-[14px] font-medium hover:bg-ink-200 dark:hover:bg-ink-200/50 hover:text-ink-700 active:scale-[0.99] transition-all mt-1"
-            @click="openWizard()">
+          <!-- Add more — shared Button atom, secondary tone. -->
+          <Button variant="secondary" size="lg" block class="mt-1" @click="openWizard()">
             <Plus :size="18" />
             Добавить устройство
-          </button>
+          </Button>
         </section>
 
         <!--
@@ -591,14 +587,16 @@ const qrDeviceName = computed(() =>
           read as "another thing to figure out" on first load. Most
           users don't need split-tunnel — those who do tap the link.
         -->
-        <button
+        <Button
           v-if="cabinet.devices.length"
-          type="button"
-          class="w-full mt-6 inline-flex items-center justify-center gap-2 h-11 rounded-2xl text-[12.5px] font-medium text-ink-500 hover:text-ink-900 hover:bg-ink-100 dark:hover:bg-ink-200/40 transition-colors animate-rise"
+          variant="ghost"
+          size="md"
+          block
+          class="mt-6 animate-rise"
           @click="sitesOpen = true">
           <Globe :size="14" class="text-ink-400" />
           Список заблокированных сайтов
-        </button>
+        </Button>
 
         <p class="text-center text-[11.5px] text-ink-400 dark:text-ink-500 mt-12 leading-relaxed">
           Потеряли ссылку на кабинет?<br>
@@ -749,15 +747,13 @@ const qrDeviceName = computed(() =>
                   <h3 class="text-[19px] font-semibold">Новый VPN-ключ</h3>
                   <p class="text-[12.5px] text-ink-500 mt-0.5">Каждый ключ — только для одного устройства</p>
                 </div>
-                <button
-                  class="w-9 h-9 rounded-full flex items-center justify-center text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-colors shrink-0"
-                  @click="closeWizard">
+                <IconButton size="sm" title="Закрыть" @click="closeWizard">
                   <X :size="16" />
-                </button>
+                </IconButton>
               </div>
 
               <div>
-                <p class="text-[11px] font-semibold text-ink-500 uppercase tracking-[0.12em] mb-3">Тип устройства</p>
+                <p class="eyebrow mb-3">Тип устройства</p>
                 <div class="grid grid-cols-4 gap-2">
                   <button
                     v-for="t in templates" :key="t.key"
@@ -776,14 +772,14 @@ const qrDeviceName = computed(() =>
               </div>
 
               <div class="space-y-2">
-                <label class="text-[11px] font-semibold text-ink-500 uppercase tracking-[0.12em] block">
+                <label class="eyebrow block">
                   Название <span class="normal-case tracking-normal font-normal text-ink-400">— необязательно</span>
                 </label>
-                <input
+                <Input
                   v-model="customName"
-                  class="w-full h-12 px-4 rounded-2xl bg-ink-100 text-[14px] text-ink-900 placeholder:text-ink-400 outline-none transition-colors duration-150 focus:bg-amber-50 dark:focus:bg-amber-400/10"
                   :placeholder="defaultName[pickedTemplate]"
-                  @keydown.enter="createDevice" />
+                  @keydown.enter="createDevice"
+                />
               </div>
 
 
@@ -827,11 +823,9 @@ const qrDeviceName = computed(() =>
                     {{ justAdded.name }} <span class="mono">· {{ justAdded.address }}</span>
                   </p>
                 </div>
-                <button
-                  class="w-9 h-9 rounded-full flex items-center justify-center text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-colors shrink-0"
-                  @click="closeWizard">
+                <IconButton size="sm" title="Закрыть" @click="closeWizard">
                   <X :size="16" />
-                </button>
+                </IconButton>
               </div>
 
               <!--
@@ -877,120 +871,76 @@ const qrDeviceName = computed(() =>
                 Каждое устройство — свой ключ.
               </p>
 
-              <button
-                class="w-full h-11 flex items-center justify-center gap-1.5 rounded-xl bg-ink-100 hover:bg-ink-200 text-ink-700 text-[13px] font-medium transition-colors duration-150 active:translate-y-px"
-                @click="openWizard()">
+              <Button variant="secondary" size="md" block @click="openWizard()">
                 <Plus :size="15" />
                 Добавить ещё устройство
-              </button>
-            </div>
-
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
-
-    <!-- ─── Delete confirm ───────────────────────────────────────────── -->
-    <Teleport to="body">
-      <!-- Scrim mounted directly — no opacity transition wrapping it. -->
-      <div v-if="deleteFor" class="fixed inset-0 z-50 scrim" @click="deleteFor = null" />
-      <Transition
-        enter-active-class="transition-[opacity,transform] duration-150"
-        leave-active-class="transition-[opacity,transform] duration-120"
-        enter-from-class="opacity-0 translate-y-2"
-        leave-to-class="opacity-0 translate-y-2">
-        <div v-if="deleteFor" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 pointer-events-none">
-          <div class="relative w-full sm:max-w-sm bg-surface-raised rounded-t-4xl sm:rounded-4xl shadow-pop p-6 space-y-4 pointer-events-auto">
-            <h3 class="text-[17px] font-semibold">Удалить устройство?</h3>
-            <p class="text-[13.5px] text-ink-500 leading-relaxed">
-              <span class="font-semibold text-ink-800 dark:text-ink-700">{{ deleteFor.name }}</span> сразу потеряет подключение.
-              Восстановить нельзя — нужно создать заново.
-            </p>
-            <div class="flex gap-2 pt-1">
-              <Button
-                variant="secondary"
-                block
-                class="flex-1 !h-12 !rounded-2xl !text-[13px] !font-semibold"
-                :disabled="deleteBusy"
-                @click="deleteFor = null">
-                Отмена
-              </Button>
-              <Button
-                variant="danger"
-                block
-                class="flex-1 !h-12 !rounded-2xl !text-[13px] !font-semibold !bg-danger !text-white hover:!bg-danger/90"
-                :loading="deleteBusy"
-                @click="confirmDelete">
-                {{ deleteBusy ? 'Удаляем…' : 'Удалить' }}
               </Button>
             </div>
+
           </div>
         </div>
       </Transition>
     </Teleport>
 
-    <!-- ─── Sites list modal ──────────────────────────────────────────── -->
-    <Teleport to="body">
-      <div v-if="sitesOpen" class="fixed inset-0 z-50 scrim" @click="sitesOpen = false" />
-      <Transition name="sheet">
-        <div
-          v-if="sitesOpen"
-          class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 pointer-events-none">
-          <div class="sheet-panel relative w-full sm:max-w-md bg-surface-raised rounded-t-5xl sm:rounded-5xl shadow-pop overflow-hidden pointer-events-auto max-h-[92vh] flex flex-col">
+    <!-- ─── Delete confirm — shared ConfirmDialog ──────────────────── -->
+    <ConfirmDialog
+      :open="!!deleteFor"
+      title="Удалить устройство?"
+      :message="deleteFor ? `«${deleteFor.name}» сразу потеряет подключение. Восстановить нельзя — нужно создать заново.` : ''"
+      confirm-text="Удалить"
+      tone="danger"
+      :loading="deleteBusy"
+      @confirm="confirmDelete"
+      @cancel="deleteFor = null"
+    />
 
-            <div class="flex items-start gap-3 px-6 pt-5 pb-3 shrink-0">
-              <div class="w-10 h-10 rounded-2xl bg-amber-400/15 flex items-center justify-center shrink-0">
-                <Globe :size="18" class="text-amber-500" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <h3 class="text-[17px] font-semibold leading-tight">Заблокированные сайты</h3>
-                <p class="text-[12px] text-ink-500 mt-0.5 leading-relaxed">
-                  Через туннель пойдут только заблокированные ресурсы. Импорт делается в приложении AmneziaVPN.
-                </p>
-              </div>
-              <button
-                class="w-9 h-9 rounded-full flex items-center justify-center text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-colors shrink-0"
-                aria-label="Закрыть"
-                @click="sitesOpen = false">
-                <X :size="16" />
-              </button>
-            </div>
+    <!-- ─── Sites list — shared Modal ───────────────────────────────── -->
+    <Modal :open="sitesOpen" size="md" @close="sitesOpen = false">
+      <template #title>
+        <span class="inline-flex items-center gap-2.5">
+          <span class="w-8 h-8 rounded-xl bg-amber-400/15 flex items-center justify-center shrink-0">
+            <Globe :size="15" class="text-amber-500" />
+          </span>
+          Заблокированные сайты
+        </span>
+      </template>
 
-            <div class="px-6 pb-5 pt-1 space-y-4 overflow-y-auto">
-              <a
-                :href="IPLIST_URL"
-                target="_blank"
-                rel="noopener"
-                class="btn-primary flex items-center justify-center gap-2 h-12 text-[14px] w-full">
-                <Download :size="16" />
-                Скачать список сайтов
-                <ExternalLink :size="13" class="opacity-60" />
-              </a>
+      <div class="space-y-4">
+        <p class="text-[12.5px] text-ink-500 leading-relaxed">
+          Через туннель пойдут только заблокированные ресурсы. Импорт делается в приложении AmneziaVPN.
+        </p>
 
-              <div class="rounded-2xl bg-ink-100/60 dark:bg-ink-200/30 p-4">
-                <p class="eyebrow mb-3">Как импортировать</p>
-                <ol class="space-y-2 text-[12.5px] text-ink-700 dark:text-ink-600 leading-relaxed list-decimal list-inside marker:text-ink-400">
-                  <li>Откройте <span class="font-semibold">AmneziaVPN</span> и выберите устройство.</li>
-                  <li>Перейдите в <span class="font-semibold">Раздельное туннелирование</span>.</li>
-                  <li>Выберите <span class="font-semibold">Раздельное туннелирование сайтов</span>.</li>
-                  <li>Нажмите <span class="mono font-semibold">•••</span> → <span class="font-semibold">Импорт</span> → <span class="font-semibold">Заменить список сайтами</span>.</li>
-                  <li>Выберите скачанный файл — готово.</li>
-                </ol>
-              </div>
+        <a
+          :href="IPLIST_URL"
+          target="_blank"
+          rel="noopener"
+          class="btn-primary flex items-center justify-center gap-2 h-12 text-[14px] w-full">
+          <Download :size="16" />
+          Скачать список сайтов
+          <ExternalLink :size="13" class="opacity-60" />
+        </a>
 
-              <p class="text-[11px] text-ink-500 leading-relaxed">
-                Источник:
-                <a
-                  href="https://github.com/rekryt/iplist"
-                  target="_blank" rel="noopener"
-                  class="text-ink-700 dark:text-ink-600 hover:text-ink-900 underline decoration-ink-300 underline-offset-2">iplist</a>
-                — открытый реестр, обновляется регулярно. Если что-то не уходит в туннель, просто перекачайте файл и повторите импорт.
-              </p>
-            </div>
-          </div>
+        <div class="rounded-2xl bg-ink-100/60 dark:bg-ink-200/30 p-4">
+          <p class="eyebrow mb-3">Как импортировать</p>
+          <ol class="space-y-2 text-[12.5px] text-ink-700 dark:text-ink-600 leading-relaxed list-decimal list-inside marker:text-ink-400">
+            <li>Откройте <span class="font-semibold">AmneziaVPN</span> и выберите устройство.</li>
+            <li>Перейдите в <span class="font-semibold">Раздельное туннелирование</span>.</li>
+            <li>Выберите <span class="font-semibold">Раздельное туннелирование сайтов</span>.</li>
+            <li>Нажмите <span class="mono font-semibold">•••</span> → <span class="font-semibold">Импорт</span> → <span class="font-semibold">Заменить список сайтами</span>.</li>
+            <li>Выберите скачанный файл — готово.</li>
+          </ol>
         </div>
-      </Transition>
-    </Teleport>
+
+        <p class="text-[11px] text-ink-500 leading-relaxed">
+          Источник:
+          <a
+            href="https://github.com/rekryt/iplist"
+            target="_blank" rel="noopener"
+            class="text-ink-700 dark:text-ink-600 hover:text-ink-900 underline decoration-ink-300 underline-offset-2">iplist</a>
+          — открытый реестр, обновляется регулярно. Если что-то не уходит в туннель, просто перекачайте файл и повторите импорт.
+        </p>
+      </div>
+    </Modal>
 
   </div>
 </template>

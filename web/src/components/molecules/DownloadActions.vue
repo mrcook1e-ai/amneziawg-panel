@@ -13,6 +13,7 @@ import { api } from '@/lib/api'
 import { copy } from '@/lib/clipboard'
 import { useToastStore } from '@/stores/toasts'
 import Button from '@/components/atoms/Button.vue'
+import IconButton from '@/components/atoms/IconButton.vue'
 import Icon from '@/components/atoms/Icon.vue'
 import QrCarousel from '@/components/molecules/QrCarousel.vue'
 
@@ -82,16 +83,12 @@ function onCfgToggle(e: Event) {
         <Icon name="qrcode" :size="14" />
         {{ qrOpen ? 'Скрыть QR' : 'QR' }}
       </Button>
-      <button
-        class="h-10 w-10 flex items-center justify-center rounded-2xl transition-all shrink-0"
-        :class="copied
-          ? 'bg-success/12 text-success'
-          : 'text-ink-500 hover:text-ink-900 hover:bg-ink-100 dark:hover:bg-ink-200/50'"
+      <IconButton
         :title="copied ? 'Скопировано' : 'Скопировать vpn://'"
-        :aria-label="copied ? 'Скопировано' : 'Скопировать vpn:// ссылку'"
+        :class="copied ? '!bg-success/12 !text-success' : ''"
         @click="copyVpn">
         <Icon :name="copied ? 'check' : 'copy'" :size="15" />
-      </button>
+      </IconButton>
     </div>
 
     <!-- Inline QR carousel — collapses without modal weight. -->
