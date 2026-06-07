@@ -6,8 +6,9 @@ const router = createRouter({
   routes: [
     { path: '/login',    name: 'login',    component: () => import('@/views/LoginView.vue'), meta: { public: true } },
     { path: '/cabinet/:token', name: 'cabinet', component: () => import('@/views/CabinetView.vue'), meta: { public: true } },
-    { path: '/',         name: 'clients',  component: () => import('@/views/ClientsView.vue') },
-    { path: '/clients/:id', name: 'client', component: () => import('@/views/ClientDetailView.vue') },
+    { path: '/',         name: 'clients',     component: () => import('@/views/ClientsView.vue') },
+    { path: '/subscribers/:id', name: 'subscriber', component: () => import('@/views/SubscriberDetailView.vue') },
+    { path: '/clients/:id',     name: 'client',     component: () => import('@/views/ClientDetailView.vue') },
     { path: '/settings', name: 'settings', component: () => import('@/views/SettingsView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

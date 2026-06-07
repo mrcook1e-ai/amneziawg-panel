@@ -204,13 +204,23 @@ async function confirmDelete() {
 
       <!-- Назад + заголовок -->
       <header class="space-y-4">
-        <router-link
-          :to="{ name: 'clients' }"
-          class="inline-flex items-center gap-1.5 eyebrow hover:text-ink-900 transition-colors"
-        >
-          <Icon name="chevron-left" :size="14" />
-          Назад к клиентам
-        </router-link>
+        <!-- Breadcrumb: device belongs to a subscriber -->
+        <div class="flex items-center gap-1.5 eyebrow flex-wrap">
+          <router-link :to="{ name: 'clients' }" class="hover:text-ink-900 transition-colors">
+            Клиенты
+          </router-link>
+          <template v-if="client?.subscriberName && client?.subscriberId">
+            <Icon name="chevron-right" :size="12" class="text-ink-300" />
+            <router-link
+              :to="{ name: 'subscriber', params: { id: client.subscriberId } }"
+              class="hover:text-ink-900 transition-colors"
+            >
+              {{ client.subscriberName }}
+            </router-link>
+          </template>
+          <Icon name="chevron-right" :size="12" class="text-ink-300" />
+          <span class="text-ink-900">{{ client?.name ?? '…' }}</span>
+        </div>
 
         <div v-if="client" class="space-y-3">
           <div class="eyebrow tnum flex items-center gap-2 flex-wrap">
