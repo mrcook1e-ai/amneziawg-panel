@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useTitle } from '@/composables/useTitle'
 import { useRoute } from 'vue-router'
 import {
@@ -167,6 +167,18 @@ function closeQr() {
   qrOpenFor.value = null
   qrChunks.value  = []
 }
+
+// Stop timer whenever QR modal closes (covers ESC, backdrop, X button)
+watch(qrOpenFor, (val) => { if (!val) stopQrTimer() })
+
+function onKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    if (qrOpenFor.value) { closeQr(); return }
+    if (wizardOpen.value && wizardStep.value !== 'creating') closeWizard()
+  }
+}
+onMounted(() => document.addEventListener('keydown', onKeyDown))
+onBeforeUnmount(() => document.removeEventListener('keydown', onKeyDown))
 
 function qrPrev() {
   stopQrTimer()

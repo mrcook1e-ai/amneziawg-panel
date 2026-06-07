@@ -98,7 +98,12 @@ async function onSubSubmit(body: { name: string; notes?: string }) {
   subModalBusy.value = true
   try {
     createdSub.value = await subs.create(body)
-    try { await navigator.clipboard.writeText(createdSub.value.url) } catch { /* ignore */ }
+    try {
+      await navigator.clipboard.writeText(createdSub.value.url)
+      toasts.success('Ссылка скопирована')
+    } catch {
+      toasts.info('Скопируйте ссылку вручную — буфер обмена недоступен')
+    }
   } catch { /* toast in store */ }
   finally { subModalBusy.value = false }
 }
@@ -347,7 +352,7 @@ async function doRegen() {
             </div>
 
             <!-- Hover actions — visible on touch, fade-on-hover on pointer devices -->
-            <div class="flex items-center gap-1 shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
+            <div class="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 class="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-ink-200/70 focus-ring transition-colors"

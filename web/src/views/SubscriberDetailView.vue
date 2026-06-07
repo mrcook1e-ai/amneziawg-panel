@@ -375,7 +375,7 @@ async function doRegen() {
             </router-link>
 
             <!-- Actions — Amnezia-native format primary -->
-            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div class="flex items-center gap-1">
               <!-- .vpn download — primary Amnezia format -->
               <a
                 :href="api.amneziaVpnUrl(d.id)"
