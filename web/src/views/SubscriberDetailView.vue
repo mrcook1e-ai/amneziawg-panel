@@ -17,6 +17,7 @@ import ConfigModal from '@/components/organisms/ConfigModal.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import Section from '@/components/molecules/Section.vue'
 import Button from '@/components/atoms/Button.vue'
+import Input from '@/components/atoms/Input.vue'
 import Badge from '@/components/atoms/Badge.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
@@ -98,6 +99,22 @@ async function copyCabinetUrl() {
     await navigator.clipboard.writeText(sub.value.url)
     toasts.success('Ссылка скопирована')
   } catch { toasts.error('Не удалось скопировать') }
+}
+
+// ── Inline notes edit ────────────────────────────────────────────────────────
+const editingNotes = ref(false)
+const notesDraft = ref('')
+function startEditNotes() {
+  notesDraft.value = sub.value?.notes ?? ''
+  editingNotes.value = true
+}
+async function commitNotes() {
+  if (!sub.value) { editingNotes.value = false; return }
+  const v = notesDraft.value.trim()
+  editingNotes.value = false
+  if (v === (sub.value.notes ?? '')) return
+  await subs.patch(sub.value.id, { notes: v })
+  await loadSub()
 }
 
 // ── Device modals ─────────────────────────────────────────────────────────────
@@ -197,7 +214,28 @@ async function doRegen() {
                 @blur="commitRename"
               />
 
-              <p v-if="sub.notes" class="text-[13.5px] text-ink-500">{{ sub.notes }}</p>
+              <!-- Notes — click to edit -->
+              <div v-if="!editingNotes" class="flex items-baseline gap-2 flex-wrap">
+                <p v-if="sub.notes" class="text-[13.5px] text-ink-500">{{ sub.notes }}</p>
+                <button
+                  type="button"
+                  class="eyebrow text-ink-400 hover:text-ink-900 transition-colors"
+                  :aria-label="sub.notes ? 'Изменить заметку' : 'Добавить заметку'"
+                  @click="startEditNotes"
+                >
+                  <Icon name="edit" :size="12" /> {{ sub.notes ? 'изменить заметку' : 'добавить заметку' }}
+                </button>
+              </div>
+              <Input
+                v-else
+                v-model="notesDraft"
+                size="sm"
+                placeholder="@vasya · до конца квартала"
+                autofocus
+                @keydown.enter="commitNotes"
+                @keydown.escape="editingNotes = false"
+                @blur="commitNotes"
+              />
             </div>
 
             <!-- Actions -->
@@ -214,16 +252,19 @@ async function doRegen() {
             </div>
           </div>
 
-          <!-- Cabinet URL display -->
-          <div class="flex items-center gap-2 mt-1 animate-rise delay-2">
-            <span class="text-[11.5px] text-ink-400 mono truncate max-w-sm">{{ sub.url }}</span>
-            <button
-              class="text-[11px] text-ink-500 hover:text-ink-900 transition-colors shrink-0"
-              @click="copyCabinetUrl"
-            >
-              копировать
-            </button>
-          </div>
+          <!-- Cabinet URL — full text, monospace, wraps. Click to copy. -->
+          <button
+            type="button"
+            class="group block w-full text-left mt-2 p-3.5 rounded-xl bg-ink-100 hover:bg-ink-200 transition-colors animate-rise delay-2"
+            :title="`Скопировать ${sub.url}`"
+            :aria-label="`Скопировать ссылку кабинета ${sub.name}`"
+            @click="copyCabinetUrl"
+          >
+            <div class="flex items-start gap-3">
+              <span class="mono text-[11.5px] text-ink-700 break-all leading-relaxed flex-1 min-w-0">{{ sub.url }}</span>
+              <Icon name="copy" :size="13" class="text-ink-400 group-hover:text-ink-900 transition-colors shrink-0 mt-0.5" />
+            </div>
+          </button>
         </template>
       </header>
 

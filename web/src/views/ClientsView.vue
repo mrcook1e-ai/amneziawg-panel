@@ -13,6 +13,7 @@ import MetricCard from '@/components/molecules/MetricCard.vue'
 import SubscriberModal from '@/components/organisms/SubscriberModal.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import EmptyState from '@/components/molecules/EmptyState.vue'
+import Input from '@/components/atoms/Input.vue'
 import Button from '@/components/atoms/Button.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
 import Icon from '@/components/atoms/Icon.vue'
@@ -102,6 +103,17 @@ async function copyCabinetUrl(url: string) {
   catch { toasts.error('Не удалось скопировать') }
 }
 
+// ── Search ───────────────────────────────────────────────────────────────
+const search = ref('')
+const filteredSubs = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  if (!q) return subs.items
+  return subs.items.filter(s =>
+    s.name.toLowerCase().includes(q) ||
+    (s.notes ?? '').toLowerCase().includes(q),
+  )
+})
+
 async function doDeleteSub() {
   if (!subDelFor.value) return
   await subs.remove(subDelFor.value.id)
@@ -172,12 +184,32 @@ async function doRegen() {
         <div class="flex items-center gap-4">
           <h2 class="eyebrow">
             Все клиенты
-            <template v-if="subs.items.length"> · {{ subs.items.length }}</template>
+            <template v-if="subs.items.length"> · {{ filteredSubs.length }}<span v-if="search">/{{ subs.items.length }}</span></template>
           </h2>
           <div class="hairline flex-1" />
           <Button variant="ghost" size="sm" @click="openCreate">
             <Icon name="plus" :size="13" /> Добавить
           </Button>
+        </div>
+
+        <!-- Search — visible only when there's something worth filtering -->
+        <div v-if="subs.items.length > 5" class="relative">
+          <Input
+            v-model="search"
+            size="sm"
+            placeholder="Поиск по имени или заметке…"
+            aria-label="Поиск клиентов"
+          />
+          <button
+            v-if="search"
+            type="button"
+            class="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-900 hover:bg-ink-200 transition-colors"
+            title="Очистить"
+            aria-label="Очистить поиск"
+            @click="search = ''"
+          >
+            <Icon name="x" :size="14" />
+          </button>
         </div>
 
         <!-- Loading skeleton -->
@@ -197,10 +229,15 @@ async function doRegen() {
           </template>
         </EmptyState>
 
+        <!-- No matches in active search -->
+        <div v-else-if="!filteredSubs.length" class="card p-8 text-center text-[12.5px] text-ink-500">
+          Ничего не нашлось по «{{ search }}»
+        </div>
+
         <!-- List -->
         <div v-else class="card divide-y divide-ink-900/5 overflow-hidden">
           <router-link
-            v-for="s in subs.items"
+            v-for="s in filteredSubs"
             :key="s.id"
             :to="{ name: 'subscriber', params: { id: s.id } }"
             class="px-5 py-4 flex items-center gap-4 transition-colors group"

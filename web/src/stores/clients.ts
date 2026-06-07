@@ -61,8 +61,16 @@ export const useClientsStore = defineStore('clients', {
     },
     async rename(id: string, name: string) {
       const t = useToastStore()
-      try { await api.renameClient(id, name); await this.fetch(true) }
-      catch (e: any) { t.error(e?.message || 'Ошибка') }
+      try {
+        await api.renameClient(id, name)
+        // Optimistic local update so the new name shows before refetch lands.
+        const i = this.items.findIndex(c => c.id === id)
+        if (i >= 0) this.items[i] = { ...this.items[i], name }
+        t.success('Переименовано')
+        this.fetch(true)
+      } catch (e: any) {
+        t.error(e?.message || 'Не удалось переименовать')
+      }
     },
     async patch(id: string, patch: ClientPatch) {
       const t = useToastStore()

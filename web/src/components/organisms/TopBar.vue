@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useClientsStore } from '@/stores/clients'
 import { useStatsStore } from '@/stores/stats'
+import { useSubscribersStore } from '@/stores/subscribers'
 import { useThemeStore } from '@/stores/theme'
 import { bytes, handshakeFreshness } from '@/lib/format'
 import IconButton from '@/components/atoms/IconButton.vue'
@@ -22,9 +23,28 @@ import { ArrowDown, ArrowUp } from 'lucide-vue-next'
 const auth = useAuthStore()
 const clients = useClientsStore()
 const stats = useStatsStore()
+const subs = useSubscribersStore()
 const theme = useThemeStore()
 const router = useRouter()
 const route = useRoute()
+
+// Manual refresh — triggers all admin store refetches in parallel. Useful
+// when the admin just made a change on the server outside the panel and
+// doesn't want to wait for the next polling tick.
+const refreshing = ref(false)
+async function refreshAll() {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    await Promise.all([
+      clients.fetch(true),
+      subs.fetch(true),
+      stats.fetch(),
+    ])
+  } finally {
+    refreshing.value = false
+  }
+}
 
 const total = computed(() => clients.items.length)
 const online = computed(() =>
@@ -137,6 +157,14 @@ function toggleTheme() { theme.set(isDark.value ? 'light' : 'dark') }
         <!-- Actions -->
         <div class="flex items-center gap-0.5 sm:gap-1 shrink-0">
           <slot name="actions" />
+          <IconButton
+            title="Обновить данные"
+            aria-label="Обновить данные сейчас"
+            :disabled="refreshing"
+            @click="refreshAll"
+          >
+            <Icon name="refresh" :size="17" :class="refreshing && 'animate-spin'" />
+          </IconButton>
           <IconButton
             :title="isDark ? 'Светлая тема' : 'Тёмная тема'"
             :aria-label="isDark ? 'Включить светлую тему' : 'Включить тёмную тему'"

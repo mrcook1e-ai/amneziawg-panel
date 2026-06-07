@@ -11,6 +11,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import { useClientsStore } from '@/stores/clients'
+import { useProfilesStore } from '@/stores/profiles'
 import { useInterval } from '@/composables/useInterval'
 import { useTitle } from '@/composables/useTitle'
 import { useToastStore } from '@/stores/toasts'
@@ -29,16 +30,18 @@ import QrModal from '@/components/organisms/QrModal.vue'
 import ConfigModal from '@/components/organisms/ConfigModal.vue'
 import Button from '@/components/atoms/Button.vue'
 import Input from '@/components/atoms/Input.vue'
+import Select from '@/components/atoms/Select.vue'
 import DatePicker from '@/components/molecules/DatePicker.vue'
 import Switch from '@/components/atoms/Switch.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import Icon from '@/components/atoms/Icon.vue'
 
-const route   = useRoute()
-const router  = useRouter()
-const clients = useClientsStore()
-const toasts  = useToastStore()
+const route    = useRoute()
+const router   = useRouter()
+const clients  = useClientsStore()
+const profiles = useProfilesStore()
+const toasts   = useToastStore()
 
 const id = computed(() => route.params.id as string)
 const client = computed(() => clients.byId(id.value))
@@ -57,11 +60,23 @@ const form = ref({
   allowedIPsOverride: '',
   mtuOverride:        0,
 })
+// Format a UTC ISO timestamp into YYYY-MM-DD in the admin's local timezone.
+// Without this, an expiresAt stored as 2024-06-10T23:59:59Z would render as
+// "10 June" for admins in UTC+0 but "11 June" for admins in UTC-1 — leaking
+// the storage timezone into the form.
+function localDateString(iso: string): string {
+  const d = new Date(iso)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function syncFormFromClient() {
   const c = client.value
   if (!c) return
   form.value.notes              = c.notes ?? ''
-  form.value.expiresAt          = c.expiresAt ? new Date(c.expiresAt).toISOString().slice(0, 10) : ''
+  form.value.expiresAt          = c.expiresAt ? localDateString(c.expiresAt) : ''
   form.value.dnsOverride        = c.dnsOverride ?? ''
   form.value.allowedIPsOverride = c.allowedIPsOverride ?? ''
   form.value.mtuOverride        = c.mtuOverride ?? 0
@@ -94,8 +109,25 @@ async function loadAll() {
 }
 onMounted(async () => {
   if (!clients.items.length) await clients.fetch()
+  if (!profiles.items.length) profiles.fetch(true)
   await loadAll()
 })
+
+// Profile-move (administrative). Changing peer's profile re-issues the WG
+// peer on the new interface, which means a brief reconnect.
+const profileOptions = computed(() =>
+  profiles.items.map(p => ({ value: p.id, label: `${p.name} · :${p.port}` })),
+)
+const movingProfile = ref(false)
+async function moveToProfile(newId: string) {
+  if (!client.value || newId === client.value.profileId || movingProfile.value) return
+  movingProfile.value = true
+  try {
+    await clients.move(client.value.id, newId)
+  } finally {
+    movingProfile.value = false
+  }
+}
 // SSE handles audit events for this client; poll only for handshake freshness.
 useInterval(() => clients.fetch(true), 15000, { pauseHidden: true })
 useInterval(loadAll, 8000, { pauseHidden: true })
@@ -171,8 +203,11 @@ async function saveOverrides() {
       dnsOverride:        form.value.dnsOverride !== (c.dnsOverride ?? '') ? form.value.dnsOverride : undefined,
       allowedIPsOverride: form.value.allowedIPsOverride !== (c.allowedIPsOverride ?? '') ? form.value.allowedIPsOverride : undefined,
       mtuOverride:        form.value.mtuOverride !== (c.mtuOverride ?? 0) ? Number(form.value.mtuOverride) : undefined,
+      // Interpret picker date as "end of day in admin's local TZ" — no Z
+      // suffix, so Date() parses as local, then toISOString() converts to
+      // proper UTC. Round-trips correctly with localDateString() on read.
       expiresAt:          form.value.expiresAt
-                            ? new Date(form.value.expiresAt + 'T23:59:59Z').toISOString()
+                            ? new Date(form.value.expiresAt + 'T23:59:59').toISOString()
                             : undefined,
       clearExpiresAt:     form.value.expiresAt === '' && !!c.expiresAt,
     })
@@ -356,6 +391,22 @@ async function confirmDelete() {
               <Button size="sm" variant="primary" :loading="savingId === client.id" @click="saveOverrides">Сохранить</Button>
             </div>
           </div>
+        </Section>
+
+        <!-- Профиль подключения -->
+        <Section title="Профиль" footer="При смене профиля устройство перевыпускается на другом интерфейсе — короткий разрыв подключения, клиент переподключится автоматически.">
+          <InfoRow label="Профиль подключения">
+            <div class="w-full max-w-xs">
+              <Select
+                :model-value="client.profileId"
+                :options="profileOptions"
+                size="sm"
+                :disabled="movingProfile || profileOptions.length <= 1"
+                aria-label="Профиль подключения"
+                @update:model-value="moveToProfile"
+              />
+            </div>
+          </InfoRow>
         </Section>
 
         <!-- Доступ -->

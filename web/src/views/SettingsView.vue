@@ -4,18 +4,22 @@ import { api } from '@/lib/api'
 import { useToastStore } from '@/stores/toasts'
 import { useClientsStore } from '@/stores/clients'
 import { useStatsStore } from '@/stores/stats'
+import { useProfilesStore } from '@/stores/profiles'
 import TopBar from '@/components/organisms/TopBar.vue'
 import Section from '@/components/molecules/Section.vue'
 import InfoRow from '@/components/molecules/InfoRow.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import EventRow from '@/components/molecules/EventRow.vue'
 import ImportClientModal from '@/components/organisms/ImportClientModal.vue'
+import ProfileModal from '@/components/organisms/ProfileModal.vue'
+import Badge from '@/components/atoms/Badge.vue'
 import Button from '@/components/atoms/Button.vue'
 import Segmented from '@/components/atoms/Segmented.vue'
 import Icon from '@/components/atoms/Icon.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import { useThemeStore, type ThemeMode } from '@/stores/theme'
 import { useTitle } from '@/composables/useTitle'
+import type { ProfileInfo } from '@/types'
 
 useTitle(() => 'Настройки · Amnezia Panel')
 
@@ -29,6 +33,7 @@ const themeOptions: { value: ThemeMode; label: string }[] = [
 const toasts = useToastStore()
 const clients = useClientsStore()
 const statsStore = useStatsStore()
+const profiles = useProfilesStore()
 
 const busyAction = ref<{kind: string} | null>(null)
 const confirmAction = ref<{kind: 'reset' | 'factory'} | null>(null)
@@ -45,11 +50,65 @@ const restoreConfirmFile = ref<File | null>(null)
 
 async function load() {
   eventsLoading.value = true
-  try { await statsStore.fetch() }
-  catch (e: any) { toasts.error(e?.message || 'Ошибка загрузки') }
-  finally { eventsLoading.value = false }
+  try {
+    await Promise.all([statsStore.fetch(), profiles.fetch(true)])
+  } catch (e: any) {
+    toasts.error(e?.message || 'Ошибка загрузки')
+  } finally {
+    eventsLoading.value = false
+  }
 }
 onMounted(load)
+
+// ── Profiles CRUD ─────────────────────────────────────────────────────
+const profileModalOpen = ref(false)
+const profileModalMode = ref<'create' | 'edit'>('create')
+const profileEditing   = ref<ProfileInfo | null>(null)
+const profileModalBusy = ref(false)
+
+const profileDelFor   = ref<ProfileInfo | null>(null)
+const profileRestartFor = ref<ProfileInfo | null>(null)
+
+function openCreateProfile() {
+  profileModalMode.value = 'create'
+  profileEditing.value = null
+  profileModalOpen.value = true
+}
+function openEditProfile(p: ProfileInfo) {
+  profileModalMode.value = 'edit'
+  profileEditing.value = p
+  profileModalOpen.value = true
+}
+
+async function onProfileSubmit(body: { id?: string; name: string; description?: string; snippet?: string }) {
+  profileModalBusy.value = true
+  try {
+    if (profileModalMode.value === 'create') {
+      if (!body.snippet) throw new Error('snippet required')
+      await profiles.create({ id: body.id, name: body.name, description: body.description, snippet: body.snippet })
+    } else if (profileEditing.value) {
+      await profiles.patch(profileEditing.value.id, {
+        name: body.name,
+        description: body.description,
+        snippet: body.snippet,
+      })
+    }
+    profileModalOpen.value = false
+  } catch { /* toast in store */ }
+  finally { profileModalBusy.value = false }
+}
+
+async function doDeleteProfile() {
+  if (!profileDelFor.value) return
+  await profiles.remove(profileDelFor.value.id)
+  profileDelFor.value = null
+}
+
+async function doRestartProfile() {
+  if (!profileRestartFor.value) return
+  await profiles.restart(profileRestartFor.value.id)
+  profileRestartFor.value = null
+}
 
 const TITLES: Record<'reset' | 'factory', string> = {
   reset:   'Удалить всех клиентов?',
@@ -144,6 +203,58 @@ async function doRestore() {
         </InfoRow>
       </Section>
 
+      <Section
+        title="Профили подключения"
+        footer="Профиль — отдельный AmneziaWG 2.0 интерфейс на своём UDP-порту. Параметры обфускации задаются [Interface]-блоком из внешнего генератора. Перезапуск нужен после смены snippet — клиенты переподключатся.">
+        <div v-if="profiles.loading && !profiles.items.length" class="p-8 grid place-items-center">
+          <Skeleton width="60%" height="14" />
+        </div>
+        <template v-else-if="profiles.items.length">
+          <div
+            v-for="(p, i) in profiles.items" :key="p.id"
+            :class="['px-4 py-4 flex items-start gap-4', i < profiles.items.length - 1 && 'border-b border-ink-900/5']"
+          >
+            <div class="flex-1 min-w-0 space-y-1.5">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-[14.5px] font-semibold text-ink-900 truncate">{{ p.name }}</span>
+                <Badge v-if="p.hasMimicry" tone="warning" size="xs">мимикрия</Badge>
+                <Badge tone="neutral" size="xs">{{ p.clientCount }} {{ p.clientCount === 1 ? 'клиент' : p.clientCount < 5 ? 'клиента' : 'клиентов' }}</Badge>
+              </div>
+              <div class="flex items-center gap-2 text-[11.5px] text-ink-500 flex-wrap">
+                <span class="mono">{{ p.iface }} · :{{ p.port }}</span>
+                <span v-if="p.description" class="text-ink-400">·</span>
+                <span v-if="p.description" class="truncate">{{ p.description }}</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <Button size="sm" variant="ghost" :title="`Перезапустить ${p.iface}`" @click="profileRestartFor = p">
+                <Icon name="refresh" :size="14" />
+              </Button>
+              <Button size="sm" variant="ghost" :title="`Изменить ${p.name}`" @click="openEditProfile(p)">
+                <Icon name="edit" :size="14" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                class="hover:!bg-danger/10 hover:!text-danger"
+                :title="`Удалить ${p.name}`"
+                :disabled="p.clientCount > 0"
+                @click="profileDelFor = p">
+                <Icon name="trash" :size="14" />
+              </Button>
+            </div>
+          </div>
+        </template>
+        <div v-else class="p-8 text-center text-[12.5px] text-ink-500">
+          Профилей нет — создайте первый.
+        </div>
+        <div class="px-4 py-3 flex items-center justify-end border-t border-ink-900/5">
+          <Button size="sm" variant="primary" @click="openCreateProfile">
+            <Icon name="plus" :size="14" /> Новый профиль
+          </Button>
+        </div>
+      </Section>
+
       <Section title="Восстановление клиента" footer="Если у клиента уже есть готовый .conf и нужно вернуть его в панель — импортируйте по публичному ключу. Профиль и интерфейс будут созданы автоматически, как при онбординге через ссылку.">
         <InfoRow label="Импорт по публичному ключу">
           <Button size="sm" @click="importOpen = true">
@@ -227,6 +338,35 @@ async function doRestore() {
       :busy="importBusy"
       @close="importOpen = false"
       @submit="onImport"
+    />
+
+    <ProfileModal
+      :open="profileModalOpen"
+      :mode="profileModalMode"
+      :profile="profileEditing"
+      :busy="profileModalBusy"
+      @close="profileModalOpen = false"
+      @submit="onProfileSubmit"
+    />
+
+    <ConfirmDialog
+      :open="profileDelFor !== null"
+      title="Удалить профиль?"
+      :message="`Профиль «${profileDelFor?.name ?? ''}» (${profileDelFor?.iface ?? ''}) будет удалён. Интерфейс остановится. У профиля ${profileDelFor?.clientCount ?? 0} клиент(ов).`"
+      confirm-text="Удалить профиль"
+      tone="danger"
+      @cancel="profileDelFor = null"
+      @confirm="doDeleteProfile"
+    />
+
+    <ConfirmDialog
+      :open="profileRestartFor !== null"
+      title="Перезапустить интерфейс?"
+      :message="`Интерфейс ${profileRestartFor?.iface ?? ''} будет перезапущен. Активные подключения разорвутся — клиенты переподключатся автоматически.`"
+      confirm-text="Перезапустить"
+      tone="neutral"
+      @cancel="profileRestartFor = null"
+      @confirm="doRestartProfile"
     />
   </div>
 </template>
