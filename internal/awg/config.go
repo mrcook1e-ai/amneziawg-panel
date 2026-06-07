@@ -47,6 +47,15 @@ type Config struct {
 	Tokens        map[string]*OnboardToken  `json:"tokens,omitempty"`
 }
 
+// NOTE on Itime / J1-J3: amneziawg-tools v1.0.20260223 (HEAD as of writing)
+// does NOT yet recognise these keys — `awg setconf` errors out with
+// "Line unrecognized: `Itime=...`" and the interface fails to come up.
+// They live in the data model and ParseObfuscation accepts them (so admin
+// snippets from Architect don't get rejected), but we deliberately do NOT
+// emit them to the rendered .conf — neither server nor client side, since
+// any peer running the same userspace tools would fail identically.
+// Re-enable both template blocks once amneziawg-tools ships support.
+
 var profileTmpl = template.Must(template.New("profile").Parse(`# Managed by amneziawg-panel. Do not edit by hand.
 
 [Interface]
@@ -66,15 +75,11 @@ H1 = {{.Profile.H1}}
 H2 = {{.Profile.H2}}
 H3 = {{.Profile.H3}}
 H4 = {{.Profile.H4}}
-Itime = {{.Profile.Itime}}
 {{if .Profile.I1}}I1 = {{.Profile.I1}}
 {{end}}{{if .Profile.I2}}I2 = {{.Profile.I2}}
 {{end}}{{if .Profile.I3}}I3 = {{.Profile.I3}}
 {{end}}{{if .Profile.I4}}I4 = {{.Profile.I4}}
 {{end}}{{if .Profile.I5}}I5 = {{.Profile.I5}}
-{{end}}{{if .Profile.J1}}J1 = {{.Profile.J1}}
-{{end}}{{if .Profile.J2}}J2 = {{.Profile.J2}}
-{{end}}{{if .Profile.J3}}J3 = {{.Profile.J3}}
 {{end}}{{range .Peers}}
 # {{.Name}} ({{.ID}})
 [Peer]
@@ -99,15 +104,11 @@ H1 = {{.Profile.H1}}
 H2 = {{.Profile.H2}}
 H3 = {{.Profile.H3}}
 H4 = {{.Profile.H4}}
-Itime = {{.Itime}}
 {{if .Profile.I1}}I1 = {{.Profile.I1}}
 {{end}}{{if .Profile.I2}}I2 = {{.Profile.I2}}
 {{end}}{{if .Profile.I3}}I3 = {{.Profile.I3}}
 {{end}}{{if .Profile.I4}}I4 = {{.Profile.I4}}
 {{end}}{{if .Profile.I5}}I5 = {{.Profile.I5}}
-{{end}}{{if .Profile.J1}}J1 = {{.Profile.J1}}
-{{end}}{{if .Profile.J2}}J2 = {{.Profile.J2}}
-{{end}}{{if .Profile.J3}}J3 = {{.Profile.J3}}
 {{end}}
 [Peer]
 PublicKey = {{.Profile.PublicKey}}
