@@ -15,6 +15,9 @@ import Segmented from '@/components/atoms/Segmented.vue'
 import Icon from '@/components/atoms/Icon.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import { useThemeStore, type ThemeMode } from '@/stores/theme'
+import { useTitle } from '@/composables/useTitle'
+
+useTitle(() => 'Настройки · Amnezia Panel')
 
 const theme = useThemeStore()
 const themeOptions: { value: ThemeMode; label: string }[] = [

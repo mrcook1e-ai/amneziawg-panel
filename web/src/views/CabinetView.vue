@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watchEffect } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import { useTitle } from '@/composables/useTitle'
 import { useRoute } from 'vue-router'
 import {
   Shield, Lock, Key, Smartphone, Laptop, Monitor,
@@ -25,11 +26,9 @@ const phase   = ref<Phase>('loading')
 const cabinet = ref<CabinetView | null>(null)
 
 // ── Browser title ──────────────────────────────────────────────────────
-watchEffect(() => {
-  document.title = cabinet.value
-    ? `${cabinet.value.name} · Личный кабинет`
-    : 'Личный кабинет · AmneziaVPN'
-})
+useTitle(() => cabinet.value
+  ? `${cabinet.value.name} · Личный кабинет`
+  : 'Личный кабинет · AmneziaVPN')
 
 // ── Theme toggle — only light / dark, auto is the system default ───────
 const isDark = computed(() => {

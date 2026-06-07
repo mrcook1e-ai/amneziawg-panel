@@ -6,6 +6,7 @@ import { useClientsStore } from '@/stores/clients'
 import { useSubscribersStore } from '@/stores/subscribers'
 import { useToastStore } from '@/stores/toasts'
 import { useInterval } from '@/composables/useInterval'
+import { useTitle } from '@/composables/useTitle'
 import { handshakeFreshness, relativeTime } from '@/lib/format'
 import type { Subscriber } from '@/types'
 
@@ -30,6 +31,8 @@ const toasts  = useToastStore()
 const id      = computed(() => route.params.id as string)
 const sub     = ref<Subscriber | null>(null)
 const loading = ref(true)
+
+useTitle(() => sub.value ? `${sub.value.name} · Amnezia Panel` : 'Клиент · Amnezia Panel')
 
 // ── Data loading ────────────────────────────────────────────────────────────
 // `redirectOnFail` is true only for the FIRST load — polling errors (transient

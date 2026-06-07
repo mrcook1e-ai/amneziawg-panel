@@ -7,6 +7,9 @@ import Field from '@/components/molecules/Field.vue'
 import Input from '@/components/atoms/Input.vue'
 import Button from '@/components/atoms/Button.vue'
 import Icon from '@/components/atoms/Icon.vue'
+import { useTitle } from '@/composables/useTitle'
+
+useTitle(() => 'Вход · Amnezia Panel')
 
 const auth = useAuthStore()
 const toasts = useToastStore()
@@ -18,6 +21,17 @@ const reveal = ref(false)
 const busy = ref(false)
 const err = ref('')
 
+// Whitelist only same-origin relative paths to block open-redirect via
+// ?to=//evil.com or ?to=https://evil.com. Must start with a single "/"
+// and not "//", and must not contain a scheme.
+function safeRedirect(raw: unknown): string {
+  if (typeof raw !== 'string' || !raw) return '/'
+  if (!raw.startsWith('/')) return '/'
+  if (raw.startsWith('//')) return '/'
+  if (/^\/+[a-z][a-z0-9+.-]*:/i.test(raw)) return '/'
+  return raw
+}
+
 async function submit() {
   if (!password.value) { err.value = 'Введите пароль'; return }
   busy.value = true; err.value = ''
@@ -25,7 +39,7 @@ async function submit() {
   busy.value = false
   if (ok) {
     toasts.success('Вход выполнен')
-    router.replace((route.query.to as string) || '/')
+    router.replace(safeRedirect(route.query.to))
   } else {
     err.value = 'Неверный пароль'
   }

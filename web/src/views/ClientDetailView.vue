@@ -7,13 +7,14 @@
   событий, опасная зона.
 */
 
-import { computed, onMounted, ref, watch, h, defineComponent } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import { useClientsStore } from '@/stores/clients'
 import { useInterval } from '@/composables/useInterval'
+import { useTitle } from '@/composables/useTitle'
 import { useToastStore } from '@/stores/toasts'
-import { bytes, bytesParts, relativeTime, handshakeFreshness, stateLabelRu } from '@/lib/format'
+import { bytes, relativeTime, handshakeFreshness, stateLabelRu } from '@/lib/format'
 import type { ClientStats, AppEvent } from '@/types'
 
 import TopBar from '@/components/organisms/TopBar.vue'
@@ -23,6 +24,7 @@ import InfoRow from '@/components/molecules/InfoRow.vue'
 import CopyButton from '@/components/molecules/CopyButton.vue'
 import EventRow from '@/components/molecules/EventRow.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
+import StatBlock from '@/components/molecules/StatBlock.vue'
 import QrModal from '@/components/organisms/QrModal.vue'
 import ConfigModal from '@/components/organisms/ConfigModal.vue'
 import Button from '@/components/atoms/Button.vue'
@@ -33,27 +35,6 @@ import Spinner from '@/components/atoms/Spinner.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import Icon from '@/components/atoms/Icon.vue'
 
-// Локальная подкомпонента для одной метрики (eyebrow + большая цифра + ед.).
-const Stat = defineComponent({
-  props: {
-    eyebrow: { type: String, required: true },
-    value:   { type: Number, default: 0 },
-    raw:     { type: String, default: '' },
-  },
-  setup(p) {
-    return () => {
-      const v = p.raw ? { value: p.raw, unit: '' } : bytesParts(p.value || 0)
-      return h('div', { class: 'space-y-1' }, [
-        h('div', { class: 'eyebrow truncate' }, p.eyebrow),
-        h('div', { class: 'flex items-baseline gap-1.5' }, [
-          h('span', { class: 'num-display-soft tnum text-ink-900 text-[34px] sm:text-[40px]' }, v.value),
-          v.unit ? h('span', { class: 'mono text-[10.5px] text-ink-500 uppercase tracking-wider' }, v.unit) : null,
-        ]),
-      ])
-    }
-  },
-})
-
 const route   = useRoute()
 const router  = useRouter()
 const clients = useClientsStore()
@@ -61,6 +42,8 @@ const toasts  = useToastStore()
 
 const id = computed(() => route.params.id as string)
 const client = computed(() => clients.byId(id.value))
+
+useTitle(() => client.value ? `${client.value.name} · Amnezia Panel` : 'Клиент · Amnezia Panel')
 
 const cs       = ref<ClientStats | null>(null)
 const events   = ref<AppEvent[]>([])
@@ -113,7 +96,8 @@ onMounted(async () => {
   if (!clients.items.length) await clients.fetch()
   await loadAll()
 })
-useInterval(() => clients.fetch(true), 5000, { pauseHidden: true })
+// SSE handles audit events for this client; poll only for handshake freshness.
+useInterval(() => clients.fetch(true), 15000, { pauseHidden: true })
 useInterval(loadAll, 8000, { pauseHidden: true })
 
 const live = computed(() => {
@@ -293,10 +277,10 @@ async function confirmDelete() {
       <template v-if="client">
         <!-- Телеметрия -->
         <section class="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-4 animate-rise delay-1">
-          <Stat eyebrow="За 5 минут"   :value="cs?.rxLast || 0" />
-          <Stat eyebrow="За 24 часа"   :value="cs?.rx24h || 0" />
-          <Stat eyebrow="За 7 дней"    :value="cs?.rx7d || 0" />
-          <Stat eyebrow="Доступен · 7 дн" :raw="Math.round((cs?.onlineRatio7d || 0) * 100) + '%'" />
+          <StatBlock eyebrow="За 5 минут"   :value="cs?.rxLast || 0" />
+          <StatBlock eyebrow="За 24 часа"   :value="cs?.rx24h || 0" />
+          <StatBlock eyebrow="За 7 дней"    :value="cs?.rx7d || 0" />
+          <StatBlock eyebrow="Доступен · 7 дн" :raw="Math.round((cs?.onlineRatio7d || 0) * 100) + '%'" />
         </section>
 
         <!-- График 24ч -->

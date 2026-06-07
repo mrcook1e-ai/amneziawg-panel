@@ -5,6 +5,7 @@ import { useStatsStore } from '@/stores/stats'
 import { useSubscribersStore } from '@/stores/subscribers'
 import { useToastStore } from '@/stores/toasts'
 import { useInterval } from '@/composables/useInterval'
+import { useTitle } from '@/composables/useTitle'
 import { bytes, handshakeFreshness, relativeTime } from '@/lib/format'
 
 import TopBar from '@/components/organisms/TopBar.vue'
@@ -23,27 +24,46 @@ const stats   = useStatsStore()
 const subs    = useSubscribersStore()
 const toasts  = useToastStore()
 
-useInterval(() => clients.fetch(true), 3000, { immediate: true, pauseHidden: true })
-useInterval(() => stats.fetch(),       5000, { immediate: true, pauseHidden: true })
-useInterval(() => subs.fetch(true),    5000, { immediate: true, pauseHidden: true })
+useTitle(() => 'Клиенты · Amnezia Panel')
+
+// SSE (lib/stream.ts) refetches `clients` immediately on any client.* audit
+// event (create/delete/rename/enable/disable/expired/reset). Polling here is
+// only needed to refresh handshake timestamps (not streamed) — 10s is enough.
+// `subs` has no SSE coverage; `stats.overview` aggregates aren't in the tick.
+useInterval(() => clients.fetch(true), 10000, { immediate: true, pauseHidden: true })
+useInterval(() => stats.fetch(),        5000, { immediate: true, pauseHidden: true })
+useInterval(() => subs.fetch(true),     5000, { immediate: true, pauseHidden: true })
 
 // ── Per-subscriber live metrics ────────────────────────────────────────
+// Build one Map<subscriberId, {online, devices, lastSeen}> per data update,
+// so list rendering is O(N+M) instead of O(N*M) per render. Matters at scale:
+// 100 clients × 20 subs × 3 functions × render-on-every-poll was ~6k ops/tick.
+interface SubMetrics { online: number; devices: number; lastSeenMs: number }
+const metricsBySub = computed<Map<string, SubMetrics>>(() => {
+  const m = new Map<string, SubMetrics>()
+  for (const c of clients.items) {
+    if (!c.subscriberId) continue
+    const cur = m.get(c.subscriberId) ?? { online: 0, devices: 0, lastSeenMs: 0 }
+    cur.devices += 1
+    if (handshakeFreshness(c.latestHandshakeAt) === 'online') cur.online += 1
+    if (c.latestHandshakeAt) {
+      const ts = new Date(c.latestHandshakeAt).getTime()
+      if (ts > cur.lastSeenMs) cur.lastSeenMs = ts
+    }
+    m.set(c.subscriberId, cur)
+  }
+  return m
+})
+
 function onlineOf(sub: Subscriber): number {
-  return clients.items.filter(
-    c => c.subscriberId === sub.id && handshakeFreshness(c.latestHandshakeAt) === 'online'
-  ).length
+  return metricsBySub.value.get(sub.id)?.online ?? 0
 }
-
 function deviceCountOf(sub: Subscriber): number {
-  const live = clients.items.filter(c => c.subscriberId === sub.id).length
-  return live || sub.deviceCount || 0
+  return metricsBySub.value.get(sub.id)?.devices || sub.deviceCount || 0
 }
-
 function lastSeenOf(sub: Subscriber): string | null {
-  const times = clients.items
-    .filter(c => c.subscriberId === sub.id && c.latestHandshakeAt)
-    .map(c => new Date(c.latestHandshakeAt!).getTime())
-  return times.length ? new Date(Math.max(...times)).toISOString() : null
+  const ts = metricsBySub.value.get(sub.id)?.lastSeenMs ?? 0
+  return ts ? new Date(ts).toISOString() : null
 }
 
 // ── Totals ─────────────────────────────────────────────────────────────
