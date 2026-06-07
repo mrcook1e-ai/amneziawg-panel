@@ -87,15 +87,6 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 			r.Get("/backup", admin.backup)
 			r.Post("/restore", admin.restore)
 
-			r.Route("/profiles", func(r chi.Router) {
-				r.Get("/", h.profilesList)
-				r.Post("/", h.profileCreate)
-				r.Get("/{id}", h.profileGet)
-				r.Patch("/{id}", h.profilePatch)
-				r.Delete("/{id}", h.profileDelete)
-				r.Post("/{id}/restart", h.profileRestart)
-			})
-
 			r.Route("/wireguard/server", func(r chi.Router) {
 				r.Post("/reset-clients", h.serverResetClients)
 				r.Post("/factory-reset", admin.factoryReset)
