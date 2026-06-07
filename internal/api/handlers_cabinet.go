@@ -187,6 +187,30 @@ func (h *Handlers) cabinetDeviceAmneziaQR(w http.ResponseWriter, r *http.Request
 	w.Write(png)
 }
 
+func (h *Handlers) cabinetDeviceAmneziaQRChunks(w http.ResponseWriter, r *http.Request) {
+	sub, err := h.Mgr.FindSubscriberByToken(chi.URLParam(r, "token"))
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"error": "cabinet not found"})
+		return
+	}
+	devID := chi.URLParam(r, "devId")
+	c, _, err := h.Mgr.ClientConfig(devID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if c.SubscriberID != sub.ID {
+		writeJSON(w, 404, map[string]string{"error": "device not in this cabinet"})
+		return
+	}
+	pngs, err := h.Mgr.AmneziaVPNChunks(devID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeQRChunks(w, pngs)
+}
+
 func (h *Handlers) cabinetDeviceQR(w http.ResponseWriter, r *http.Request) {
 	sub, err := h.Mgr.FindSubscriberByToken(chi.URLParam(r, "token"))
 	if err != nil {

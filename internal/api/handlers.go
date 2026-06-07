@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"regexp"
@@ -11,6 +12,15 @@ import (
 
 	"github.com/mrcook1e/amneziawg-panel/internal/awg"
 )
+
+// writeQRChunks serialises a slice of PNG bytes as JSON {"chunks":["base64..."]}.
+func writeQRChunks(w http.ResponseWriter, pngs [][]byte) {
+	chunks := make([]string, len(pngs))
+	for i, p := range pngs {
+		chunks[i] = base64.StdEncoding.EncodeToString(p)
+	}
+	writeJSON(w, 200, map[string]any{"chunks": chunks})
+}
 
 type Handlers struct {
 	Mgr      *awg.Manager
@@ -208,6 +218,15 @@ func (h *Handlers) clientAmneziaQR(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "image/png")
 	w.Write(png)
+}
+
+func (h *Handlers) clientAmneziaQRChunks(w http.ResponseWriter, r *http.Request) {
+	pngs, err := h.Mgr.AmneziaVPNChunks(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeQRChunks(w, pngs)
 }
 
 // serverResetClients keeps the existing "wipe every client" surface but it now

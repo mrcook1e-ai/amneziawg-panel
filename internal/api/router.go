@@ -73,6 +73,7 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 			r.Get("/devices/{devId}/qrcode.svg", h.cabinetDeviceQR)
 			r.Get("/devices/{devId}/amnezia.vpn", h.cabinetDeviceAmneziaVPN)
 			r.Get("/devices/{devId}/amnezia-qrcode.svg", h.cabinetDeviceAmneziaQR)
+			r.Get("/devices/{devId}/amnezia-qr-chunks", h.cabinetDeviceAmneziaQRChunks)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -106,6 +107,7 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 				r.Get("/{id}/qrcode.svg", h.clientQR)
 				r.Get("/{id}/amnezia.vpn", h.clientAmneziaVPN)
 				r.Get("/{id}/amnezia-qrcode.svg", h.clientAmneziaQR)
+				r.Get("/{id}/amnezia-qr-chunks", h.clientAmneziaQRChunks)
 				if stats != nil {
 					r.Patch("/{id}", stats.clientPatch)
 					r.Get("/{id}/stats", stats.clientStats)

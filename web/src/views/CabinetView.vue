@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import {
   Shield, Lock, Key, Smartphone, Laptop, Monitor,
   QrCode, Download, Copy, Check, Trash2, X,
-  Sun, Moon, Plus, RefreshCw,
+  Sun, Moon, Plus, RefreshCw, ChevronLeft, ChevronRight, Loader2,
 } from 'lucide-vue-next'
 
 import { api } from '@/lib/api'
@@ -59,10 +59,60 @@ const defaultName: Record<DeviceTemplate, string> = {
   phone: 'Телефон', laptop: 'Ноутбук', desktop: 'Компьютер', other: 'Устройство',
 }
 
-// ── QR fullscreen ──────────────────────────────────────────────────────
-const qrOpenFor = ref<string | null>(null)
-function openQr(id: string) { qrOpenFor.value = id }
-function closeQr() { qrOpenFor.value = null }
+// ── QR fullscreen carousel ────────────────────────────────────────────
+const qrOpenFor   = ref<string | null>(null)
+const qrChunks    = ref<string[]>([])          // base64-encoded PNG per chunk
+const qrIdx       = ref(0)
+const qrLoading   = ref(false)
+const qrError     = ref(false)
+let   qrTimer: ReturnType<typeof setInterval> | null = null
+
+function stopQrTimer() {
+  if (qrTimer) { clearInterval(qrTimer); qrTimer = null }
+}
+
+function startQrTimer() {
+  stopQrTimer()
+  if (qrChunks.value.length <= 1) return
+  // Each chunk shown for 2.5 s so the Amnezia scanner has time to capture it
+  qrTimer = setInterval(() => {
+    qrIdx.value = (qrIdx.value + 1) % qrChunks.value.length
+  }, 2500)
+}
+
+async function openQr(id: string) {
+  qrOpenFor.value = id
+  qrChunks.value  = []
+  qrIdx.value     = 0
+  qrLoading.value = true
+  qrError.value   = false
+  try {
+    const res = await api.cabinetDeviceAmneziaQrChunks(token.value, id)
+    qrChunks.value = res.chunks
+    startQrTimer()
+  } catch {
+    qrError.value = true
+  } finally {
+    qrLoading.value = false
+  }
+}
+
+function closeQr() {
+  stopQrTimer()
+  qrOpenFor.value = null
+  qrChunks.value  = []
+}
+
+function qrPrev() {
+  stopQrTimer()
+  qrIdx.value = (qrIdx.value - 1 + qrChunks.value.length) % qrChunks.value.length
+  startQrTimer()
+}
+function qrNext() {
+  stopQrTimer()
+  qrIdx.value = (qrIdx.value + 1) % qrChunks.value.length
+  startQrTimer()
+}
 
 // ── Delete state ───────────────────────────────────────────────────────
 const deleteFor  = ref<CabinetDevice | null>(null)
@@ -451,7 +501,7 @@ const qrDeviceName = computed(() =>
       </div>
     </template>
 
-    <!-- ─── QR Fullscreen overlay ─────────────────────────────────────── -->
+    <!-- ─── QR Fullscreen carousel ───────────────────────────────────── -->
     <Teleport to="body">
       <Transition
         enter-active-class="transition-opacity duration-200"
@@ -460,37 +510,106 @@ const qrDeviceName = computed(() =>
         leave-to-class="opacity-0">
         <div
           v-if="qrOpenFor"
-          class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-5"
-          style="background: rgba(0,0,0,0.92); backdrop-filter: blur(20px)"
+          class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4"
+          style="background: rgba(0,0,0,0.94); backdrop-filter: blur(20px)"
           @click.self="closeQr">
 
-          <!-- Close button -->
+          <!-- Close -->
           <button
             class="absolute top-5 right-5 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors z-10"
             @click="closeQr">
             <X :size="18" />
           </button>
 
-          <!-- QR — fills as much of the screen as possible -->
-          <div
-            class="bg-white rounded-2xl shadow-2xl flex-shrink-0 flex items-center justify-center p-3"
-            style="width: min(88vw, 78vh); height: min(88vw, 78vh)">
-            <img
-              :src="amneziaQr(qrOpenFor)"
-              :alt="`QR для ${qrDeviceName}`"
-              class="w-full h-full block"
-              style="image-rendering: pixelated"
-            />
+          <!-- Header: chunk counter -->
+          <div class="flex items-center gap-3 h-7">
+            <template v-if="qrChunks.length > 1">
+              <span class="text-white/40 text-[12px] font-mono">
+                {{ qrIdx + 1 }} / {{ qrChunks.length }}
+              </span>
+              <!-- Progress dots -->
+              <div class="flex items-center gap-1.5">
+                <span
+                  v-for="(_, i) in qrChunks"
+                  :key="i"
+                  class="rounded-full transition-all duration-300"
+                  :class="i === qrIdx
+                    ? 'w-4 h-2 bg-amber-400'
+                    : 'w-2 h-2 bg-white/25'"
+                />
+              </div>
+            </template>
           </div>
 
-          <!-- Labels -->
+          <!-- QR image area -->
+          <div class="relative flex items-center justify-center"
+               style="width: min(88vw, 76vh); height: min(88vw, 76vh)">
+
+            <!-- Loading -->
+            <div v-if="qrLoading"
+                 class="absolute inset-0 flex items-center justify-center bg-white rounded-2xl">
+              <Loader2 :size="36" class="text-ink-300 animate-spin" />
+            </div>
+
+            <!-- Error -->
+            <div v-else-if="qrError"
+                 class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white rounded-2xl p-8 text-center">
+              <p class="text-[14px] font-semibold text-ink-700">Не удалось загрузить QR</p>
+              <p class="text-[12px] text-ink-500">Используйте файл .vpn для импорта</p>
+            </div>
+
+            <!-- QR chunks -->
+            <template v-else-if="qrChunks.length">
+              <Transition
+                enter-active-class="transition-opacity duration-200"
+                leave-active-class="transition-opacity duration-150"
+                enter-from-class="opacity-0"
+                leave-to-class="opacity-0"
+                mode="out-in">
+                <div
+                  :key="qrIdx"
+                  class="w-full h-full bg-white rounded-2xl p-3 shadow-2xl">
+                  <img
+                    :src="`data:image/png;base64,${qrChunks[qrIdx]}`"
+                    :alt="`QR часть ${qrIdx + 1} из ${qrChunks.length}`"
+                    class="w-full h-full block"
+                    style="image-rendering: pixelated"
+                  />
+                </div>
+              </Transition>
+
+              <!-- Prev / Next (only when multiple chunks) -->
+              <template v-if="qrChunks.length > 1">
+                <button
+                  class="absolute left-0 -translate-x-12 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                  @click="qrPrev">
+                  <ChevronLeft :size="18" />
+                </button>
+                <button
+                  class="absolute right-0 translate-x-12 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                  @click="qrNext">
+                  <ChevronRight :size="18" />
+                </button>
+              </template>
+            </template>
+          </div>
+
+          <!-- Instructions -->
           <div class="text-center space-y-1 px-4">
-            <p class="text-white font-semibold text-[15px]">Отсканируйте в AmneziaVPN</p>
+            <p class="text-white font-semibold text-[15px]">
+              <template v-if="qrChunks.length > 1">
+                Наведите камеру · сканирует по очереди
+              </template>
+              <template v-else>
+                Отсканируйте в AmneziaVPN
+              </template>
+            </p>
             <p class="text-white/40 text-[12px]">Android · iOS · Windows · macOS · Linux</p>
           </div>
 
-          <!-- Download shortcut -->
+          <!-- Download fallback -->
           <a
+            v-if="qrOpenFor"
             :href="amneziaVpn(qrOpenFor)"
             :download="`${qrDeviceName}.vpn`"
             class="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-[13px] font-medium transition-colors"
