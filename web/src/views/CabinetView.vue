@@ -460,41 +460,44 @@ const qrDeviceName = computed(() =>
         leave-to-class="opacity-0">
         <div
           v-if="qrOpenFor"
-          class="fixed inset-0 z-50 flex items-center justify-center"
-          style="background: rgba(0,0,0,0.88); backdrop-filter: blur(16px)"
+          class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-5"
+          style="background: rgba(0,0,0,0.92); backdrop-filter: blur(20px)"
           @click.self="closeQr">
 
           <!-- Close button -->
           <button
-            class="absolute top-5 right-5 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+            class="absolute top-5 right-5 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors z-10"
             @click="closeQr">
             <X :size="18" />
           </button>
 
-          <!-- QR card -->
-          <div class="flex flex-col items-center gap-5 px-6 w-full max-w-sm">
-            <div class="bg-white rounded-3xl p-5 shadow-2xl w-full">
-              <img
-                :src="amneziaQr(qrOpenFor)"
-                :alt="`QR для ${qrDeviceName}`"
-                class="w-full h-auto block"
-                style="image-rendering: pixelated"
-              />
-            </div>
-            <div class="text-center space-y-1">
-              <p class="text-white font-semibold text-[15px]">Отсканируйте в AmneziaVPN</p>
-              <p class="text-white/50 text-[12px]">Android · iOS · Windows · macOS · Linux</p>
-            </div>
-            <!-- Download shortcut -->
-            <a
-              :href="amneziaVpn(qrOpenFor)"
-              :download="`${qrDeviceName}.vpn`"
-              class="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/18 text-white text-[13px] font-medium transition-colors"
-              @click.stop>
-              <Download :size="14" />
-              Скачать .vpn
-            </a>
+          <!-- QR — fills as much of the screen as possible -->
+          <div
+            class="bg-white rounded-2xl shadow-2xl flex-shrink-0 flex items-center justify-center p-3"
+            style="width: min(88vw, 78vh); height: min(88vw, 78vh)">
+            <img
+              :src="amneziaQr(qrOpenFor)"
+              :alt="`QR для ${qrDeviceName}`"
+              class="w-full h-full block"
+              style="image-rendering: pixelated"
+            />
           </div>
+
+          <!-- Labels -->
+          <div class="text-center space-y-1 px-4">
+            <p class="text-white font-semibold text-[15px]">Отсканируйте в AmneziaVPN</p>
+            <p class="text-white/40 text-[12px]">Android · iOS · Windows · macOS · Linux</p>
+          </div>
+
+          <!-- Download shortcut -->
+          <a
+            :href="amneziaVpn(qrOpenFor)"
+            :download="`${qrDeviceName}.vpn`"
+            class="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-[13px] font-medium transition-colors"
+            @click.stop>
+            <Download :size="14" />
+            Скачать .vpn
+          </a>
         </div>
       </Transition>
     </Teleport>
