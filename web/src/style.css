@@ -105,10 +105,23 @@
       0 16px 36px -18px rgba(0, 0, 0, 0.32);
   }
 
+  /*
+    Scrim — mounted at full opacity so backdrop-filter is composited from
+    the first frame. Lighter blur (6px vs 10px) keeps GPU cost low and
+    avoids the "dark first, blur later" lag that opacity-transitioned
+    scrims show on Chrome/Safari. The dark dim fades in via a short CSS
+    keyframe on background-color, while the filter stays committed.
+  */
   .scrim {
     background-color: rgb(var(--scrim) / var(--scrim-alpha));
-    backdrop-filter: blur(10px) saturate(160%);
-    -webkit-backdrop-filter: blur(10px) saturate(160%);
+    backdrop-filter: blur(6px) saturate(140%);
+    -webkit-backdrop-filter: blur(6px) saturate(140%);
+    will-change: backdrop-filter, background-color;
+    animation: scrim-in 120ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  @keyframes scrim-in {
+    from { background-color: rgb(var(--scrim) / 0); }
+    to   { background-color: rgb(var(--scrim) / var(--scrim-alpha)); }
   }
 
   .focus-ring {

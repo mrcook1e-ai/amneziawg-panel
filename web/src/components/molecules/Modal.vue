@@ -75,16 +75,13 @@ onBeforeUnmount(teardown)
 </script>
 
 <template>
-  <transition
-    enter-active-class="transition duration-150"
-    enter-from-class="opacity-0"
-    enter-to-class="opacity-100"
-    leave-active-class="transition duration-100"
-    leave-from-class="opacity-100"
-    leave-to-class="opacity-0"
-  >
-    <div v-if="open" class="fixed inset-0 z-40 scrim" @click="$emit('close')" />
-  </transition>
+  <!--
+    Scrim is mounted directly (no opacity transition wrapper) so the
+    backdrop-filter compositor commits the blur on frame 1. Fade-in lives
+    inside the .scrim class as a CSS keyframe on background-color, while
+    the filter stays fully active throughout.
+  -->
+  <div v-if="open" class="fixed inset-0 z-40 scrim" @click="$emit('close')" />
 
   <transition
     enter-active-class="transition duration-150 ease-out"

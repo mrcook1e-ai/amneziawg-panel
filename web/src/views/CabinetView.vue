@@ -630,13 +630,17 @@ const qrDeviceName = computed(() =>
 
     <!-- ─── Add-device wizard ────────────────────────────────────────── -->
     <Teleport to="body">
+      <!-- Scrim mounts directly so backdrop-filter composites on frame 1 — no blur lag. -->
+      <div
+        v-if="wizardOpen"
+        class="fixed inset-0 z-50 scrim"
+        @click="wizardStep !== 'creating' ? closeWizard() : undefined"
+      />
       <Transition name="sheet">
         <div
           v-if="wizardOpen"
-          class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6">
-          <div class="absolute inset-0 scrim" @click="wizardStep !== 'creating' ? closeWizard() : undefined" />
-
-          <div class="sheet-panel relative w-full sm:max-w-md bg-surface-raised rounded-t-5xl sm:rounded-5xl shadow-pop overflow-hidden">
+          class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 pointer-events-none">
+          <div class="sheet-panel relative w-full sm:max-w-md bg-surface-raised rounded-t-5xl sm:rounded-5xl shadow-pop overflow-hidden pointer-events-auto">
 
             <!-- ── Step: Pick ── -->
             <div v-if="wizardStep === 'pick'" class="p-6 space-y-6">
@@ -783,14 +787,15 @@ const qrDeviceName = computed(() =>
 
     <!-- ─── Delete confirm ───────────────────────────────────────────── -->
     <Teleport to="body">
+      <!-- Scrim mounted directly — no opacity transition wrapping it. -->
+      <div v-if="deleteFor" class="fixed inset-0 z-50 scrim" @click="deleteFor = null" />
       <Transition
-        enter-active-class="transition-opacity duration-150"
-        leave-active-class="transition-opacity duration-120"
-        enter-from-class="opacity-0"
-        leave-to-class="opacity-0">
-        <div v-if="deleteFor" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div class="absolute inset-0 scrim" @click="deleteFor = null" />
-          <div class="relative w-full sm:max-w-sm bg-surface-raised rounded-t-4xl sm:rounded-4xl shadow-pop p-6 space-y-4">
+        enter-active-class="transition-[opacity,transform] duration-150"
+        leave-active-class="transition-[opacity,transform] duration-120"
+        enter-from-class="opacity-0 translate-y-2"
+        leave-to-class="opacity-0 translate-y-2">
+        <div v-if="deleteFor" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 pointer-events-none">
+          <div class="relative w-full sm:max-w-sm bg-surface-raised rounded-t-4xl sm:rounded-4xl shadow-pop p-6 space-y-4 pointer-events-auto">
             <h3 class="text-[17px] font-semibold">Удалить устройство?</h3>
             <p class="text-[13.5px] text-ink-500 leading-relaxed">
               <span class="font-semibold text-ink-800 dark:text-ink-700">{{ deleteFor.name }}</span> сразу потеряет подключение.
