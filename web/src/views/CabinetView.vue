@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router'
 import {
   Shield, Lock, Key, Smartphone, Laptop, Monitor,
   QrCode, Download, Copy, Check, Trash2, X,
-  Sun, Moon, Plus, RefreshCw, ChevronLeft, ChevronRight, Loader2,
+  Sun, Moon, Plus, ChevronLeft, ChevronRight, Loader2,
   MoreHorizontal, Globe, ExternalLink,
 } from 'lucide-vue-next'
 
@@ -52,96 +52,10 @@ type DeviceTemplate = 'phone' | 'laptop' | 'desktop' | 'other'
 const pickedTemplate = ref<DeviceTemplate>('phone')
 const customName     = ref('')
 
-// ── Advanced obfuscation params (collapsed by default) ──────────────────
-// genCfg() takes ~15 toggles; exposing them all to end-users is overwhelming
-// and most are admin-territory (browser fingerprint, junk iteration count).
-// We surface the four that meaningfully change behavior in restrictive
-// networks: obfuscation intensity, mimicry profile, MTU, and an "extreme"
-// fallback for networks that block "medium".
 import type { Intensity, MimicProfile } from '@/utils/generator'
 
-/*
-  Preset-first design — the earlier "4 knob columns" form looked dense
-  even on desktop and was unreadable on mobile (Russian labels + hints
-  in 2-line text cells under tiny buttons). Instead:
-
-    - 3 named presets (Авто / Тихий / Быстрый) as stacked cards
-    - Each preset baked into a Params block — the user makes ONE choice
-    - "Тонкая настройка" reveals the underlying knobs for power users
-
-  The presets cover real situations the user actually has, not generator
-  config combinatorics they'd have to map themselves.
-*/
-type Preset = 'auto' | 'stealth' | 'fast' | 'manual'
-
-interface Params {
-  intensity: Intensity
-  profile:   MimicProfile
-  mtu:       number
-  extreme:   boolean
-}
-
-interface PresetDef {
-  v: Preset
-  label: string
-  hint: string
-  params: Params
-}
-
-const PRESETS: PresetDef[] = [
-  {
-    v: 'auto', label: 'Авто', hint: 'Баланс скорости и обхода — рекомендуется',
-    params: { intensity: 'medium', profile: 'quic_initial', mtu: 1500, extreme: false },
-  },
-  {
-    v: 'stealth', label: 'Тихий', hint: 'Максимальная маскировка для строгих сетей',
-    params: { intensity: 'high', profile: 'tls_client_hello', mtu: 1500, extreme: true },
-  },
-  {
-    v: 'fast', label: 'Быстрый', hint: 'Минимум обфускации, ниже задержка',
-    params: { intensity: 'low', profile: 'random', mtu: 1280, extreme: false },
-  },
-]
-
-const advPreset = ref<Preset>('auto')
-
-// Manual-mode knobs — initialized from the Auto preset so flipping to
-// manual doesn't surprise the user with an unrelated config.
-const advIntensity = ref<Intensity>('medium')
-const advProfile   = ref<MimicProfile>('quic_initial')
-const advMtu       = ref<number>(1500)
-const advExtreme   = ref<boolean>(false)
-
-// What actually gets fed into genCfg(). Preset mode reads PRESETS,
-// manual mode reads the individual refs.
-const effectiveParams = computed<Params>(() => {
-  if (advPreset.value === 'manual') {
-    return {
-      intensity: advExtreme.value ? 'high' : advIntensity.value,
-      profile:   advProfile.value,
-      mtu:       Math.max(576, Math.min(1500, Number(advMtu.value) || 1500)),
-      extreme:   advExtreme.value,
-    }
-  }
-  const p = PRESETS.find(x => x.v === advPreset.value) || PRESETS[0]
-  return p.params
-})
-
-const INTENSITIES: { v: Intensity; label: string; hint: string }[] = [
-  { v: 'low',    label: 'Лёгкая',  hint: 'быстрее' },
-  { v: 'medium', label: 'Средняя', hint: 'баланс'   },
-  { v: 'high',   label: 'Сильная', hint: 'плотнее' },
-]
-// Curated subset of generator MimicProfile values that the user can
-// reasonably reason about. Esoteric ones (dtls, sip, dns_query) stay
-// admin-only — exposing them adds confusion without changing outcomes
-// for the common "is anything blocked" use case.
-const PROFILES: { v: MimicProfile; label: string }[] = [
-  { v: 'quic_initial',     label: 'QUIC' },
-  { v: 'tls_client_hello', label: 'TLS' },
-  { v: 'http3',            label: 'HTTP/3' },
-  { v: 'random',           label: 'Случайно' },
-]
+// Always use balanced "auto" preset — no UI knobs exposed to end-users.
+const AUTO_PARAMS = { intensity: 'medium' as Intensity, profile: 'quic_initial' as MimicProfile, mtu: 1500, extreme: false }
 
 interface Template { key: DeviceTemplate; icon: any; label: string }
 const templates: Template[] = [
@@ -245,6 +159,11 @@ const deleteBusy = ref(false)
 // in-app import steps. One link covers all devices on the account.
 const IPLIST_URL = 'https://iplist.opencck.org/?format=amnezia&data=cidr4'
 
+// Sites modal — the full info+download lives in a popup, triggered by
+// a small button below the device list. The card-on-page version was
+// visually heavy and competed with the actual devices for attention.
+const sitesOpen = ref(false)
+
 // ── Load ───────────────────────────────────────────────────────────────
 async function reload() {
   try {
@@ -273,8 +192,7 @@ async function createDevice() {
   const name       = customName.value.trim() || defaultName[pickedTemplate.value]
   wizardStep.value = 'creating'
 
-  // effectiveParams resolves preset → params, or pipes through manual knobs.
-  const p = effectiveParams.value
+  const p = AUTO_PARAMS
   const cfg = genCfg({
     version: '2.0',
     intensity: p.intensity,
@@ -519,7 +437,7 @@ const qrDeviceName = computed(() =>
           <div
             v-for="(d, i) in cabinet.devices"
             :key="d.id"
-            class="card device-card overflow-hidden animate-rise"
+            class="card device-card animate-rise"
             :class="`delay-${Math.min(i + 1, 6)}`">
 
             <!-- Card body -->
@@ -667,60 +585,20 @@ const qrDeviceName = computed(() =>
         </section>
 
         <!--
-          Split tunneling — account-wide, imported INSIDE the Amnezia app.
-          We don't bake routes into the .vpn config (the app maintains its
-          own per-device site list); we just hand the user a curated
-          AmneziaVPN-format list and the in-app import steps. One link,
-          one button, no per-device toggles.
+          Split tunneling — collapsed to a single ghost button that opens
+          the full info+download in a modal. The on-page card we used
+          before competed with the device list for vertical space and
+          read as "another thing to figure out" on first load. Most
+          users don't need split-tunnel — those who do tap the link.
         -->
-        <section v-if="cabinet.devices.length" class="mt-12 animate-rise">
-          <div class="card p-5 space-y-4">
-            <div class="flex items-start gap-3">
-              <div class="w-10 h-10 rounded-2xl bg-amber-400/15 flex items-center justify-center shrink-0">
-                <Globe :size="18" class="text-amber-500" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <h3 class="text-[14px] font-semibold leading-tight">Список заблокированных сайтов</h3>
-                <p class="text-[12px] text-ink-500 mt-1 leading-relaxed">
-                  Готовый набор для AmneziaVPN — через туннель пойдут только заблокированные ресурсы, всё остальное напрямую. Импорт делается внутри приложения.
-                </p>
-              </div>
-            </div>
-
-            <a
-              :href="IPLIST_URL"
-              target="_blank"
-              rel="noopener"
-              class="btn-primary flex items-center justify-center gap-2 h-11 text-[13.5px] w-full">
-              <Download :size="15" />
-              Скачать список сайтов
-              <ExternalLink :size="12" class="opacity-60" />
-            </a>
-
-            <details class="rounded-xl bg-ink-100/60 dark:bg-ink-200/30 group">
-              <summary class="cursor-pointer list-none flex items-center justify-between px-3.5 py-2.5 select-none">
-                <span class="text-[11.5px] font-semibold text-ink-600 dark:text-ink-500">Как импортировать</span>
-                <ChevronRight :size="12" class="text-ink-400 transition-transform group-open:rotate-90" />
-              </summary>
-              <ol class="px-4 pb-4 pt-1 space-y-1.5 text-[12px] text-ink-600 dark:text-ink-500 leading-relaxed list-decimal list-inside marker:text-ink-400">
-                <li>Откройте приложение <span class="font-semibold text-ink-800 dark:text-ink-700">AmneziaVPN</span> и выберите устройство.</li>
-                <li>Перейдите в <span class="font-semibold text-ink-800 dark:text-ink-700">Раздельное туннелирование</span>.</li>
-                <li>Выберите режим <span class="font-semibold text-ink-800 dark:text-ink-700">Раздельное туннелирование сайтов</span>.</li>
-                <li>Нажмите <span class="mono font-semibold text-ink-800 dark:text-ink-700">•••</span> → <span class="font-semibold text-ink-800 dark:text-ink-700">Импорт</span> → <span class="font-semibold text-ink-800 dark:text-ink-700">Заменить список сайтами</span>.</li>
-                <li>Выберите скачанный файл — готово.</li>
-              </ol>
-            </details>
-
-            <p class="text-[11px] text-ink-500 leading-relaxed">
-              Источник:
-              <a
-                href="https://github.com/rekryt/iplist"
-                target="_blank" rel="noopener"
-                class="text-ink-700 dark:text-ink-600 hover:text-ink-900 underline decoration-ink-300 underline-offset-2">iplist</a>
-              — открытый реестр, обновляется регулярно. Если в туннель что-то не уходит, просто перекачайте файл и повторите импорт.
-            </p>
-          </div>
-        </section>
+        <button
+          v-if="cabinet.devices.length"
+          type="button"
+          class="w-full mt-6 inline-flex items-center justify-center gap-2 h-11 rounded-2xl text-[12.5px] font-medium text-ink-500 hover:text-ink-900 hover:bg-ink-100 dark:hover:bg-ink-200/40 transition-colors animate-rise"
+          @click="sitesOpen = true">
+          <Globe :size="14" class="text-ink-400" />
+          Список заблокированных сайтов
+        </button>
 
         <p class="text-center text-[11.5px] text-ink-400 dark:text-ink-500 mt-12 leading-relaxed">
           Потеряли ссылку на кабинет?<br>
@@ -908,148 +786,6 @@ const qrDeviceName = computed(() =>
                   @keydown.enter="createDevice" />
               </div>
 
-              <!--
-                Advanced — preset-first.
-                Closed by default so the wizard reads as 3 steps for the
-                average user (template → name → tap). Opening reveals 3
-                large preset cards (stacked on phone, 3-col on sm+) with
-                radio-style selection. Each card is a real situation
-                ("я в строгой сети" → Тихий), not a generator-config
-                combo. The underlying knobs live behind a "Тонкая
-                настройка" toggle for power users.
-              -->
-              <details class="rounded-2xl bg-ink-100/60 dark:bg-ink-200/30 group">
-                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 select-none">
-                  <span class="text-[12px] font-semibold text-ink-600 dark:text-ink-500">
-                    Профиль защиты
-                    <span class="ml-2 text-[10.5px] text-ink-500 font-normal normal-case tracking-normal">
-                      · {{ (PRESETS.find(p => p.v === advPreset) || PRESETS[0]).label }}
-                    </span>
-                  </span>
-                  <ChevronRight :size="14" class="text-ink-400 transition-transform group-open:rotate-90" />
-                </summary>
-
-              <div class="px-4 pb-4 pt-1 space-y-3">
-
-                <!-- Preset cards: stacked on mobile, 3 columns on sm+ -->
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <button
-                    v-for="p in PRESETS" :key="p.v"
-                    type="button"
-                    role="radio"
-                    :aria-checked="advPreset === p.v"
-                    class="text-left p-3.5 rounded-2xl transition-all duration-150 active:translate-y-px focus-ring relative overflow-hidden"
-                    :class="advPreset === p.v
-                      ? 'bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)]'
-                      : 'bg-ink-100 hover:bg-ink-200 dark:bg-ink-200/40 dark:hover:bg-ink-200/60'"
-                    @click="advPreset = p.v">
-                    <!-- Selected dot — amber circle in top-right -->
-                    <span
-                      class="absolute top-3 right-3 w-3.5 h-3.5 rounded-full transition-all"
-                      :class="advPreset === p.v
-                        ? 'bg-amber-400 ring-[3px] ring-amber-400/25'
-                        : 'border border-ink-300 dark:border-ink-400/60'"
-                    />
-                    <div class="pr-6 space-y-1">
-                      <p
-                        class="text-[13.5px] font-semibold leading-tight"
-                        :class="advPreset === p.v ? 'text-amber-700 dark:text-amber-400' : 'text-ink-900'">
-                        {{ p.label }}
-                      </p>
-                      <p class="text-[11.5px] text-ink-500 leading-snug">{{ p.hint }}</p>
-                    </div>
-                  </button>
-                </div>
-
-                <!--
-                  Fine-tuning trigger — switches preset to 'manual' and
-                  reveals the original knob form. Stays a low-key text
-                  link so it doesn't compete with the cards for attention.
-                -->
-                <button
-                  v-if="advPreset !== 'manual'"
-                  type="button"
-                  class="eyebrow text-ink-500 hover:text-ink-900 transition-colors inline-flex items-center gap-1"
-                  @click="advPreset = 'manual'">
-                  Тонкая настройка
-                  <ChevronRight :size="11" />
-                </button>
-                <button
-                  v-else
-                  type="button"
-                  class="eyebrow text-ink-500 hover:text-ink-900 transition-colors inline-flex items-center gap-1"
-                  @click="advPreset = 'auto'">
-                  <ChevronLeft :size="11" />
-                  Вернуться к профилям
-                </button>
-
-                <!-- Manual knobs — only when preset === 'manual' -->
-                <div
-                  v-if="advPreset === 'manual'"
-                  class="space-y-4 pt-2 animate-rise">
-
-                  <!-- Intensity — 3-col compact -->
-                  <div>
-                    <label class="text-[10.5px] font-semibold text-ink-500 uppercase tracking-[0.12em] block mb-2">
-                      Уровень обфускации
-                    </label>
-                    <div class="grid grid-cols-3 gap-1.5">
-                      <button
-                        v-for="i in INTENSITIES" :key="i.v"
-                        type="button"
-                        class="py-2.5 px-2 rounded-xl text-center transition-colors duration-150 active:translate-y-px"
-                        :class="advIntensity === i.v
-                          ? 'bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)] text-amber-700 dark:text-amber-400'
-                          : 'bg-ink-100 hover:bg-ink-200 dark:bg-ink-200/40 text-ink-700'"
-                        @click="advIntensity = i.v">
-                        <div class="text-[12.5px] font-semibold leading-tight">{{ i.label }}</div>
-                        <div class="text-[10px] text-ink-500 leading-tight mt-0.5">{{ i.hint }}</div>
-                      </button>
-                    </div>
-                  </div>
-
-                  <!-- Mimic profile — 2-col -->
-                  <div>
-                    <label class="text-[10.5px] font-semibold text-ink-500 uppercase tracking-[0.12em] block mb-2">
-                      Маскировка под
-                    </label>
-                    <div class="grid grid-cols-2 gap-1.5">
-                      <button
-                        v-for="p in PROFILES" :key="p.v"
-                        type="button"
-                        class="py-2.5 px-3 rounded-xl text-[12.5px] font-semibold transition-colors duration-150 active:translate-y-px"
-                        :class="advProfile === p.v
-                          ? 'bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)] text-amber-700 dark:text-amber-400'
-                          : 'bg-ink-100 hover:bg-ink-200 dark:bg-ink-200/40 text-ink-700'"
-                        @click="advProfile = p.v">{{ p.label }}</button>
-                    </div>
-                  </div>
-
-                  <!-- MTU — compact label inline -->
-                  <div class="flex items-center gap-3">
-                    <label class="text-[10.5px] font-semibold text-ink-500 uppercase tracking-[0.12em] shrink-0">MTU</label>
-                    <input
-                      v-model.number="advMtu"
-                      type="number" min="576" max="1500" step="1"
-                      class="flex-1 h-10 px-3.5 rounded-xl bg-ink-100 dark:bg-ink-200/40 text-[13px] text-ink-900 outline-none focus:bg-amber-50 dark:focus:bg-amber-400/10 transition-colors mono tnum"
-                    />
-                  </div>
-
-                  <!-- Extreme toggle -->
-                  <label class="flex items-start gap-3 cursor-pointer p-3 rounded-xl bg-ink-100 hover:bg-ink-200 dark:bg-ink-200/40 transition-colors">
-                    <input
-                      v-model="advExtreme"
-                      type="checkbox"
-                      class="mt-0.5 h-4 w-4 rounded accent-amber-500"
-                    />
-                    <div class="min-w-0 flex-1">
-                      <p class="text-[12.5px] font-semibold leading-tight">Усиленный режим</p>
-                      <p class="text-[11px] text-ink-500 mt-0.5 leading-snug">Максимальное junk-наполнение. Для Ирана, Туркменистана, школьного WiFi.</p>
-                    </div>
-                  </label>
-                </div>
-              </div>
-              </details>
 
               <p v-if="wizardErr" class="text-[12.5px] text-danger bg-danger/10 rounded-xl px-4 py-3">{{ wizardErr }}</p>
 

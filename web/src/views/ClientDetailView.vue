@@ -7,7 +7,7 @@
   событий, опасная зона.
 */
 
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import { useClientsStore } from '@/stores/clients'
@@ -26,12 +26,9 @@ import CopyButton from '@/components/molecules/CopyButton.vue'
 import EventRow from '@/components/molecules/EventRow.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import StatBlock from '@/components/molecules/StatBlock.vue'
-import SplitTunnelPicker from '@/components/molecules/SplitTunnelPicker.vue'
 import DownloadActions from '@/components/molecules/DownloadActions.vue'
 import Button from '@/components/atoms/Button.vue'
-import Input from '@/components/atoms/Input.vue'
 import Select from '@/components/atoms/Select.vue'
-import DatePicker from '@/components/molecules/DatePicker.vue'
 import Switch from '@/components/atoms/Switch.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
@@ -51,49 +48,6 @@ useTitle(() => client.value ? `${client.value.name} · Amnezia Panel` : 'Кли�
 const cs       = ref<ClientStats | null>(null)
 const events   = ref<AppEvent[]>([])
 const loading  = ref(true)
-const savingId = ref<string | null>(null)
-
-/*
-  Form fields after the Sprint 3 cleanup:
-    - notes              — device-level annotation (admin's note)
-    - expiresAt          — per-client lifetime (stays here intentionally:
-                           AmneziaWG peers are per-device, and admins
-                           need to revoke single keys, not whole accounts)
-    - allowedIPsOverride — admin's default route mask (a "template"; the
-                           user can still override it from the cabinet)
-  Removed from this page:
-    - dnsOverride / mtuOverride — these are interface-level concerns;
-      they belong to Profile, not to an individual client. See
-      SettingsView → ProfileModal.
-*/
-const form = ref({
-  notes:              '',
-  expiresAt:          '' as string,
-  allowedIPsOverride: '',
-})
-// Format a UTC ISO timestamp into YYYY-MM-DD in the admin's local timezone.
-// Without this, an expiresAt stored as 2024-06-10T23:59:59Z would render as
-// "10 June" for admins in UTC+0 but "11 June" for admins in UTC-1 — leaking
-// the storage timezone into the form.
-function localDateString(iso: string): string {
-  const d = new Date(iso)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-function syncFormFromClient() {
-  const c = client.value
-  if (!c) return
-  form.value.notes              = c.notes ?? ''
-  form.value.expiresAt          = c.expiresAt ? localDateString(c.expiresAt) : ''
-  form.value.allowedIPsOverride = c.allowedIPsOverride ?? ''
-}
-// Sync form ONLY when navigating to a different client. Polling updates
-// (every 5s) must not blow away whatever the user is currently typing into
-// notes / DNS / MTU / etc.
-watch(() => client.value?.id, syncFormFromClient, { immediate: true })
 
 async function loadAll() {
   const myId = id.value
@@ -233,29 +187,6 @@ function fmtHandshakeFull(s: string | null | undefined): string {
 async function toggleEnabled(v: boolean) {
   if (!client.value) return
   await clients.setEnabled(client.value.id, v)
-}
-
-async function saveOverrides() {
-  if (!client.value) return
-  if (savingId.value) return
-  savingId.value = client.value.id
-  try {
-    const c = client.value
-    await clients.patch(c.id, {
-      notes:              form.value.notes !== (c.notes ?? '') ? form.value.notes : undefined,
-      allowedIPsOverride: form.value.allowedIPsOverride !== (c.allowedIPsOverride ?? '') ? form.value.allowedIPsOverride : undefined,
-      // Interpret picker date as "end of day in admin's local TZ" — no Z
-      // suffix, so Date() parses as local, then toISOString() converts to
-      // proper UTC. Round-trips correctly with localDateString() on read.
-      expiresAt:          form.value.expiresAt
-                            ? new Date(form.value.expiresAt + 'T23:59:59').toISOString()
-                            : undefined,
-      clearExpiresAt:     form.value.expiresAt === '' && !!c.expiresAt,
-    })
-    // clients.patch() already toasts success/error — don't double-toast.
-  } finally {
-    savingId.value = null
-  }
 }
 
 async function confirmDelete() {
@@ -432,53 +363,6 @@ async function confirmDelete() {
           <InfoRow label="Добавлен">
             <span class="mono text-ink-700">{{ new Date(client.createdAt).toLocaleString('ru-RU') }}</span>
           </InfoRow>
-        </Section>
-
-        <!--
-          Настройки — what the admin actually changes about this device.
-          DNS / MTU overrides moved out: they're interface-level concerns
-          that belong to Profile. AllowedIPs override stays here as the
-          "default route template" — see SplitTunnelPicker footer.
-        -->
-        <Section title="Настройки" footer="Описание видно только в панели. Срок и шаблон маршрутов применяются при следующей выдаче конфига.">
-          <div class="px-4 py-4 space-y-4">
-            <div>
-              <label class="eyebrow block mb-2">Описание</label>
-              <Input v-model="form.notes" placeholder="например: рабочий ноут, отозвать после командировки" />
-            </div>
-
-            <div>
-              <label class="eyebrow block mb-2">Срок действия</label>
-              <DatePicker v-model="form.expiresAt" />
-              <p class="mt-1 text-[11px] text-ink-500">Когда наступит — доступ отключится автоматически.</p>
-            </div>
-
-            <div class="space-y-3">
-              <label class="eyebrow block">Шаблон маршрутов · AllowedIPs</label>
-              <Input v-model="form.allowedIPsOverride" placeholder="по умолчанию (весь трафик)" mono />
-              <SplitTunnelPicker
-                :value="form.allowedIPsOverride"
-                @update:value="v => form.allowedIPsOverride = v"
-              />
-              <p class="text-[11px] text-ink-500 leading-relaxed">
-                Дефолт для новых конфигов этого устройства. Пользователь может переопределить из своего
-                <router-link
-                  v-if="client.subscriberId"
-                  :to="{ name: 'subscriber', params: { id: client.subscriberId } }"
-                  class="underline decoration-ink-300 underline-offset-2 hover:text-ink-900">кабинета</router-link>
-                <template v-else>кабинета</template>
-                — там кнопка «Маршруты» на карточке устройства.
-              </p>
-            </div>
-          </div>
-          <div class="hairline mx-4" />
-          <div class="px-4 py-3 flex items-center justify-between gap-3">
-            <span class="text-[11.5px] text-ink-500">Применится при следующей загрузке конфига.</span>
-            <div class="flex items-center gap-2">
-              <Button size="sm" variant="ghost" @click="syncFormFromClient">Отмена</Button>
-              <Button size="sm" variant="primary" :loading="savingId === client.id" @click="saveOverrides">Сохранить</Button>
-            </div>
-          </div>
         </Section>
 
         <!-- Профиль подключения -->
