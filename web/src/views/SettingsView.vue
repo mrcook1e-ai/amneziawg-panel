@@ -4,22 +4,18 @@ import { api } from '@/lib/api'
 import { useToastStore } from '@/stores/toasts'
 import { useClientsStore } from '@/stores/clients'
 import { useStatsStore } from '@/stores/stats'
-import { useProfilesStore } from '@/stores/profiles'
 import TopBar from '@/components/organisms/TopBar.vue'
 import Section from '@/components/molecules/Section.vue'
 import InfoRow from '@/components/molecules/InfoRow.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import EventRow from '@/components/molecules/EventRow.vue'
 import ImportClientModal from '@/components/organisms/ImportClientModal.vue'
-import ProfileModal from '@/components/organisms/ProfileModal.vue'
-import Badge from '@/components/atoms/Badge.vue'
 import Button from '@/components/atoms/Button.vue'
 import Segmented from '@/components/atoms/Segmented.vue'
 import Icon from '@/components/atoms/Icon.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import { useThemeStore, type ThemeMode } from '@/stores/theme'
 import { useTitle } from '@/composables/useTitle'
-import type { ProfileInfo } from '@/types'
 
 useTitle(() => 'Настройки · Amnezia Panel')
 
@@ -33,7 +29,6 @@ const themeOptions: { value: ThemeMode; label: string }[] = [
 const toasts = useToastStore()
 const clients = useClientsStore()
 const statsStore = useStatsStore()
-const profiles = useProfilesStore()
 
 const busyAction = ref<{kind: string} | null>(null)
 const confirmAction = ref<{kind: 'reset' | 'factory'} | null>(null)
@@ -51,7 +46,7 @@ const restoreConfirmFile = ref<File | null>(null)
 async function load() {
   eventsLoading.value = true
   try {
-    await Promise.all([statsStore.fetch(), profiles.fetch(true)])
+    await statsStore.fetch()
   } catch (e: any) {
     toasts.error(e?.message || 'Ошибка загрузки')
   } finally {
@@ -59,56 +54,6 @@ async function load() {
   }
 }
 onMounted(load)
-
-// ── Profiles CRUD ─────────────────────────────────────────────────────
-const profileModalOpen = ref(false)
-const profileModalMode = ref<'create' | 'edit'>('create')
-const profileEditing   = ref<ProfileInfo | null>(null)
-const profileModalBusy = ref(false)
-
-const profileDelFor   = ref<ProfileInfo | null>(null)
-const profileRestartFor = ref<ProfileInfo | null>(null)
-
-function openCreateProfile() {
-  profileModalMode.value = 'create'
-  profileEditing.value = null
-  profileModalOpen.value = true
-}
-function openEditProfile(p: ProfileInfo) {
-  profileModalMode.value = 'edit'
-  profileEditing.value = p
-  profileModalOpen.value = true
-}
-
-async function onProfileSubmit(body: { id?: string; name: string; description?: string; snippet?: string }) {
-  profileModalBusy.value = true
-  try {
-    if (profileModalMode.value === 'create') {
-      if (!body.snippet) throw new Error('snippet required')
-      await profiles.create({ id: body.id, name: body.name, description: body.description, snippet: body.snippet })
-    } else if (profileEditing.value) {
-      await profiles.patch(profileEditing.value.id, {
-        name: body.name,
-        description: body.description,
-        snippet: body.snippet,
-      })
-    }
-    profileModalOpen.value = false
-  } catch { /* toast in store */ }
-  finally { profileModalBusy.value = false }
-}
-
-async function doDeleteProfile() {
-  if (!profileDelFor.value) return
-  await profiles.remove(profileDelFor.value.id)
-  profileDelFor.value = null
-}
-
-async function doRestartProfile() {
-  if (!profileRestartFor.value) return
-  await profiles.restart(profileRestartFor.value.id)
-  profileRestartFor.value = null
-}
 
 const TITLES: Record<'reset' | 'factory', string> = {
   reset:   'Удалить всех клиентов?',
@@ -286,35 +231,6 @@ async function doRestore() {
       :busy="importBusy"
       @close="importOpen = false"
       @submit="onImport"
-    />
-
-    <ProfileModal
-      :open="profileModalOpen"
-      :mode="profileModalMode"
-      :profile="profileEditing"
-      :busy="profileModalBusy"
-      @close="profileModalOpen = false"
-      @submit="onProfileSubmit"
-    />
-
-    <ConfirmDialog
-      :open="profileDelFor !== null"
-      title="Удалить профиль?"
-      :message="`Профиль «${profileDelFor?.name ?? ''}» (${profileDelFor?.iface ?? ''}) будет удалён. Интерфейс остановится. У профиля ${profileDelFor?.clientCount ?? 0} клиент(ов).`"
-      confirm-text="Удалить профиль"
-      tone="danger"
-      @cancel="profileDelFor = null"
-      @confirm="doDeleteProfile"
-    />
-
-    <ConfirmDialog
-      :open="profileRestartFor !== null"
-      title="Перезапустить интерфейс?"
-      :message="`Интерфейс ${profileRestartFor?.iface ?? ''} будет перезапущен. Активные подключения разорвутся — клиенты переподключатся автоматически.`"
-      confirm-text="Перезапустить"
-      tone="neutral"
-      @cancel="profileRestartFor = null"
-      @confirm="doRestartProfile"
     />
   </div>
 </template>
