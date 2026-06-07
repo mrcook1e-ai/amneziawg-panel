@@ -46,11 +46,11 @@
     --ink-900: 244 242 236;
     --ink-950: 255 254 250;
 
-    --surface:        22 22 24;
-    --surface-raised: 30 30 33;
+    --surface:        14 14 16;
+    --surface-raised: 26 26 30;
 
-    --glass-bg:    22 22 24;
-    --glass-alpha: 0.62;
+    --glass-bg:    20 20 23;
+    --glass-alpha: 0.72;
     --scrim:       0 0 0;
     --scrim-alpha: 0.55;
 
@@ -79,8 +79,8 @@
 
 @layer components {
   .card {
-    background-color: rgb(var(--surface));
-    border: 0.5px solid rgb(var(--ink-900) / 0.06);
+    background-color: rgb(var(--surface-raised));
+    border: 0.5px solid rgb(var(--ink-900) / 0.08);
     @apply rounded-2xl;
     box-shadow: 0 1px 2px rgb(var(--ink-900) / 0.025), 0 8px 24px -16px rgb(var(--ink-900) / 0.08);
   }
@@ -238,6 +238,44 @@
     height: 8px;
     border-radius: 9999px;
     background: #E8A041;
+  }
+}
+
+/* ── Universal button primitives ────────────────────────────────
+   btn-primary: тёмный фон в светлой теме / светлый фон в тёмной.
+   Используем amber как accent, чтобы не зависеть от ink-инверсии.
+   btn-secondary: тонированный, нейтральный.
+   btn-ghost: прозрачный с hover-fill.
+*/
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 rounded-2xl font-semibold transition-all active:scale-[0.97];
+    background-color: #E8A041;
+    color: #1A1200;
+  }
+  .btn-primary:hover { background-color: #D4882A; }
+
+  /* dark: amber на тёмном смотрится хорошо и сохраняет контраст */
+  .dark .btn-primary {
+    background-color: #E8A041;
+    color: #0E0900;
+  }
+  .dark .btn-primary:hover { background-color: #F5B558; }
+
+  .btn-secondary {
+    @apply px-4 py-2 rounded-2xl font-semibold transition-all active:scale-[0.97];
+    background-color: rgb(var(--ink-100));
+    color: rgb(var(--ink-800));
+  }
+  .btn-secondary:hover { background-color: rgb(var(--ink-200)); }
+
+  .btn-ghost {
+    @apply px-3 py-2 rounded-xl transition-colors;
+    color: rgb(var(--ink-600));
+  }
+  .btn-ghost:hover {
+    background-color: rgb(var(--ink-100));
+    color: rgb(var(--ink-900));
   }
 }
 
