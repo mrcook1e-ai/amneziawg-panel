@@ -4,23 +4,17 @@ import { api } from '@/lib/api'
 import { useToastStore } from '@/stores/toasts'
 import { useClientsStore } from '@/stores/clients'
 import { useStatsStore } from '@/stores/stats'
-import { useProfilesStore } from '@/stores/profiles'
-import { useTokensStore } from '@/stores/tokens'
 import TopBar from '@/components/organisms/TopBar.vue'
 import Section from '@/components/molecules/Section.vue'
 import InfoRow from '@/components/molecules/InfoRow.vue'
-import CopyButton from '@/components/molecules/CopyButton.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import EventRow from '@/components/molecules/EventRow.vue'
 import ImportClientModal from '@/components/organisms/ImportClientModal.vue'
-import ProfileModal from '@/components/organisms/ProfileModal.vue'
-import InviteModal from '@/components/organisms/InviteModal.vue'
 import Button from '@/components/atoms/Button.vue'
 import Segmented from '@/components/atoms/Segmented.vue'
 import Icon from '@/components/atoms/Icon.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import { useThemeStore, type ThemeMode } from '@/stores/theme'
-import type { ProfileInfo } from '@/types'
 
 const theme = useThemeStore()
 const themeOptions: { value: ThemeMode; label: string }[] = [
@@ -32,12 +26,9 @@ const themeOptions: { value: ThemeMode; label: string }[] = [
 const toasts = useToastStore()
 const clients = useClientsStore()
 const statsStore = useStatsStore()
-const profiles = useProfilesStore()
-const tokens = useTokensStore()
 
-const loading = ref(true)
-const busyAction = ref<{kind: string; profileId?: string} | null>(null)
-const confirmAction = ref<{kind: 'reset' | 'factory' | 'restart' | 'delete'; profileId?: string} | null>(null)
+const busyAction = ref<{kind: string} | null>(null)
+const confirmAction = ref<{kind: 'reset' | 'factory'} | null>(null)
 
 const events = computed(() => statsStore.events)
 const eventsLoading = ref(true)
@@ -45,119 +36,46 @@ const eventsLoading = ref(true)
 const importOpen = ref(false)
 const importBusy = ref(false)
 
-const profileModalOpen = ref(false)
-const profileModalMode = ref<'create' | 'edit'>('create')
-const editingProfile = ref<ProfileInfo | null>(null)
-const profileModalBusy = ref(false)
-
-const inviteModalOpen = ref(false)
-const inviteModalBusy = ref(false)
-const revokeConfirm = ref<{ id: string; name: string } | null>(null)
-
 const restoreInput = ref<HTMLInputElement | null>(null)
 const restoreBusy = ref(false)
 const restoreConfirmFile = ref<File | null>(null)
 
 async function load() {
-  loading.value = true
   eventsLoading.value = true
-  try {
-    await Promise.all([profiles.fetch(true), tokens.fetch(true), statsStore.fetch()])
-  } catch (e: any) { toasts.error(e?.message || 'Ошибка загрузки') }
-  finally { loading.value = false; eventsLoading.value = false }
+  try { await statsStore.fetch() }
+  catch (e: any) { toasts.error(e?.message || 'Ошибка загрузки') }
+  finally { eventsLoading.value = false }
 }
 onMounted(load)
 
-const confirmTitle = computed(() => {
-  const k = confirmAction.value?.kind
-  return ({
-    restart: 'Перезапустить интерфейс?',
-    reset:   'Удалить всех клиентов?',
-    factory: 'Сброс до заводских настроек?',
-    delete:  'Удалить профиль?',
-  }[k!] || '')
-})
-const confirmMessage = computed(() => {
-  const k = confirmAction.value?.kind
-  return ({
-    restart: 'Активные соединения этого профиля ненадолго прервутся, пока интерфейс поднимается. Правила iptables встанут заново.',
-    reset:   'Все клиенты во всех профилях будут удалены, доступ отозван. Действие необратимо.',
-    factory: 'Будут удалены все профили и клиенты, очищены метрики и журнал. Сервер останется без профилей — нужно будет создать заново. Необратимо.',
-    delete:  'Профиль будет удалён. Если в нём есть клиенты — сначала переместите или удалите их.',
-  }[k!] || '')
-})
-const confirmText = computed(() => {
-  const k = confirmAction.value?.kind
-  return ({ restart: 'Перезапустить', reset: 'Удалить всех', factory: 'Сбросить', delete: 'Удалить' }[k!] || '')
-})
-const confirmTone = computed(() => {
-  const k = confirmAction.value?.kind
-  return (k === 'reset' || k === 'factory' || k === 'delete') ? 'danger' : 'neutral'
-})
+const TITLES: Record<'reset' | 'factory', string> = {
+  reset:   'Удалить всех клиентов?',
+  factory: 'Сброс до заводских настроек?',
+}
+const MESSAGES: Record<'reset' | 'factory', string> = {
+  reset:   'Все клиенты будут удалены, доступ отозван. Профили и инвайты сохранятся. Действие необратимо.',
+  factory: 'Будут удалены все клиенты, профили, ссылки и метрики. Сервер вернётся в исходное состояние. Необратимо.',
+}
+const TEXTS: Record<'reset' | 'factory', string> = {
+  reset: 'Удалить всех', factory: 'Сбросить всё',
+}
+const confirmTitle = computed(() => confirmAction.value ? TITLES[confirmAction.value.kind] : '')
+const confirmMessage = computed(() => confirmAction.value ? MESSAGES[confirmAction.value.kind] : '')
+const confirmText = computed(() => confirmAction.value ? TEXTS[confirmAction.value.kind] : '')
 
 async function doConfirm() {
   const a = confirmAction.value
   if (!a) return
-  busyAction.value = { kind: a.kind, profileId: a.profileId }
+  busyAction.value = { kind: a.kind }
   confirmAction.value = null
   try {
-    if (a.kind === 'restart' && a.profileId) await profiles.restart(a.profileId)
-    if (a.kind === 'delete' && a.profileId)  await profiles.remove(a.profileId)
     if (a.kind === 'reset')   { await api.resetClients(); toasts.success('Все клиенты удалены'); await clients.fetch(true) }
-    if (a.kind === 'factory') {
-      await api.factoryReset(); toasts.success('Сброс выполнен')
-      await load(); await clients.fetch(true)
-    }
+    if (a.kind === 'factory') { await api.factoryReset(); toasts.success('Сброс выполнен'); await load(); await clients.fetch(true) }
   } catch (e: any) {
     toasts.error(e?.message || 'Ошибка действия')
   } finally {
     busyAction.value = null
   }
-}
-
-function openEditProfile(p: ProfileInfo) {
-  profileModalMode.value = 'edit'
-  editingProfile.value = p
-  profileModalOpen.value = true
-}
-async function onProfileSubmit(body: any) {
-  profileModalBusy.value = true
-  try {
-    if (profileModalMode.value === 'create') await profiles.create(body)
-    else if (editingProfile.value) await profiles.patch(editingProfile.value.id, body)
-    profileModalOpen.value = false
-  } catch { /* toast already shown */ }
-  finally { profileModalBusy.value = false }
-}
-
-async function onInviteSubmit(body: { name: string; expiresIn: number }) {
-  inviteModalBusy.value = true
-  try {
-    const tok = await tokens.create(body)
-    inviteModalOpen.value = false
-    try {
-      await navigator.clipboard.writeText(tok.url)
-      toasts.success('Ссылка скопирована в буфер')
-    } catch { /* not all browsers */ }
-  } catch { /* toast already shown */ }
-  finally { inviteModalBusy.value = false }
-}
-
-async function copyInvite(url: string) {
-  try { await navigator.clipboard.writeText(url); toasts.success('Ссылка скопирована') }
-  catch { toasts.error('Не удалось скопировать') }
-}
-
-async function doRevoke() {
-  const r = revokeConfirm.value
-  if (!r) return
-  revokeConfirm.value = null
-  try { await tokens.revoke(r.id) } catch { /* toast shown */ }
-}
-
-function fmtDate(s?: string | null) {
-  if (!s) return '—'
-  try { return new Date(s).toLocaleString() } catch { return s }
 }
 
 async function onImport(body: Parameters<typeof api.importClient>[0]) {
@@ -209,7 +127,7 @@ async function doRestore() {
         <div class="eyebrow">Сервер</div>
         <h1 class="num-display text-ink-900 text-[40px] sm:text-[48px]">Настройки</h1>
         <p class="text-[13.5px] text-ink-500 leading-relaxed max-w-md">
-          Профили подключения, обфускация и действия, которые затрагивают живой трафик.
+          Оформление, бэкапы, опасные действия и журнал событий.
         </p>
       </header>
 
@@ -223,131 +141,7 @@ async function doRestore() {
         </InfoRow>
       </Section>
 
-      <Section title="Инвайты" footer="Одноразовая ссылка для нового клиента. Открыв её, клиент вставляет свои параметры обфускации (из Architect) и получает .conf + QR. Сервер автоматически поднимает отдельный awgN-интерфейс.">
-        <template v-if="!tokens.items.length">
-          <div class="px-5 py-6 text-[12.5px] text-ink-500">
-            Инвайтов нет. Нажмите «Создать инвайт» и передайте ссылку клиенту.
-          </div>
-        </template>
-        <template v-else>
-          <div class="divide-y divide-ink-900/5">
-            <div v-for="t in tokens.items" :key="t.id" class="px-5 py-3 flex items-center gap-3 flex-wrap">
-              <div class="flex-1 min-w-0">
-                <div class="flex items-baseline gap-2 flex-wrap">
-                  <span class="text-[13.5px] text-ink-900 font-medium">{{ t.name || '—' }}</span>
-                  <span
-                    class="text-[10px] uppercase tracking-[0.12em] px-1.5 py-0.5 rounded"
-                    :class="{
-                      'bg-success/10 text-success': t.status === 'pending',
-                      'bg-ink-900/5 text-ink-500': t.status === 'used',
-                      'bg-danger/10 text-danger': t.status === 'expired',
-                    }"
-                  >{{ t.status }}</span>
-                  <span class="mono text-[10.5px] text-ink-500">{{ t.id }}</span>
-                </div>
-                <div class="text-[11px] text-ink-500 mt-0.5">
-                  создан {{ fmtDate(t.createdAt) }}
-                  <template v-if="t.expiresAt"> · до {{ fmtDate(t.expiresAt) }}</template>
-                  <template v-if="t.usedAt"> · использован {{ fmtDate(t.usedAt) }}</template>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <Button v-if="t.status === 'pending'" size="sm" variant="ghost" @click="copyInvite(t.url)">
-                  <Icon name="copy" :size="13" /> Копировать ссылку
-                </Button>
-                <Button size="sm" variant="ghost" @click="revokeConfirm = { id: t.id, name: t.name }">
-                  <Icon name="trash" :size="13" /> Удалить
-                </Button>
-              </div>
-            </div>
-          </div>
-        </template>
-        <div class="p-4 border-t border-ink-900/5">
-          <Button size="sm" variant="primary" @click="inviteModalOpen = true">
-            <Icon name="plus" :size="14" /> Создать инвайт
-          </Button>
-        </div>
-      </Section>
-
-      <Section title="Профили подключения" footer="Каждый профиль — отдельный awgN-интерфейс на своём UDP-порту, привязанный к одному онбордённому клиенту.">
-        <template v-if="loading">
-          <div class="p-5 space-y-3">
-            <Skeleton height="16" width="60%" />
-            <Skeleton height="16" width="40%" />
-          </div>
-        </template>
-        <template v-else>
-          <div v-if="!profiles.items.length" class="px-5 py-6 text-[12.5px] text-ink-500 leading-relaxed">
-            Профилей пока нет. Они появятся автоматически, когда клиенты используют инвайты.
-          </div>
-          <div class="divide-y divide-ink-900/5">
-            <div v-for="p in profiles.items" :key="p.id" class="px-5 py-4 space-y-3">
-              <div class="flex items-baseline justify-between gap-3 flex-wrap">
-                <div class="flex items-baseline gap-2">
-                  <span class="text-[15px] text-ink-900 font-semibold">{{ p.name }}</span>
-                  <span class="mono text-[11px] text-ink-500">{{ p.id }}</span>
-                  <span v-if="p.hasMimicry" class="text-[10px] uppercase tracking-[0.12em] text-success px-1.5 py-0.5 rounded bg-success/10">CPS</span>
-                  <span v-if="p.itime === 0" class="text-[10px] uppercase tracking-[0.12em] text-ink-500 px-1.5 py-0.5 rounded bg-ink-900/5">Itime off</span>
-                </div>
-                <div class="text-[11.5px] text-ink-500 tnum mono">
-                  {{ p.iface }} · :{{ p.port }} · клиентов {{ p.clientCount }}
-                </div>
-              </div>
-              <p v-if="p.description" class="text-[12.5px] text-ink-500">{{ p.description }}</p>
-
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[12px]">
-                <div class="flex items-center gap-2">
-                  <span class="text-ink-500 w-24 shrink-0">Endpoint</span>
-                  <span class="mono text-ink-900 truncate">{{ p.endpoint }}</span>
-                  <CopyButton :value="p.endpoint" />
-                </div>
-                <div class="flex items-center gap-2">
-                  <span class="text-ink-500 w-24 shrink-0">PubKey</span>
-                  <span class="mono text-ink-900 truncate">{{ p.publicKey }}</span>
-                  <CopyButton :value="p.publicKey" />
-                </div>
-                <div class="flex items-center gap-2 sm:col-span-2">
-                  <span class="text-ink-500 w-24 shrink-0">H1–H4</span>
-                  <span class="mono text-ink-700 text-[11px] truncate" :title="`${p.h1} · ${p.h2} · ${p.h3} · ${p.h4}`">
-                    {{ p.h1 }} · {{ p.h2 }} · {{ p.h3 }} · {{ p.h4 }}
-                  </span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <span class="text-ink-500 w-24 shrink-0">Jc/Jmin-Jmax</span>
-                  <span class="mono text-ink-700">{{ p.jc }} · {{ p.jmin }}–{{ p.jmax }}</span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <span class="text-ink-500 w-24 shrink-0">S1/S2/S3/S4</span>
-                  <span class="mono text-ink-700">{{ p.s1 }}/{{ p.s2 }}/{{ p.s3 }}/{{ p.s4 }}</span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <span class="text-ink-500 w-24 shrink-0">Itime</span>
-                  <span class="mono text-ink-700">{{ p.itime === 0 ? 'выкл' : `${p.itime}s` }}</span>
-                </div>
-              </div>
-
-              <div class="flex items-center gap-2 flex-wrap pt-1">
-                <Button size="sm" variant="ghost" @click="openEditProfile(p)">
-                  <Icon name="settings" :size="13" /> Редактировать
-                </Button>
-                <Button size="sm" variant="ghost"
-                  :loading="busyAction?.kind === 'restart' && busyAction?.profileId === p.id"
-                  @click="confirmAction = { kind: 'restart', profileId: p.id }">
-                  <Icon name="power" :size="13" /> Перезапустить
-                </Button>
-                <Button size="sm" variant="ghost"
-                  :disabled="p.clientCount > 0"
-                  :title="p.clientCount > 0 ? 'Сначала переместите или удалите клиентов' : ''"
-                  @click="confirmAction = { kind: 'delete', profileId: p.id }">
-                  <Icon name="trash" :size="13" /> Удалить
-                </Button>
-              </div>
-            </div>
-          </div>
-        </template>
-      </Section>
-
-      <Section title="Клиенты" footer="Импорт нужен, если у клиента уже есть конфиг и нужно вернуть его в панель по публичному ключу.">
+      <Section title="Восстановление клиента" footer="Если у клиента уже есть готовый .conf и нужно вернуть его в панель — импортируйте по публичному ключу. Профиль и интерфейс будут созданы автоматически, как при онбординге через ссылку.">
         <InfoRow label="Импорт по публичному ключу">
           <Button size="sm" @click="importOpen = true">
             <Icon name="plus" :size="14" /> Импортировать
@@ -355,7 +149,7 @@ async function doRestore() {
         </InfoRow>
       </Section>
 
-      <Section title="Резервная копия" footer="Архив: state.json (профили + клиенты) + .conf каждого интерфейса + база метрик. Восстановление перезаписывает текущее состояние и перезапускает интерфейсы.">
+      <Section title="Резервная копия" footer="Архив: state.json (профили + клиенты + инвайты) + .conf каждого интерфейса + база метрик. Восстановление перезаписывает текущее состояние и перезапускает интерфейсы.">
         <InfoRow label="Скачать архив" show-divider>
           <Button size="sm" @click="downloadBackup">
             <Icon name="download" :size="14" /> Скачать .tar.gz
@@ -410,7 +204,7 @@ async function doRestore() {
       :title="confirmTitle"
       :message="confirmMessage"
       :confirm-text="confirmText"
-      :tone="confirmTone"
+      tone="danger"
       @cancel="confirmAction = null"
       @confirm="doConfirm"
     />
@@ -430,32 +224,6 @@ async function doRestore() {
       :busy="importBusy"
       @close="importOpen = false"
       @submit="onImport"
-    />
-
-    <ProfileModal
-      :open="profileModalOpen"
-      :mode="profileModalMode"
-      :profile="editingProfile"
-      :busy="profileModalBusy"
-      @close="profileModalOpen = false"
-      @submit="onProfileSubmit"
-    />
-
-    <InviteModal
-      :open="inviteModalOpen"
-      :busy="inviteModalBusy"
-      @close="inviteModalOpen = false"
-      @submit="onInviteSubmit"
-    />
-
-    <ConfirmDialog
-      :open="revokeConfirm !== null"
-      title="Отозвать инвайт?"
-      :message="`Ссылка «${revokeConfirm?.name ?? ''}» перестанет работать. Уже созданные клиенты этим не затронутся.`"
-      confirm-text="Отозвать"
-      tone="danger"
-      @cancel="revokeConfirm = null"
-      @confirm="doRevoke"
     />
   </div>
 </template>
