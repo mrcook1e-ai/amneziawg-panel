@@ -48,6 +48,10 @@ func (h *Handlers) healthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
+func (h *Handlers) profilesList(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, h.Mgr.ListProfiles())
+}
+
 func (h *Handlers) sessionGet(w http.ResponseWriter, r *http.Request) {
 	authed := !h.Auth.Required()
 	if !authed {

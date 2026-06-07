@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -190,8 +191,28 @@ func (m *Manager) dumpStateLocked() *Config {
 	return &Config{SchemaVersion: SchemaVersion, Subscribers: subs, Profiles: profiles, Clients: clients}
 }
 
-func (m *Manager) subnetCIDR() string {
-	return strings.Replace(m.cfg.Subnet, "x", "0", 1) + "/24"
+// subnetPatternForPort returns the per-profile subnet pattern by replacing the
+// third octet of the global pattern with the interface index (port - rangeStart).
+// awg0 (port=51820) → "10.8.0.x", awg1 (port=51821) → "10.8.1.x", etc.
+// This gives each awgN interface its own /24, eliminating overlapping routes.
+func (m *Manager) subnetPatternForPort(port int) string {
+	idx := port - m.portIPAM.rangeStart
+	parts := strings.SplitN(m.cfg.Subnet, ".", 4) // ["10", "8", "0", "x"]
+	if len(parts) == 4 {
+		parts[2] = strconv.Itoa(idx)
+		return strings.Join(parts, ".")
+	}
+	return m.cfg.Subnet // fallback: malformed pattern, shouldn't happen
+}
+
+func (m *Manager) subnetCIDRForProfile(p *Profile) string {
+	return strings.Replace(m.subnetPatternForPort(p.Port), "x", "0", 1) + "/24"
+}
+
+// ipamForPort returns an IPAM scoped to the per-profile subnet.
+func (m *Manager) ipamForPort(port int) *IPAM {
+	ipam, _ := NewIPAM(m.subnetPatternForPort(port))
+	return ipam
 }
 
 var profileIDRe = regexp.MustCompile(`^[a-z0-9-]{2,32}$`)
@@ -246,7 +267,7 @@ func (m *Manager) newProfile(id, name, description string, spec ObfuscationSpec)
 		Port:        port,
 		PrivateKey:  priv,
 		PublicKey:   pub,
-		Address:     m.ipam.ServerIP(),
+		Address:     m.ipamForPort(port).ServerIP(),
 		CreatedAt:   time.Now().UTC(),
 	}
 	applySpec(p, spec)
@@ -289,7 +310,7 @@ func (m *Manager) persistProfileLocked(ps *profileState) error {
 	conf, err := RenderProfile(ProfileRenderArgs{
 		Profile:    ps.profile,
 		Peers:      m.peersForLocked(ps.profile.ID),
-		SubnetCIDR: m.subnetCIDR(),
+		SubnetCIDR: m.subnetCIDRForProfile(ps.profile),
 		Egress:     m.cfg.EgressIface,
 	})
 	if err != nil {
@@ -477,6 +498,41 @@ func (m *Manager) Snapshot() map[string]Client {
 	for _, c := range m.clients {
 		out[c.PublicKey] = *c
 	}
+	return out
+}
+
+// ProfileView is the public projection of a Profile returned by /api/profiles/.
+// Fields match the TypeScript ProfileInfo interface in web/src/types.ts.
+type ProfileView struct {
+	Profile
+	Endpoint    string `json:"endpoint"`
+	ClientCount int    `json:"clientCount"`
+	HasMimicry  bool   `json:"hasMimicry"`
+}
+
+// ListProfiles returns all profiles enriched with client count and endpoint.
+func (m *Manager) ListProfiles() []ProfileView {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	clientCounts := map[string]int{}
+	for _, c := range m.clients {
+		clientCounts[c.ProfileID]++
+	}
+	out := make([]ProfileView, 0, len(m.profiles))
+	for _, ps := range m.profiles {
+		p := ps.profile
+		endpoint := m.cfg.WGHost
+		if endpoint != "" {
+			endpoint = fmt.Sprintf("%s:%d", endpoint, p.Port)
+		}
+		out = append(out, ProfileView{
+			Profile:     *p,
+			Endpoint:    endpoint,
+			ClientCount: clientCounts[p.ID],
+			HasMimicry:  p.I1 != "" || p.I2 != "" || p.I3 != "" || p.I4 != "" || p.I5 != "",
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out
 }
 

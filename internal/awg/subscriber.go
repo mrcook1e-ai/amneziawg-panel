@@ -354,7 +354,9 @@ func (m *Manager) AddDevice(subscriberID, deviceName string, spec ObfuscationSpe
 	for _, c := range m.clients {
 		used[c.Address] = struct{}{}
 	}
-	addr, err := m.ipam.Next(used)
+	// Use the per-profile IPAM so each awgN gets its own /24 and kernel routes
+	// don't overlap (awg0→10.8.0.x, awg1→10.8.1.x, …).
+	addr, err := m.ipamForPort(p.Port).Next(used)
 	if err != nil {
 		delete(m.profiles, p.ID)
 		return nil, nil, fmt.Errorf("allocate address: %w", err)

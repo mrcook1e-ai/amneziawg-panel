@@ -90,6 +90,10 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 			r.Get("/backup", admin.backup)
 			r.Post("/restore", admin.restore)
 
+			// Profiles — read-only list used by the frontend to populate
+			// "Create client" and "Import client" dropdowns.
+			r.Get("/profiles/", h.profilesList)
+
 			r.Route("/wireguard/server", func(r chi.Router) {
 				r.Post("/reset-clients", h.serverResetClients)
 				r.Post("/factory-reset", admin.factoryReset)
