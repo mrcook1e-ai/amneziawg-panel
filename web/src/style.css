@@ -34,22 +34,27 @@
   }
 
   .dark {
-    --ink-50:    10  10  11;
-    --ink-100:  28  28  30;
-    --ink-200:  44  44  46;
-    --ink-300:  60  60  62;
-    --ink-400:  96  96  98;
-    --ink-500: 130 130 134;
-    --ink-600: 165 165 170;
-    --ink-700: 197 196 192;
-    --ink-800: 224 222 216;
-    --ink-900: 244 242 236;
+    /*
+      Warm graphite — same value scale as before, but the base R-channel is
+      nudged +1..+2 so dark surfaces don't read as clinical/blue. Pairs with
+      the amber accent without becoming sepia.
+    */
+    --ink-50:    12  11  10;
+    --ink-100:  30  28  26;
+    --ink-200:  46  44  42;
+    --ink-300:  62  60  58;
+    --ink-400:  98  96  94;
+    --ink-500: 132 130 128;
+    --ink-600: 167 165 162;
+    --ink-700: 198 196 192;
+    --ink-800: 225 222 216;
+    --ink-900: 245 242 236;
     --ink-950: 255 254 250;
 
-    --surface:        14 14 16;
-    --surface-raised: 26 26 30;
+    --surface:        16 14 12;
+    --surface-raised: 28 26 23;
 
-    --glass-bg:    20 20 23;
+    --glass-bg:    22 20 18;
     --glass-alpha: 0.72;
     --scrim:       0 0 0;
     --scrim-alpha: 0.55;
