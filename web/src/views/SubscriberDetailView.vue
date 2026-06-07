@@ -308,7 +308,7 @@ async function doRegen() {
         <!-- Sparkline 24ч -->
         <div class="card p-5 sm:p-7">
           <div class="eyebrow mb-4 text-ink-500">Входящий трафик за 24 часа</div>
-          <Sparkline v-if="cs && cs.series.length" :points="cs.series" :height="100" />
+          <Sparkline v-if="cs && cs.series?.length" :points="cs.series" :height="100" />
           <Skeleton v-else-if="statsLoading" height="100" rounded="lg" />
           <div v-else class="h-[100px] grid place-items-center text-[12px] text-ink-500">
             Трафика за последние 24 часа не было.

@@ -167,10 +167,10 @@ type ClientStats struct {
 // Returns zero-value stats if clientIDs is empty.
 func GetSubscriberStats(ctx context.Context, d *db.DB, clientIDs []string) (ClientStats, error) {
 	if len(clientIDs) == 0 {
-		return ClientStats{WindowSeconds: 300}, nil
+		return ClientStats{WindowSeconds: 300, Series: []Point{}}, nil
 	}
 	now := time.Now().UTC()
-	out := ClientStats{WindowSeconds: 300}
+	out := ClientStats{WindowSeconds: 300, Series: []Point{}}
 	in, inArgs := inClause(clientIDs)
 
 	row := d.QueryRowContext(ctx,
