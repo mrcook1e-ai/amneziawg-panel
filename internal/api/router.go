@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -13,19 +14,33 @@ import (
 	"github.com/mrcook1e/amneziawg-panel/internal/static"
 )
 
+// spaHandler serves embedded SPA assets, falling back to index.html for any
+// path that doesn't match a real file (so client-side routing — /onboard/:token,
+// /clients/:id etc — works on hard refresh / deep link).
+//
+// IMPORTANT: the fallback is served via direct byte-copy, NOT by reassigning
+// r.URL.Path and calling http.FileServer. FileServer auto-redirects /foo/index.html
+// to ./ (canonical form) which, from a deep URL like /onboard/<token>, resolves
+// in the browser to /onboard/ and loops with any upstream slash-normalizing proxy.
 func spaHandler(fsys fs.FS) http.Handler {
 	fileSrv := http.FileServer(http.FS(fsys))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path == "" {
-			path = "index.html"
+		if path != "" {
+			if _, err := fs.Stat(fsys, path); err == nil {
+				fileSrv.ServeHTTP(w, r)
+				return
+			}
 		}
-		if _, err := fs.Stat(fsys, path); err == nil {
-			fileSrv.ServeHTTP(w, r)
+		f, err := fsys.Open("index.html")
+		if err != nil {
+			http.Error(w, "index.html not found", http.StatusNotFound)
 			return
 		}
-		r.URL.Path = "/index.html"
-		fileSrv.ServeHTTP(w, r)
+		defer f.Close()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = io.Copy(w, f)
 	})
 }
 
