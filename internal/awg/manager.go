@@ -26,10 +26,10 @@ type Manager struct {
 	ipam     *IPAM
 	portIPAM *PortIPAM
 
-	mu       sync.Mutex
-	profiles map[string]*profileState
-	clients  map[string]*Client
-	tokens   map[string]*OnboardToken
+	mu          sync.Mutex
+	profiles    map[string]*profileState
+	clients     map[string]*Client
+	subscribers map[string]*Subscriber
 
 	emit func(kind, id string, payload any)
 }
@@ -61,9 +61,9 @@ func NewManager(cfg config.Config) (*Manager, error) {
 		keys:     Keys{Bin: cfg.AWGBin},
 		ipam:     ipam,
 		portIPAM: pipam,
-		profiles: map[string]*profileState{},
-		clients:  map[string]*Client{},
-		tokens:   map[string]*OnboardToken{},
+		profiles:    map[string]*profileState{},
+		clients:     map[string]*Client{},
+		subscribers: map[string]*Subscriber{},
 	}, nil
 }
 
@@ -80,13 +80,13 @@ func (m *Manager) Start() error {
 		return err
 	}
 	if c == nil {
-		// Fresh install: no auto-bootstrap. The admin issues invites; clients
-		// self-configure via /onboard/<token>.
+		// Fresh install: no auto-bootstrap. Admin creates subscribers and
+		// hands out their /cabinet/<token> URLs; subscribers add devices.
 		c = &Config{
 			SchemaVersion: SchemaVersion,
+			Subscribers:   map[string]*Subscriber{},
 			Profiles:      map[string]*Profile{},
 			Clients:       map[string]*Client{},
-			Tokens:        map[string]*OnboardToken{},
 		}
 	}
 	m.hydrate(c)
@@ -169,8 +169,8 @@ func (m *Manager) hydrate(c *Config) {
 	for id, cl := range c.Clients {
 		m.clients[id] = cl
 	}
-	for id, t := range c.Tokens {
-		m.tokens[id] = t
+	for id, s := range c.Subscribers {
+		m.subscribers[id] = s
 	}
 }
 
@@ -183,11 +183,11 @@ func (m *Manager) dumpStateLocked() *Config {
 	for id, c := range m.clients {
 		clients[id] = c
 	}
-	tokens := make(map[string]*OnboardToken, len(m.tokens))
-	for id, t := range m.tokens {
-		tokens[id] = t
+	subs := make(map[string]*Subscriber, len(m.subscribers))
+	for id, s := range m.subscribers {
+		subs[id] = s
 	}
-	return &Config{SchemaVersion: SchemaVersion, Profiles: profiles, Clients: clients, Tokens: tokens}
+	return &Config{SchemaVersion: SchemaVersion, Subscribers: subs, Profiles: profiles, Clients: clients}
 }
 
 func (m *Manager) subnetCIDR() string {
@@ -525,91 +525,15 @@ func (m *Manager) RestartInterface(profileID string) error {
 	return nil
 }
 
-// ---- clients ----------------------------------------------------------------
+// ---- devices ----------------------------------------------------------------
 
-type CreateClientArgs struct {
-	Name      string
-	ProfileID string
-	Notes     string
-}
-
-func (m *Manager) CreateClient(args CreateClientArgs) (*Client, error) {
-	name := strings.TrimSpace(args.Name)
-	if name == "" {
-		return nil, errors.New("name is required")
-	}
-
-	priv, err := m.keys.GenPrivate()
-	if err != nil {
-		return nil, err
-	}
-	pub, err := m.keys.Public(priv)
-	if err != nil {
-		return nil, err
-	}
-	psk, err := m.keys.GenPSK()
-	if err != nil {
-		return nil, err
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	profileID := strings.TrimSpace(args.ProfileID)
-	if profileID == "" {
-		var chosen *Profile
-		for _, ps := range m.profiles {
-			if chosen == nil || ps.profile.Port < chosen.Port {
-				chosen = ps.profile
-			}
-		}
-		if chosen == nil {
-			return nil, errors.New("no profiles configured")
-		}
-		profileID = chosen.ID
-	}
-	ps, ok := m.profiles[profileID]
-	if !ok {
-		return nil, errProfileNotFound
-	}
-
-	used := map[string]struct{}{}
-	for _, p := range m.profiles {
-		used[p.profile.Address] = struct{}{}
-	}
-	for _, c := range m.clients {
-		used[c.Address] = struct{}{}
-	}
-	addr, err := m.ipam.Next(used)
-	if err != nil {
-		return nil, err
-	}
-	now := time.Now().UTC()
-	c := &Client{
-		ID:         uuid.NewString(),
-		ProfileID:  profileID,
-		Name:       name,
-		Address:    addr,
-		PrivateKey: priv, PublicKey: pub, PreSharedKey: psk,
-		Notes:     args.Notes,
-		Enabled:   true,
-		CreatedAt: now, UpdatedAt: now,
-	}
-	m.clients[c.ID] = c
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
-		delete(m.clients, c.ID)
-		return nil, err
-	}
-	if err := m.syncProfileLocked(ps); err != nil {
-		delete(m.clients, c.ID)
-		return nil, err
-	}
-	m.fire("client.created", c.ID, map[string]string{"name": c.Name, "address": c.Address, "profileId": profileID})
-	return c, nil
-}
+// Direct device creation (without a subscriber+CPS-snippet onboarding flow)
+// is gone — see AddDevice in subscriber.go. Only ImportClient remains, as the
+// admin's escape hatch for re-attaching a peer with an existing keypair.
 
 type ImportArgs struct {
 	Name         string
+	SubscriberID string
 	ProfileID    string
 	PublicKey    string
 	PrivateKey   string
@@ -628,8 +552,17 @@ func (m *Manager) ImportClient(in ImportArgs) (*Client, error) {
 		return nil, errors.New("publicKey is required")
 	}
 
+	subID := strings.TrimSpace(in.SubscriberID)
+	if subID == "" {
+		return nil, errors.New("subscriberId is required")
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if _, ok := m.subscribers[subID]; !ok {
+		return nil, errSubscriberNotFound
+	}
 
 	profileID := strings.TrimSpace(in.ProfileID)
 	if profileID == "" {
@@ -651,7 +584,7 @@ func (m *Manager) ImportClient(in ImportArgs) (*Client, error) {
 
 	for _, c := range m.clients {
 		if c.PublicKey == pub {
-			return nil, fmt.Errorf("client with this publicKey already exists: %s", c.Name)
+			return nil, fmt.Errorf("device with this publicKey already exists: %s", c.Name)
 		}
 	}
 
@@ -680,7 +613,7 @@ func (m *Manager) ImportClient(in ImportArgs) (*Client, error) {
 
 	now := time.Now().UTC()
 	c := &Client{
-		ID: uuid.NewString(), ProfileID: profileID,
+		ID: uuid.NewString(), SubscriberID: subID, ProfileID: profileID,
 		Name: name, Address: addr,
 		PrivateKey:   strings.TrimSpace(in.PrivateKey),
 		PublicKey:    pub,
@@ -697,12 +630,13 @@ func (m *Manager) ImportClient(in ImportArgs) (*Client, error) {
 		delete(m.clients, c.ID)
 		return nil, err
 	}
-	m.fire("client.created", c.ID, map[string]string{"name": c.Name, "address": c.Address, "imported": "true", "profileId": profileID})
+	m.fire("device.created", c.ID, map[string]string{"name": c.Name, "address": c.Address, "imported": "true", "subscriberId": subID})
 	return c, nil
 }
 
 type ClientView struct {
 	*Client
+	SubscriberName    string     `json:"subscriberName,omitempty"`
 	LatestHandshakeAt *time.Time `json:"latestHandshakeAt"`
 	TransferRx        uint64     `json:"transferRx"`
 	TransferTx        uint64     `json:"transferTx"`
@@ -713,7 +647,11 @@ func (m *Manager) ListClients() ([]ClientView, error) {
 	m.mu.Lock()
 	out := make([]ClientView, 0, len(m.clients))
 	for _, c := range m.clients {
-		out = append(out, ClientView{Client: c})
+		v := ClientView{Client: c}
+		if s, ok := m.subscribers[c.SubscriberID]; ok {
+			v.SubscriberName = s.Name
+		}
+		out = append(out, v)
 	}
 	ifaces := make([]string, 0, len(m.profiles))
 	for _, ps := range m.profiles {
@@ -848,27 +786,9 @@ func (m *Manager) DisableExpired(now time.Time) []string {
 	return flipped
 }
 
-func (m *Manager) DeleteClient(id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	c, ok := m.clients[id]
-	if !ok {
-		return errNotFound
-	}
-	name := c.Name
-	pid := c.ProfileID
-	delete(m.clients, id)
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
-		return err
-	}
-	if ps, ok := m.profiles[pid]; ok {
-		if err := m.syncProfileLocked(ps); err != nil {
-			return err
-		}
-	}
-	m.fire("client.deleted", id, map[string]string{"name": name})
-	return nil
-}
+// Device deletion lives in subscriber.go (DeleteDevice). Old DeleteClient that
+// removed the peer record but kept the orphan interface alive is gone — every
+// device owns its profile 1:1, so deletion cascades.
 
 func (m *Manager) SetEnabled(id string, enabled bool) error {
 	m.mu.Lock()
@@ -951,38 +871,8 @@ func (m *Manager) SetAddress(id, addr string) error {
 	return nil
 }
 
-func (m *Manager) MoveClient(id, toProfileID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	c, ok := m.clients[id]
-	if !ok {
-		return errNotFound
-	}
-	if c.ProfileID == toProfileID {
-		return nil
-	}
-	target, ok := m.profiles[toProfileID]
-	if !ok {
-		return errProfileNotFound
-	}
-	from := c.ProfileID
-	c.ProfileID = toProfileID
-	c.UpdatedAt = time.Now().UTC()
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
-		c.ProfileID = from
-		return err
-	}
-	if ps, ok := m.profiles[from]; ok {
-		if err := m.syncProfileLocked(ps); err != nil {
-			return err
-		}
-	}
-	if err := m.syncProfileLocked(target); err != nil {
-		return err
-	}
-	m.fire("client.moved", id, map[string]string{"from": from, "to": toProfileID})
-	return nil
-}
+// MoveClient was the cross-profile relocation primitive — irrelevant in the
+// 1 device = 1 profile model. Removed.
 
 func (m *Manager) renderArgs(profile *Profile, c *Client) ClientRenderArgs {
 	return ClientRenderArgs{
@@ -1043,7 +933,7 @@ func (m *Manager) FactoryReset() error {
 	}
 	m.profiles = map[string]*profileState{}
 	m.clients = map[string]*Client{}
-	m.tokens = map[string]*OnboardToken{}
+	m.subscribers = map[string]*Subscriber{}
 
 	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
 		return err

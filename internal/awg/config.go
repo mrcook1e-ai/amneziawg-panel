@@ -6,8 +6,13 @@ import (
 	"time"
 )
 
+// Client is a single VPN device owned by a Subscriber. The Go-level naming
+// stays "Client" for historical reasons; the user-facing terminology is
+// "устройство" (device). One Client = one Profile = one awgN interface,
+// because obfuscation params are bound to the interface, not the subscriber.
 type Client struct {
 	ID           string    `json:"id"`
+	SubscriberID string    `json:"subscriberId"`
 	ProfileID    string    `json:"profileId"`
 	Name         string    `json:"name"`
 	Address      string    `json:"address"`
@@ -35,16 +40,17 @@ type Client struct {
 	LastHandshakeAt *time.Time `json:"lastHandshakeAt,omitempty"`
 }
 
-// SchemaVersion = 3 marks the AWG 2.0-only format: H ranges (not single ints),
-// mandatory S3/S4/Itime, optional J1-J3. Stores with SchemaVersion < 3 are
-// refused (no in-place migration — wipe state.json and start fresh).
-const SchemaVersion = 3
+// SchemaVersion = 4: introduces Subscriber as the top-level account entity;
+// each Client (= device) carries SubscriberID. The previous OnboardToken
+// machinery is gone — subscribers have a persistent AccessToken instead.
+// Stores with SchemaVersion < 4 are refused (fail-fast, no in-place migration).
+const SchemaVersion = 4
 
 type Config struct {
-	SchemaVersion int                       `json:"schemaVersion"`
-	Profiles      map[string]*Profile       `json:"profiles"`
-	Clients       map[string]*Client        `json:"clients"`
-	Tokens        map[string]*OnboardToken  `json:"tokens,omitempty"`
+	SchemaVersion int                    `json:"schemaVersion"`
+	Subscribers   map[string]*Subscriber `json:"subscribers"`
+	Profiles      map[string]*Profile    `json:"profiles"`
+	Clients       map[string]*Client     `json:"clients"`
 }
 
 // NOTE on Itime / J1-J3: amneziawg-tools v1.0.20260223 (HEAD as of writing)

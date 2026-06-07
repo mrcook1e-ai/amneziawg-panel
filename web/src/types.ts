@@ -1,5 +1,7 @@
 export interface Client {
   id: string
+  subscriberId: string
+  subscriberName?: string
   profileId: string
   name: string
   address: string
@@ -139,38 +141,51 @@ export type EventKind =
   | 'client.renamed'
   | 'client.expired'
   | 'client.patched'
-  | 'client.moved'
+  | 'device.created'
+  | 'device.deleted'
   | 'profile.created'
   | 'profile.deleted'
   | 'profile.patched'
   | 'profile.restart'
+  | 'subscriber.created'
+  | 'subscriber.patched'
+  | 'subscriber.deleted'
+  | 'subscriber.regen_token'
   | 'server.reset_clients'
   | 'server.factory_reset'
-  | 'token.created'
-  | 'token.revoked'
-  | 'token.redeemed'
 
-export type TokenStatus = 'pending' | 'used' | 'expired'
-
-export interface OnboardToken {
+// Subscriber: a named account owned by one person. Holds the access token
+// that authenticates them at their cabinet (/cabinet/<token>).
+export interface Subscriber {
   id: string
-  token: string
   name: string
-  createdAt: string
-  expiresAt?: string | null
-  usedAt?: string | null
-  status: TokenStatus
+  accessToken: string
   url: string
-  createdClientId?: string
-  createdProfileId?: string
+  notes?: string
+  createdAt: string
+  deviceCount: number
+  devices?: Client[]
 }
 
-export interface OnboardPublicStatus {
-  valid: boolean
-  used?: boolean
+// What the public cabinet sees — never includes the access token itself.
+export interface CabinetDevice {
+  id: string
+  name: string
+  address: string
+  enabled: boolean
+  createdAt: string
+  latestHandshakeAt?: string | null
 }
 
-export interface OnboardRedeemResult {
+export interface CabinetView {
+  name: string
+  devices: CabinetDevice[]
+}
+
+export interface AddDeviceResult {
+  deviceId: string
+  name: string
+  address: string
   conf: string
   qrPng64: string
 }

@@ -81,41 +81,13 @@ func (h *Handlers) clientsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, clients)
 }
 
-func (h *Handlers) clientCreate(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Name      string `json:"name"`
-		ProfileID string `json:"profileId"`
-		Notes     string `json:"notes"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&in)
-	if _, err := h.Mgr.CreateClient(awg.CreateClientArgs{
-		Name:      in.Name,
-		ProfileID: in.ProfileID,
-		Notes:     in.Notes,
-	}); err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, 200, map[string]bool{"success": true})
-}
-
-func (h *Handlers) clientMove(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		ProfileID string `json:"profileId"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeJSON(w, 400, map[string]string{"error": "Bad Request"})
-		return
-	}
-	if err := h.Mgr.MoveClient(chi.URLParam(r, "id"), in.ProfileID); err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, 200, map[string]bool{"success": true})
-}
+// Direct admin device creation is gone. Devices are produced by the
+// subscriber's cabinet (/api/cabinet/:token/devices). The legacy import
+// endpoint stays as a recovery escape hatch — see handlers_admin.go.
 
 func (h *Handlers) clientDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.Mgr.DeleteClient(chi.URLParam(r, "id")); err != nil {
+	// Admin path — pass empty actorSubID so subscriber-scoping is bypassed.
+	if err := h.Mgr.DeleteDevice(chi.URLParam(r, "id"), ""); err != nil {
 		writeErr(w, err)
 		return
 	}

@@ -2,7 +2,7 @@ import type {
   Client, SessionState,
   Overview, Series, ClientStats, AppEvent, ClientPatch,
   ProfileInfo, ProfileCreateBody, ProfilePatchBody, CreateClientArgs,
-  OnboardToken, OnboardPublicStatus, OnboardRedeemResult,
+  Subscriber, CabinetView, AddDeviceResult,
 } from '@/types'
 
 export class ApiError extends Error {
@@ -78,20 +78,33 @@ export const api = {
     request<AppEvent[] | null>(`/api/wireguard/client/${enc(id)}/events?limit=${limit}`),
   events: (limit = 30) => request<AppEvent[] | null>(`/api/events?limit=${limit}`),
 
-  // Onboarding (admin endpoints)
-  listTokens:  () => request<OnboardToken[]>('/api/onboard-tokens/'),
-  createToken: (body: { name: string; expiresIn: number }) =>
-    request<OnboardToken>('/api/onboard-tokens/', { method: 'POST', body: JSON.stringify(body) }),
-  revokeToken: (id: string) =>
-    request<{ success: boolean }>(`/api/onboard-tokens/${enc(id)}`, { method: 'DELETE' }),
+  // Subscribers (admin)
+  listSubscribers:  () => request<Subscriber[]>('/api/subscribers/'),
+  getSubscriber:    (id: string) => request<Subscriber>(`/api/subscribers/${enc(id)}`),
+  createSubscriber: (body: { name: string; notes?: string }) =>
+    request<Subscriber>('/api/subscribers/', { method: 'POST', body: JSON.stringify(body) }),
+  patchSubscriber: (id: string, body: { name?: string; notes?: string }) =>
+    request<Subscriber>(`/api/subscribers/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  regenerateSubscriberToken: (id: string) =>
+    request<Subscriber>(`/api/subscribers/${enc(id)}/regenerate-token`, { method: 'POST' }),
+  deleteSubscriber: (id: string) =>
+    request<{ success: boolean }>(`/api/subscribers/${enc(id)}`, { method: 'DELETE' }),
 
-  // Onboarding (public — no auth, token in URL is the credential)
-  onboardStatus: (token: string) =>
-    request<OnboardPublicStatus>(`/api/onboard/${enc(token)}`),
-  onboardRedeem: (token: string, body: { snippet: string; clientName: string }) =>
-    request<OnboardRedeemResult>(`/api/onboard/${enc(token)}`, {
+  // Cabinet (public — token in URL is the credential)
+  cabinetGet: (token: string) =>
+    request<CabinetView>(`/api/cabinet/${enc(token)}`),
+  cabinetAddDevice: (token: string, body: { snippet: string; deviceName: string }) =>
+    request<AddDeviceResult>(`/api/cabinet/${enc(token)}/devices`, {
       method: 'POST', body: JSON.stringify(body),
     }),
+  cabinetDeleteDevice: (token: string, devId: string) =>
+    request<{ success: boolean }>(`/api/cabinet/${enc(token)}/devices/${enc(devId)}`, {
+      method: 'DELETE',
+    }),
+  cabinetDeviceConfUrl: (token: string, devId: string) =>
+    `/api/cabinet/${enc(token)}/devices/${enc(devId)}/configuration`,
+  cabinetDeviceQrUrl: (token: string, devId: string) =>
+    `/api/cabinet/${enc(token)}/devices/${enc(devId)}/qrcode.svg`,
 
   backupUrl: () => '/api/backup',
   importClient: (body: {

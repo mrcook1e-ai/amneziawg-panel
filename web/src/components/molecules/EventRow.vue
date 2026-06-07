@@ -22,14 +22,16 @@ const meta = computed<{ verb: string; subject: string; note: string; tone: Tone 
     case 'client.renamed':  return { verb: 'Переименован', subject: payload.from || '', note: `→ ${payload.to || ''}`, tone: 'neutral' }
     case 'client.expired':  return { verb: 'Срок истёк', subject: name, note: 'автоотключение', tone: 'warning' }
     case 'client.patched':  return { verb: 'Изменён',    subject: name, note: 'настройки', tone: 'neutral' }
-    case 'client.moved':         return { verb: 'Перемещён', subject: name, note: `${payload.from || ''} → ${payload.to || ''}`, tone: 'neutral' }
-    case 'profile.created':      return { verb: 'Профиль', subject: payload.name || '', note: `:${payload.port ?? ''}`, tone: 'success' }
-    case 'profile.deleted':      return { verb: 'Профиль', subject: 'удалён', note: '', tone: 'danger' }
-    case 'profile.patched':      return { verb: 'Профиль', subject: payload.name || 'изменён', note: '', tone: 'neutral' }
-    case 'profile.restart':      return { verb: 'Профиль', subject: 'перезапущен', note: '', tone: 'warning' }
-    case 'token.created':        return { verb: 'Инвайт', subject: payload.name || 'создан', note: '', tone: 'neutral' }
-    case 'token.revoked':        return { verb: 'Инвайт', subject: 'отозван', note: '', tone: 'warning' }
-    case 'token.redeemed':       return { verb: 'Инвайт', subject: 'использован', note: payload.name || '', tone: 'success' }
+    case 'device.created':       return { verb: 'Устройство',   subject: name, note: payload.address || '', tone: 'success' }
+    case 'device.deleted':       return { verb: 'Устройство',   subject: name || 'удалено', note: '', tone: 'danger' }
+    case 'profile.created':      return { verb: 'Профиль',      subject: payload.name || '', note: `:${payload.port ?? ''}`, tone: 'success' }
+    case 'profile.deleted':      return { verb: 'Профиль',      subject: 'удалён', note: '', tone: 'danger' }
+    case 'profile.patched':      return { verb: 'Профиль',      subject: payload.name || 'изменён', note: '', tone: 'neutral' }
+    case 'profile.restart':      return { verb: 'Профиль',      subject: 'перезапущен', note: '', tone: 'warning' }
+    case 'subscriber.created':   return { verb: 'Клиент',       subject: payload.name || 'создан', note: '', tone: 'success' }
+    case 'subscriber.patched':   return { verb: 'Клиент',       subject: payload.name || 'изменён', note: '', tone: 'neutral' }
+    case 'subscriber.deleted':   return { verb: 'Клиент',       subject: payload.name || 'удалён', note: `${payload.devices ?? 0} устр.`, tone: 'danger' }
+    case 'subscriber.regen_token': return { verb: 'Клиент',     subject: payload.name || '', note: 'новый токен', tone: 'warning' }
     case 'server.reset_clients': return { verb: 'Сервер', subject: 'удалены все клиенты',  note: `${payload.removed ?? 0}`, tone: 'danger' }
     case 'server.factory_reset': return { verb: 'Сервер', subject: 'заводской сброс',  note: '', tone: 'danger' }
     default: return { verb: e.kind, subject: name, note: '', tone: 'neutral' }

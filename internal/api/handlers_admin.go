@@ -178,6 +178,7 @@ func (a *AdminHandlers) factoryReset(w http.ResponseWriter, r *http.Request) {
 func (a *AdminHandlers) importClient(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name         string `json:"name"`
+		SubscriberID string `json:"subscriberId"`
 		ProfileID    string `json:"profileId"`
 		PublicKey    string `json:"publicKey"`
 		PrivateKey   string `json:"privateKey"`
@@ -190,7 +191,8 @@ func (a *AdminHandlers) importClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, err := a.Mgr.ImportClient(awg.ImportArgs{
-		Name: in.Name, ProfileID: in.ProfileID, PublicKey: in.PublicKey, PrivateKey: in.PrivateKey,
+		Name: in.Name, SubscriberID: in.SubscriberID, ProfileID: in.ProfileID,
+		PublicKey: in.PublicKey, PrivateKey: in.PrivateKey,
 		PreSharedKey: in.PreSharedKey, Address: in.Address, Notes: in.Notes,
 	})
 	if err != nil {

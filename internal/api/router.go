@@ -62,17 +62,26 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 		r.Get("/session", h.sessionGet)
 		r.Post("/session", h.sessionPost)
 
-		// Public onboarding — invite link is the authentication. No middleware
-		// applied so an unauthenticated browser can redeem and download.
-		r.Get("/onboard/{token}", h.onboardStatus)
-		r.Post("/onboard/{token}", h.onboardRedeem)
+		// Public cabinet — access token in URL is the authentication. The
+		// subscriber sees their own devices and can add/remove without
+		// admin involvement.
+		r.Route("/cabinet/{token}", func(r chi.Router) {
+			r.Get("/", h.cabinetGet)
+			r.Post("/devices", h.cabinetAddDevice)
+			r.Delete("/devices/{devId}", h.cabinetDeviceDelete)
+			r.Get("/devices/{devId}/configuration", h.cabinetDeviceConfig)
+			r.Get("/devices/{devId}/qrcode.svg", h.cabinetDeviceQR)
+		})
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware)
-			r.Route("/onboard-tokens", func(r chi.Router) {
-				r.Get("/", h.tokenList)
-				r.Post("/", h.tokenCreate)
-				r.Delete("/{id}", h.tokenRevoke)
+			r.Route("/subscribers", func(r chi.Router) {
+				r.Get("/", h.subscribersList)
+				r.Post("/", h.subscriberCreate)
+				r.Get("/{id}", h.subscriberGet)
+				r.Patch("/{id}", h.subscriberPatch)
+				r.Delete("/{id}", h.subscriberDelete)
+				r.Post("/{id}/regenerate-token", h.subscriberRegenToken)
 			})
 			r.Delete("/session", h.sessionDelete)
 			r.Get("/backup", admin.backup)
@@ -94,14 +103,12 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 
 			r.Route("/wireguard/client", func(r chi.Router) {
 				r.Get("/", h.clientsList)
-				r.Post("/", h.clientCreate)
 				r.Post("/import", admin.importClient)
 				r.Delete("/{id}", h.clientDelete)
 				r.Post("/{id}/enable", h.clientEnable)
 				r.Post("/{id}/disable", h.clientDisable)
 				r.Put("/{id}/name", h.clientRename)
 				r.Put("/{id}/address", h.clientAddress)
-				r.Patch("/{id}/profile", h.clientMove)
 				r.Get("/{id}/configuration", h.clientConfig)
 				r.Get("/{id}/qrcode.svg", h.clientQR)
 				if stats != nil {
