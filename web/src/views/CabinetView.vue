@@ -15,6 +15,7 @@ import type { CabinetView, CabinetDevice, AddDeviceResult } from '@/types'
 import { genCfg } from '@/utils/generator'
 import Button from '@/components/atoms/Button.vue'
 import Badge from '@/components/atoms/Badge.vue'
+import QrCarousel from '@/components/molecules/QrCarousel.vue'
 
 const route = useRoute()
 const token  = computed(() => String(route.params.token || ''))
@@ -305,25 +306,28 @@ const qrDeviceName = computed(() =>
 
     <!-- ─── Ready ───────────────────────────────────────────────────── -->
     <template v-else-if="cabinet">
-      <div class="relative max-w-md mx-auto px-5 pt-14 pb-24">
-
-        <!-- Theme toggle — top right -->
-        <div class="absolute top-4 right-5">
-          <button
-            class="h-9 w-9 flex items-center justify-center rounded-xl text-ink-500 hover:text-ink-900 hover:bg-ink-100 dark:hover:bg-ink-100/60 dark:hover:text-ink-900 transition-colors"
-            :title="isDark ? 'Светлая тема' : 'Тёмная тема'"
-            @click="toggleTheme">
-            <Sun v-if="isDark" :size="18" />
-            <Moon v-else :size="18" />
-          </button>
-        </div>
+      <div class="relative max-w-md mx-auto px-5 pt-8 pb-24">
 
         <!-- ── Header ── -->
-        <header class="mb-10 animate-rise text-center">
-          <div class="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.20em] text-ink-400 font-semibold mb-6">
-            <Shield :size="11" class="shrink-0" />
-            <span>Личный кабинет · AmneziaVPN</span>
+        <header class="mb-10 animate-rise">
+          <!-- Top row: brand on left, theme toggle on right. Replaces the
+               floating absolute toggle that previously had no anchor. -->
+          <div class="flex items-center justify-between mb-8">
+            <div class="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.20em] text-ink-400 font-semibold">
+              <Shield :size="11" class="shrink-0" />
+              <span>AmneziaVPN · Личный кабинет</span>
+            </div>
+            <button
+              class="h-9 w-9 flex items-center justify-center rounded-xl text-ink-500 hover:text-ink-900 hover:bg-ink-100 dark:hover:bg-ink-100/60 dark:hover:text-ink-900 transition-colors"
+              :title="isDark ? 'Светлая тема' : 'Тёмная тема'"
+              :aria-label="isDark ? 'Включить светлую тему' : 'Включить тёмную тему'"
+              @click="toggleTheme">
+              <Sun v-if="isDark" :size="18" />
+              <Moon v-else :size="18" />
+            </button>
           </div>
+
+          <div class="text-center">
 
           <h1 class="text-[56px] sm:text-[64px] font-bold tracking-tight leading-none text-ink-900 mb-5">
             {{ cabinet.name }}
@@ -346,6 +350,7 @@ const qrDeviceName = computed(() =>
               class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-ink-100 dark:bg-ink-200/60 text-[12px] text-ink-500 dark:text-ink-600">
               нет подключений
             </span>
+          </div>
           </div>
         </header>
 
@@ -733,15 +738,19 @@ const qrDeviceName = computed(() =>
                 </button>
               </div>
 
-              <!-- Amnezia QR hero -->
+              <!--
+                Amnezia QR hero — chunked carousel.
+                The legacy single-PNG endpoint produced un-scannable QRs once
+                the obfuscated payload exceeded ~3KB; we reuse the same
+                chunked carousel that the device-card fullscreen viewer uses.
+              -->
               <div class="flex flex-col items-center gap-3 py-1">
-                <div class="p-4 bg-white rounded-3xl border border-ink-100 shadow-sm inline-block">
-                  <img
-                    :src="amneziaQr(justAdded.deviceId)"
-                    alt="AmneziaVPN QR"
-                    class="block w-[220px] h-[220px] sm:w-[252px] sm:h-[252px]"
-                    style="image-rendering: pixelated" />
-                </div>
+                <QrCarousel
+                  :token="token"
+                  :device-id="justAdded.deviceId"
+                  :device-name="justAdded.name"
+                  :size="240"
+                />
                 <div class="text-center">
                   <p class="text-[12.5px] font-semibold text-ink-700 dark:text-ink-600">Отсканируйте в приложении AmneziaVPN</p>
                   <p class="text-[11px] text-ink-500 mt-0.5">Android · iOS · Windows · macOS · Linux</p>

@@ -187,9 +187,6 @@ async function doRegen() {
             <template v-if="subs.items.length"> · {{ filteredSubs.length }}<span v-if="search">/{{ subs.items.length }}</span></template>
           </h2>
           <div class="hairline flex-1" />
-          <Button variant="ghost" size="sm" @click="openCreate">
-            <Icon name="plus" :size="13" /> Добавить
-          </Button>
         </div>
 
         <!-- Search — visible only when there's something worth filtering -->

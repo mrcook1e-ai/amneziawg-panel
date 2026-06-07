@@ -228,16 +228,24 @@ async function doRegen() {
                 @blur="commitRename"
               />
 
-              <!-- Notes — click to edit -->
+              <!-- Notes — click anywhere on the text to edit; explicit button only when empty. -->
               <div v-if="!editingNotes" class="flex items-baseline gap-2 flex-wrap">
-                <p v-if="sub.notes" class="text-[13.5px] text-ink-500">{{ sub.notes }}</p>
                 <button
+                  v-if="sub.notes"
+                  type="button"
+                  class="text-left text-[13.5px] text-ink-500 hover:text-ink-900 underline decoration-dotted decoration-ink-300 underline-offset-4 transition-colors"
+                  :aria-label="`Изменить заметку: ${sub.notes}`"
+                  :title="'Нажмите, чтобы изменить'"
+                  @click="startEditNotes"
+                >{{ sub.notes }}</button>
+                <button
+                  v-else
                   type="button"
                   class="eyebrow text-ink-400 hover:text-ink-900 transition-colors"
-                  :aria-label="sub.notes ? 'Изменить заметку' : 'Добавить заметку'"
+                  aria-label="Добавить заметку"
                   @click="startEditNotes"
                 >
-                  <Icon name="edit" :size="12" /> {{ sub.notes ? 'изменить заметку' : 'добавить заметку' }}
+                  <Icon name="edit" :size="12" /> добавить заметку
                 </button>
               </div>
               <Input
