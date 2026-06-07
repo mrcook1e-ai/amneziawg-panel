@@ -47,8 +47,18 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 		r.Get("/session", h.sessionGet)
 		r.Post("/session", h.sessionPost)
 
+		// Public onboarding — invite link is the authentication. No middleware
+		// applied so an unauthenticated browser can redeem and download.
+		r.Get("/onboard/{token}", h.onboardStatus)
+		r.Post("/onboard/{token}", h.onboardRedeem)
+
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware)
+			r.Route("/onboard-tokens", func(r chi.Router) {
+				r.Get("/", h.tokenList)
+				r.Post("/", h.tokenCreate)
+				r.Delete("/{id}", h.tokenRevoke)
+			})
 			r.Delete("/session", h.sessionDelete)
 			r.Get("/backup", admin.backup)
 			r.Post("/restore", admin.restore)

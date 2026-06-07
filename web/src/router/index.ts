@@ -5,6 +5,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login',    name: 'login',    component: () => import('@/views/LoginView.vue'), meta: { public: true } },
+    { path: '/onboard/:token', name: 'onboard', component: () => import('@/views/OnboardView.vue'), meta: { public: true } },
     { path: '/',         name: 'clients',  component: () => import('@/views/ClientsView.vue') },
     { path: '/clients/:id', name: 'client', component: () => import('@/views/ClientDetailView.vue') },
     { path: '/settings', name: 'settings', component: () => import('@/views/SettingsView.vue') },

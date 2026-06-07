@@ -29,6 +29,7 @@ type Manager struct {
 	mu       sync.Mutex
 	profiles map[string]*profileState
 	clients  map[string]*Client
+	tokens   map[string]*OnboardToken
 
 	emit func(kind, id string, payload any)
 }
@@ -62,6 +63,7 @@ func NewManager(cfg config.Config) (*Manager, error) {
 		portIPAM: pipam,
 		profiles: map[string]*profileState{},
 		clients:  map[string]*Client{},
+		tokens:   map[string]*OnboardToken{},
 	}, nil
 }
 
@@ -78,9 +80,14 @@ func (m *Manager) Start() error {
 		return err
 	}
 	if c == nil {
-		// Fresh install: no auto-bootstrap. The admin must create the first
-		// profile via POST /api/profiles with an obfuscation snippet.
-		c = &Config{SchemaVersion: SchemaVersion, Profiles: map[string]*Profile{}, Clients: map[string]*Client{}}
+		// Fresh install: no auto-bootstrap. The admin issues invites; clients
+		// self-configure via /onboard/<token>.
+		c = &Config{
+			SchemaVersion: SchemaVersion,
+			Profiles:      map[string]*Profile{},
+			Clients:       map[string]*Client{},
+			Tokens:        map[string]*OnboardToken{},
+		}
 	}
 	m.hydrate(c)
 
@@ -162,6 +169,9 @@ func (m *Manager) hydrate(c *Config) {
 	for id, cl := range c.Clients {
 		m.clients[id] = cl
 	}
+	for id, t := range c.Tokens {
+		m.tokens[id] = t
+	}
 }
 
 func (m *Manager) dumpStateLocked() *Config {
@@ -173,7 +183,11 @@ func (m *Manager) dumpStateLocked() *Config {
 	for id, c := range m.clients {
 		clients[id] = c
 	}
-	return &Config{SchemaVersion: SchemaVersion, Profiles: profiles, Clients: clients}
+	tokens := make(map[string]*OnboardToken, len(m.tokens))
+	for id, t := range m.tokens {
+		tokens[id] = t
+	}
+	return &Config{SchemaVersion: SchemaVersion, Profiles: profiles, Clients: clients, Tokens: tokens}
 }
 
 func (m *Manager) subnetCIDR() string {
@@ -1029,6 +1043,7 @@ func (m *Manager) FactoryReset() error {
 	}
 	m.profiles = map[string]*profileState{}
 	m.clients = map[string]*Client{}
+	m.tokens = map[string]*OnboardToken{}
 
 	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
 		return err

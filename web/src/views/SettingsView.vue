@@ -5,6 +5,7 @@ import { useToastStore } from '@/stores/toasts'
 import { useClientsStore } from '@/stores/clients'
 import { useStatsStore } from '@/stores/stats'
 import { useProfilesStore } from '@/stores/profiles'
+import { useTokensStore } from '@/stores/tokens'
 import TopBar from '@/components/organisms/TopBar.vue'
 import Section from '@/components/molecules/Section.vue'
 import InfoRow from '@/components/molecules/InfoRow.vue'
@@ -13,6 +14,7 @@ import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import EventRow from '@/components/molecules/EventRow.vue'
 import ImportClientModal from '@/components/organisms/ImportClientModal.vue'
 import ProfileModal from '@/components/organisms/ProfileModal.vue'
+import InviteModal from '@/components/organisms/InviteModal.vue'
 import Button from '@/components/atoms/Button.vue'
 import Segmented from '@/components/atoms/Segmented.vue'
 import Icon from '@/components/atoms/Icon.vue'
@@ -31,6 +33,7 @@ const toasts = useToastStore()
 const clients = useClientsStore()
 const statsStore = useStatsStore()
 const profiles = useProfilesStore()
+const tokens = useTokensStore()
 
 const loading = ref(true)
 const busyAction = ref<{kind: string; profileId?: string} | null>(null)
@@ -47,6 +50,10 @@ const profileModalMode = ref<'create' | 'edit'>('create')
 const editingProfile = ref<ProfileInfo | null>(null)
 const profileModalBusy = ref(false)
 
+const inviteModalOpen = ref(false)
+const inviteModalBusy = ref(false)
+const revokeConfirm = ref<{ id: string; name: string } | null>(null)
+
 const restoreInput = ref<HTMLInputElement | null>(null)
 const restoreBusy = ref(false)
 const restoreConfirmFile = ref<File | null>(null)
@@ -55,7 +62,7 @@ async function load() {
   loading.value = true
   eventsLoading.value = true
   try {
-    await Promise.all([profiles.fetch(true), statsStore.fetch()])
+    await Promise.all([profiles.fetch(true), tokens.fetch(true), statsStore.fetch()])
   } catch (e: any) { toasts.error(e?.message || 'Ошибка загрузки') }
   finally { loading.value = false; eventsLoading.value = false }
 }
@@ -108,11 +115,6 @@ async function doConfirm() {
   }
 }
 
-function openCreateProfile() {
-  profileModalMode.value = 'create'
-  editingProfile.value = null
-  profileModalOpen.value = true
-}
 function openEditProfile(p: ProfileInfo) {
   profileModalMode.value = 'edit'
   editingProfile.value = p
@@ -126,6 +128,36 @@ async function onProfileSubmit(body: any) {
     profileModalOpen.value = false
   } catch { /* toast already shown */ }
   finally { profileModalBusy.value = false }
+}
+
+async function onInviteSubmit(body: { name: string; expiresIn: number }) {
+  inviteModalBusy.value = true
+  try {
+    const tok = await tokens.create(body)
+    inviteModalOpen.value = false
+    try {
+      await navigator.clipboard.writeText(tok.url)
+      toasts.success('Ссылка скопирована в буфер')
+    } catch { /* not all browsers */ }
+  } catch { /* toast already shown */ }
+  finally { inviteModalBusy.value = false }
+}
+
+async function copyInvite(url: string) {
+  try { await navigator.clipboard.writeText(url); toasts.success('Ссылка скопирована') }
+  catch { toasts.error('Не удалось скопировать') }
+}
+
+async function doRevoke() {
+  const r = revokeConfirm.value
+  if (!r) return
+  revokeConfirm.value = null
+  try { await tokens.revoke(r.id) } catch { /* toast shown */ }
+}
+
+function fmtDate(s?: string | null) {
+  if (!s) return '—'
+  try { return new Date(s).toLocaleString() } catch { return s }
 }
 
 async function onImport(body: Parameters<typeof api.importClient>[0]) {
@@ -191,7 +223,53 @@ async function doRestore() {
         </InfoRow>
       </Section>
 
-      <Section title="Профили подключения" footer="Каждый профиль — отдельный AmneziaWG-интерфейс на своём UDP-порту. Клиенты привязаны к одному профилю.">
+      <Section title="Инвайты" footer="Одноразовая ссылка для нового клиента. Открыв её, клиент вставляет свои параметры обфускации (из Architect) и получает .conf + QR. Сервер автоматически поднимает отдельный awgN-интерфейс.">
+        <template v-if="!tokens.items.length">
+          <div class="px-5 py-6 text-[12.5px] text-ink-500">
+            Инвайтов нет. Нажмите «Создать инвайт» и передайте ссылку клиенту.
+          </div>
+        </template>
+        <template v-else>
+          <div class="divide-y divide-ink-900/5">
+            <div v-for="t in tokens.items" :key="t.id" class="px-5 py-3 flex items-center gap-3 flex-wrap">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-baseline gap-2 flex-wrap">
+                  <span class="text-[13.5px] text-ink-900 font-medium">{{ t.name || '—' }}</span>
+                  <span
+                    class="text-[10px] uppercase tracking-[0.12em] px-1.5 py-0.5 rounded"
+                    :class="{
+                      'bg-success/10 text-success': t.status === 'pending',
+                      'bg-ink-900/5 text-ink-500': t.status === 'used',
+                      'bg-danger/10 text-danger': t.status === 'expired',
+                    }"
+                  >{{ t.status }}</span>
+                  <span class="mono text-[10.5px] text-ink-500">{{ t.id }}</span>
+                </div>
+                <div class="text-[11px] text-ink-500 mt-0.5">
+                  создан {{ fmtDate(t.createdAt) }}
+                  <template v-if="t.expiresAt"> · до {{ fmtDate(t.expiresAt) }}</template>
+                  <template v-if="t.usedAt"> · использован {{ fmtDate(t.usedAt) }}</template>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button v-if="t.status === 'pending'" size="sm" variant="ghost" @click="copyInvite(t.url)">
+                  <Icon name="copy" :size="13" /> Копировать ссылку
+                </Button>
+                <Button size="sm" variant="ghost" @click="revokeConfirm = { id: t.id, name: t.name }">
+                  <Icon name="trash" :size="13" /> Удалить
+                </Button>
+              </div>
+            </div>
+          </div>
+        </template>
+        <div class="p-4 border-t border-ink-900/5">
+          <Button size="sm" variant="primary" @click="inviteModalOpen = true">
+            <Icon name="plus" :size="14" /> Создать инвайт
+          </Button>
+        </div>
+      </Section>
+
+      <Section title="Профили подключения" footer="Каждый профиль — отдельный awgN-интерфейс на своём UDP-порту, привязанный к одному онбордённому клиенту.">
         <template v-if="loading">
           <div class="p-5 space-y-3">
             <Skeleton height="16" width="60%" />
@@ -200,9 +278,7 @@ async function doRestore() {
         </template>
         <template v-else>
           <div v-if="!profiles.items.length" class="px-5 py-6 text-[12.5px] text-ink-500 leading-relaxed">
-            Профилей нет. Создайте первый — обфускацию (Jc/J/S/H/I/Itime) сгенерируйте в
-            <a class="underline" target="_blank" rel="noopener" href="https://vadim-khristenko.github.io/AmneziaWG-Architect/">AmneziaWG-Architect</a>
-            и вставьте snippet в форме создания.
+            Профилей пока нет. Они появятся автоматически, когда клиенты используют инвайты.
           </div>
           <div class="divide-y divide-ink-900/5">
             <div v-for="p in profiles.items" :key="p.id" class="px-5 py-4 space-y-3">
@@ -267,11 +343,6 @@ async function doRestore() {
                 </Button>
               </div>
             </div>
-          </div>
-          <div class="p-4 border-t border-ink-900/5">
-            <Button size="sm" variant="primary" @click="openCreateProfile">
-              <Icon name="plus" :size="14" /> Добавить профиль
-            </Button>
           </div>
         </template>
       </Section>
@@ -368,6 +439,23 @@ async function doRestore() {
       :busy="profileModalBusy"
       @close="profileModalOpen = false"
       @submit="onProfileSubmit"
+    />
+
+    <InviteModal
+      :open="inviteModalOpen"
+      :busy="inviteModalBusy"
+      @close="inviteModalOpen = false"
+      @submit="onInviteSubmit"
+    />
+
+    <ConfirmDialog
+      :open="revokeConfirm !== null"
+      title="Отозвать инвайт?"
+      :message="`Ссылка «${revokeConfirm?.name ?? ''}» перестанет работать. Уже созданные клиенты этим не затронутся.`"
+      confirm-text="Отозвать"
+      tone="danger"
+      @cancel="revokeConfirm = null"
+      @confirm="doRevoke"
     />
   </div>
 </template>

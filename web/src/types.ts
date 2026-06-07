@@ -146,6 +146,34 @@ export type EventKind =
   | 'profile.restart'
   | 'server.reset_clients'
   | 'server.factory_reset'
+  | 'token.created'
+  | 'token.revoked'
+  | 'token.redeemed'
+
+export type TokenStatus = 'pending' | 'used' | 'expired'
+
+export interface OnboardToken {
+  id: string
+  token: string
+  name: string
+  createdAt: string
+  expiresAt?: string | null
+  usedAt?: string | null
+  status: TokenStatus
+  url: string
+  createdClientId?: string
+  createdProfileId?: string
+}
+
+export interface OnboardPublicStatus {
+  valid: boolean
+  used?: boolean
+}
+
+export interface OnboardRedeemResult {
+  conf: string
+  qrPng64: string
+}
 
 export interface AppEvent {
   id: number

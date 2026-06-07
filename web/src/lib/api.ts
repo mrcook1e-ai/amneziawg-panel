@@ -2,6 +2,7 @@ import type {
   Client, SessionState,
   Overview, Series, ClientStats, AppEvent, ClientPatch,
   ProfileInfo, ProfileCreateBody, ProfilePatchBody, CreateClientArgs,
+  OnboardToken, OnboardPublicStatus, OnboardRedeemResult,
 } from '@/types'
 
 export class ApiError extends Error {
@@ -76,6 +77,21 @@ export const api = {
   clientEvents:(id: string, limit = 30) =>
     request<AppEvent[] | null>(`/api/wireguard/client/${enc(id)}/events?limit=${limit}`),
   events: (limit = 30) => request<AppEvent[] | null>(`/api/events?limit=${limit}`),
+
+  // Onboarding (admin endpoints)
+  listTokens:  () => request<OnboardToken[]>('/api/onboard-tokens/'),
+  createToken: (body: { name: string; expiresIn: number }) =>
+    request<OnboardToken>('/api/onboard-tokens/', { method: 'POST', body: JSON.stringify(body) }),
+  revokeToken: (id: string) =>
+    request<{ success: boolean }>(`/api/onboard-tokens/${enc(id)}`, { method: 'DELETE' }),
+
+  // Onboarding (public — no auth, token in URL is the credential)
+  onboardStatus: (token: string) =>
+    request<OnboardPublicStatus>(`/api/onboard/${enc(token)}`),
+  onboardRedeem: (token: string, body: { snippet: string; clientName: string }) =>
+    request<OnboardRedeemResult>(`/api/onboard/${enc(token)}`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
 
   backupUrl: () => '/api/backup',
   importClient: (body: {

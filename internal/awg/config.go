@@ -41,9 +41,10 @@ type Client struct {
 const SchemaVersion = 3
 
 type Config struct {
-	SchemaVersion int                 `json:"schemaVersion"`
-	Profiles      map[string]*Profile `json:"profiles"`
-	Clients       map[string]*Client  `json:"clients"`
+	SchemaVersion int                       `json:"schemaVersion"`
+	Profiles      map[string]*Profile       `json:"profiles"`
+	Clients       map[string]*Client        `json:"clients"`
+	Tokens        map[string]*OnboardToken  `json:"tokens,omitempty"`
 }
 
 var profileTmpl = template.Must(template.New("profile").Parse(`# Managed by amneziawg-panel. Do not edit by hand.
