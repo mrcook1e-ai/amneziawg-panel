@@ -18,6 +18,7 @@ import Button from '@/components/atoms/Button.vue'
 import Badge from '@/components/atoms/Badge.vue'
 import IconButton from '@/components/atoms/IconButton.vue'
 import Input from '@/components/atoms/Input.vue'
+import StatusDot from '@/components/atoms/StatusDot.vue'
 import Modal from '@/components/molecules/Modal.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import QrCarousel from '@/components/molecules/QrCarousel.vue'
@@ -421,7 +422,7 @@ const qrDeviceName = computed(() =>
               {{ cabinet.devices.length === 1 ? 'устройство' : cabinet.devices.length < 5 ? 'устройства' : 'устройств' }}
             </Badge>
             <Badge v-if="onlineCount > 0" tone="success">
-              <span class="live-dot scale-75 shrink-0" />
+              <StatusDot state="online" size="sm" />
               {{ onlineCount }} онлайн
             </Badge>
             <Badge v-else-if="cabinet.devices.length > 0" tone="neutral">
@@ -500,17 +501,28 @@ const qrDeviceName = computed(() =>
                   </div>
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <span class="mono text-[11px] text-ink-500 bg-ink-100 dark:bg-ink-200/50 px-1.5 py-0.5 rounded-md leading-tight">{{ d.address }}</span>
-                    <span class="text-ink-300 text-[9px] select-none">·</span>
-                    <span
-                      class="text-[11.5px]"
-                      :class="{
-                        'text-success font-medium': devStatus(d) === 'online',
-                        'text-warning font-medium': devStatus(d) === 'recent',
-                        'text-ink-500':             devStatus(d) === 'away' || devStatus(d) === 'never',
-                      }">
-                      <template v-if="devStatus(d) === 'online'">онлайн</template>
-                      <template v-else>{{ relTime(d.latestHandshakeAt) }}</template>
-                    </span>
+                    <!--
+                      Online state gets a chip-shaped backplate (Badge atom) so the
+                      live indicator visually anchors itself instead of floating as
+                      bare text. Other states stay as plain captions — they don't
+                      need to be highlighted.
+                    -->
+                    <Badge
+                      v-if="devStatus(d) === 'online'"
+                      tone="success"
+                      size="xs"
+                      class="shrink-0">
+                      <StatusDot state="online" size="sm" />
+                      онлайн
+                    </Badge>
+                    <template v-else>
+                      <span class="text-ink-300 text-[9px] select-none">·</span>
+                      <span
+                        class="text-[11.5px]"
+                        :class="devStatus(d) === 'recent' ? 'text-warning font-medium' : 'text-ink-500'">
+                        {{ relTime(d.latestHandshakeAt) }}
+                      </span>
+                    </template>
                   </div>
                 </div>
               </div>

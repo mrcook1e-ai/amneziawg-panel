@@ -11,14 +11,22 @@ withDefaults(defineProps<{
 </script>
 
 <template>
-  <button
-    type="button"
-    role="menuitem"
-    :disabled="disabled"
-    class="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-    :class="tone === 'danger'
-      ? 'text-danger hover:bg-danger/10'
-      : 'text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50'">
-    <slot />
-  </button>
+  <!--
+    Tight rows (h-9 ≈ 36px) — matches the iOS/macOS context-menu cadence.
+    Items get an inner 4px gutter so the hover-fill doesn't touch the
+    panel edges (matches the elevated card aesthetic — content sits ON
+    the surface, not flush to its border).
+  -->
+  <div class="px-1">
+    <button
+      type="button"
+      role="menuitem"
+      :disabled="disabled"
+      class="w-full flex items-center gap-2.5 px-3 h-9 rounded-xl text-[13px] text-left transition-colors duration-100 disabled:opacity-50 disabled:cursor-not-allowed"
+      :class="tone === 'danger'
+        ? 'text-danger hover:bg-danger/10 active:bg-danger/15'
+        : 'text-ink-800 hover:bg-ink-100 dark:hover:bg-ink-200/50 active:bg-ink-200'">
+      <slot />
+    </button>
+  </div>
 </template>

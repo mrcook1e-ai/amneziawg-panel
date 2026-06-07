@@ -21,6 +21,7 @@ import Input from '@/components/atoms/Input.vue'
 import Badge from '@/components/atoms/Badge.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
+import StatusDot from '@/components/atoms/StatusDot.vue'
 import Icon from '@/components/atoms/Icon.vue'
 import StatBlock from '@/components/molecules/StatBlock.vue'
 import Sparkline from '@/components/molecules/Sparkline.vue'
@@ -202,7 +203,7 @@ async function doRegen() {
                 <template v-if="onlineCount > 0">
                   <span class="text-ink-300">·</span>
                   <span class="flex items-center gap-1 text-success">
-                    <span class="w-1.5 h-1.5 rounded-full bg-success inline-block animate-pulse" />
+                    <StatusDot state="online" size="sm" />
                     {{ onlineCount }} онлайн
                   </span>
                 </template>
@@ -353,15 +354,10 @@ async function doRegen() {
             :key="d.id"
             class="px-5 py-4 flex items-center gap-3 group"
           >
-            <!-- Status dot -->
-            <span
-              class="w-2 h-2 rounded-full shrink-0 mt-0.5"
-              :class="{
-                'bg-success animate-pulse': freshnessOf(d.id) === 'online',
-                'bg-warning':              freshnessOf(d.id) === 'stale',
-                'bg-ink-300':              freshnessOf(d.id) === 'offline',
-              }"
-            />
+            <!-- Status dot — shared atom -->
+            <span class="shrink-0 mt-0.5">
+              <StatusDot :state="freshnessOf(d.id)" size="md" />
+            </span>
 
             <!-- Info — navigates to device detail -->
             <router-link

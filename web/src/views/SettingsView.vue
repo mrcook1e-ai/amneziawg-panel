@@ -203,58 +203,6 @@ async function doRestore() {
         </InfoRow>
       </Section>
 
-      <Section
-        title="Профили подключения"
-        footer="Профиль — отдельный AmneziaWG 2.0 интерфейс на своём UDP-порту. Параметры обфускации задаются [Interface]-блоком из внешнего генератора. Перезапуск нужен после смены snippet — клиенты переподключатся.">
-        <div v-if="profiles.loading && !profiles.items.length" class="p-8 grid place-items-center">
-          <Skeleton width="60%" height="14" />
-        </div>
-        <template v-else-if="profiles.items.length">
-          <div
-            v-for="(p, i) in profiles.items" :key="p.id"
-            :class="['px-4 py-4 flex items-start gap-4', i < profiles.items.length - 1 && 'border-b border-ink-900/5']"
-          >
-            <div class="flex-1 min-w-0 space-y-1.5">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-[14.5px] font-semibold text-ink-900 truncate">{{ p.name }}</span>
-                <Badge v-if="p.hasMimicry" tone="warning" size="xs">мимикрия</Badge>
-                <Badge tone="neutral" size="xs">{{ p.clientCount }} {{ p.clientCount === 1 ? 'клиент' : p.clientCount < 5 ? 'клиента' : 'клиентов' }}</Badge>
-              </div>
-              <div class="flex items-center gap-2 text-[11.5px] text-ink-500 flex-wrap">
-                <span class="mono">{{ p.iface }} · :{{ p.port }}</span>
-                <span v-if="p.description" class="text-ink-400">·</span>
-                <span v-if="p.description" class="truncate">{{ p.description }}</span>
-              </div>
-            </div>
-            <div class="flex items-center gap-1 shrink-0">
-              <Button size="sm" variant="ghost" :title="`Перезапустить ${p.iface}`" @click="profileRestartFor = p">
-                <Icon name="refresh" :size="14" />
-              </Button>
-              <Button size="sm" variant="ghost" :title="`Изменить ${p.name}`" @click="openEditProfile(p)">
-                <Icon name="edit" :size="14" />
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                class="hover:!bg-danger/10 hover:!text-danger"
-                :title="`Удалить ${p.name}`"
-                :disabled="p.clientCount > 0"
-                @click="profileDelFor = p">
-                <Icon name="trash" :size="14" />
-              </Button>
-            </div>
-          </div>
-        </template>
-        <div v-else class="p-8 text-center text-[12.5px] text-ink-500">
-          Профилей нет — создайте первый.
-        </div>
-        <div class="px-4 py-3 flex items-center justify-end border-t border-ink-900/5">
-          <Button size="sm" variant="primary" @click="openCreateProfile">
-            <Icon name="plus" :size="14" /> Новый профиль
-          </Button>
-        </div>
-      </Section>
-
       <Section title="Восстановление клиента" footer="Если у клиента уже есть готовый .conf и нужно вернуть его в панель — импортируйте по публичному ключу. Профиль и интерфейс будут созданы автоматически, как при онбординге через ссылку.">
         <InfoRow label="Импорт по публичному ключу">
           <Button size="sm" @click="importOpen = true">

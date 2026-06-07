@@ -30,6 +30,7 @@ import DownloadActions from '@/components/molecules/DownloadActions.vue'
 import Button from '@/components/atoms/Button.vue'
 import Select from '@/components/atoms/Select.vue'
 import Switch from '@/components/atoms/Switch.vue'
+import StatusDot from '@/components/atoms/StatusDot.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
 import Skeleton from '@/components/atoms/Skeleton.vue'
 import Icon from '@/components/atoms/Icon.vue'
@@ -228,7 +229,10 @@ async function confirmDelete() {
             <span>ID · {{ client.id.slice(0, 8) }}</span>
             <span class="text-ink-300">·</span>
             <span class="inline-flex items-center gap-1.5" :class="stateAccent">
-              <span class="inline-block h-1.5 w-1.5 rounded-full" :class="stateDot" />
+              <StatusDot
+                :state="stateKind === 'online' ? 'online' : stateKind === 'stale' ? 'stale' : 'offline'"
+                size="sm"
+              />
               {{ stateText }}
             </span>
           </div>
@@ -296,10 +300,7 @@ async function confirmDelete() {
             <div class="eyebrow">Трафик за 24 часа</div>
             <div class="hairline flex-1" />
             <div class="text-[11px] mono tnum flex items-center gap-1.5">
-              <span
-                v-if="live > 1024"
-                class="inline-block h-1.5 w-1.5 rounded-full bg-success animate-pulse"
-              />
+              <StatusDot v-if="live > 1024" state="online" size="sm" />
               <span :class="live > 1024 ? 'text-success' : 'text-ink-500'">
                 {{ live > 1024 ? bytes(live) + '/с' : 'нет активности' }}
               </span>

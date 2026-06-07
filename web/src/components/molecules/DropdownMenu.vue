@@ -71,7 +71,13 @@ defineExpose({ open: isOpen, close, toggle })
         v-if="isOpen"
         role="menu"
         :class="[
-          'absolute top-full mt-2 z-30 rounded-2xl bg-surface-raised shadow-pop py-1.5',
+          // Same surface language as cards: bg-surface-raised + shadow-pop.
+          // Adds a 1px hairline-equivalent ring so the panel has a defined
+          // edge on bright surfaces where shadow alone reads as ambient.
+          // py-1 for tight stack (less vertical waste than py-1.5).
+          'absolute top-full mt-2 z-30 py-1',
+          'rounded-2xl bg-surface-raised shadow-pop',
+          'ring-1 ring-ink-900/[0.06] dark:ring-ink-900/20',
           align === 'right' ? 'right-0 origin-top-right' : 'left-0 origin-top-left',
           width,
         ]">
