@@ -677,7 +677,7 @@ const qrDeviceName = computed(() =>
                 </label>
                 <input
                   v-model="customName"
-                  class="w-full h-12 px-4 rounded-2xl bg-ink-100 text-[14px] text-ink-900 placeholder:text-ink-400 outline-none transition-[background-color,box-shadow] duration-150 focus:bg-ink-50 focus:shadow-[inset_2px_0_0_0_theme(colors.amber.400)]"
+                  class="w-full h-12 px-4 rounded-2xl bg-ink-100 text-[14px] text-ink-900 placeholder:text-ink-400 outline-none transition-colors duration-150 focus:bg-amber-50 dark:focus:bg-amber-400/10"
                   :placeholder="defaultName[pickedTemplate]"
                   @keydown.enter="createDevice" />
               </div>

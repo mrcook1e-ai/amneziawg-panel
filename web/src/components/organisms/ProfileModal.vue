@@ -111,7 +111,7 @@ function submit() {
         <textarea
           v-model="snippet"
           rows="12"
-          class="w-full p-3.5 rounded-2xl bg-ink-100 text-[11.5px] mono leading-snug outline-none transition-[background-color,box-shadow] duration-150 focus:bg-ink-50 focus:shadow-[inset_2px_0_0_0_theme(colors.amber.400)]"
+          class="w-full p-3.5 rounded-2xl bg-ink-100 text-[11.5px] mono leading-snug outline-none transition-colors duration-150 focus:bg-amber-50 dark:focus:bg-amber-400/10"
           :placeholder="`[Interface]\nJc = 4\nJmin = 362\nJmax = 943\nS1 = 43\nS2 = 65\nS3 = 35\nS4 = 28\nH1 = 320858491-320865164\nH2 = 1445464973-1445512660\nH3 = 3235131120-3235164350\nH4 = 3875042355-3875063814\nItime = 60\nI1 = <b 0x...><r 28><t><rc 12>`"
         />
       </Field>

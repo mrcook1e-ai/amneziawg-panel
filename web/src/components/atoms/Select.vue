@@ -16,14 +16,13 @@ const props = withDefaults(defineProps<{
 
 defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 
-// Same focus language as Input — amber inset bar on the left, no border.
+// Same focus language as Input — the whole field tints warm amber on focus.
 const cls = computed(() => [
   'block w-full bg-ink-100 text-ink-900 rounded-2xl border-0 outline-none appearance-none pr-9',
-  'transition-[background-color,box-shadow] duration-150',
-  'focus:bg-ink-50',
-  'focus:shadow-[inset_2px_0_0_0_theme(colors.amber.400)]',
+  'transition-colors duration-150',
+  'focus:bg-amber-50 dark:focus:bg-amber-400/10',
   props.size === 'sm' ? 'h-9 pl-3.5 text-[13.5px]' : 'h-11 pl-4 text-[15px]',
-  props.invalid && 'shadow-[inset_2px_0_0_0_theme(colors.danger.DEFAULT)]',
+  props.invalid && 'bg-danger/10 text-danger',
   props.disabled && 'opacity-50 cursor-not-allowed',
 ])
 </script>
