@@ -36,6 +36,17 @@ type cabinetAddDeviceBody struct {
 
 func (h *Handlers) cabinetAddDevice(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
+	// Per-token throttle: even if a token leaks, an attacker can't drain the
+	// port pool (10 ifaces) or hammer the key generator. Falls back to per-IP
+	// when token is empty (router won't route empty, but defensive).
+	rlKey := token
+	if rlKey == "" {
+		rlKey = clientIP(r)
+	}
+	if !h.cabinetLimiter().allow(rlKey) {
+		writeJSON(w, 429, map[string]string{"error": "Too many device creations — try again in a minute"})
+		return
+	}
 	var in cabinetAddDeviceBody
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})

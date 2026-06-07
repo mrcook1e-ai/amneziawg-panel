@@ -13,17 +13,25 @@ import (
 )
 
 type Handlers struct {
-	Mgr     *awg.Manager
-	Auth    *Auth
-	Lang    string
-	limiter *loginLimiter
+	Mgr      *awg.Manager
+	Auth     *Auth
+	Lang     string
+	limiter  *bucketLimiter
+	cabLimit *bucketLimiter
 }
 
-func (h *Handlers) loginLimiter() *loginLimiter {
+func (h *Handlers) loginLimiter() *bucketLimiter {
 	if h.limiter == nil {
 		h.limiter = newLoginLimiter()
 	}
 	return h.limiter
+}
+
+func (h *Handlers) cabinetLimiter() *bucketLimiter {
+	if h.cabLimit == nil {
+		h.cabLimit = newCabinetLimiter()
+	}
+	return h.cabLimit
 }
 
 func (h *Handlers) healthz(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +117,10 @@ func (h *Handlers) clientRename(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name string `json:"name"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&in)
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON body"})
+		return
+	}
 	if err := h.Mgr.Rename(chi.URLParam(r, "id"), in.Name); err != nil {
 		writeErr(w, err)
 		return
@@ -121,7 +132,10 @@ func (h *Handlers) clientAddress(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Address string `json:"address"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&in)
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON body"})
+		return
+	}
 	if err := h.Mgr.SetAddress(chi.URLParam(r, "id"), in.Address); err != nil {
 		writeErr(w, err)
 		return
@@ -188,12 +202,8 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 func writeErr(w http.ResponseWriter, err error) {
-	if awg.IsNotFound(err) {
+	if awg.IsNotFound(err) || awg.IsSubscriberNotFound(err) {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
-		return
-	}
-	if awg.IsProfileHasClients(err) {
-		writeJSON(w, 409, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, 500, map[string]string{"error": err.Error()})

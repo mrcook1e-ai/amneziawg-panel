@@ -2,6 +2,7 @@ package awg
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -11,6 +12,17 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// tokenEqual compares two access tokens in constant time to avoid leaking
+// length-prefix matches via response timing. Length mismatch is checked first
+// (cheap) since equal-length is the only case where ConstantTimeCompare makes
+// sense.
+func tokenEqual(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
 
 // Subscriber is the human-level account: one named person who may own many
 // VPN devices (each device = one Client + one Profile = one awgN interface,
@@ -229,7 +241,7 @@ func (m *Manager) FindSubscriberByToken(token string) (*Subscriber, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, s := range m.subscribers {
-		if s.AccessToken == token {
+		if tokenEqual(s.AccessToken, token) {
 			cp := *s
 			return &cp, nil
 		}
@@ -243,7 +255,7 @@ func (m *Manager) CabinetSnapshot(token string) (CabinetView, error) {
 	m.mu.Lock()
 	var subID, subName string
 	for _, s := range m.subscribers {
-		if s.AccessToken == token {
+		if tokenEqual(s.AccessToken, token) {
 			subID = s.ID
 			subName = s.Name
 			break
@@ -372,7 +384,12 @@ func (m *Manager) AddDevice(subscriberID, deviceName string, spec ObfuscationSpe
 
 	conf, err := RenderClient(m.renderArgs(p, c))
 	if err != nil {
-		return nil, nil, err
+		_ = ps.runner.Down()
+		_ = m.store.RemoveProfileConf(p.Iface)
+		delete(m.clients, c.ID)
+		delete(m.profiles, p.ID)
+		_ = m.persistAllLocked()
+		return nil, nil, fmt.Errorf("render client: %w", err)
 	}
 
 	m.fire("device.created", c.ID, map[string]string{

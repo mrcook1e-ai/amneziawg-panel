@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 	"sync"
@@ -27,11 +28,13 @@ func NewAuth(password string) *Auth {
 func (a *Auth) Required() bool { return a.password != "" }
 
 func (a *Auth) Login(password string) (string, bool) {
-	if a.password == "" || password != a.password {
+	if a.password == "" || subtle.ConstantTimeCompare([]byte(password), []byte(a.password)) != 1 {
 		return "", false
 	}
 	b := make([]byte, 32)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", false
+	}
 	tok := hex.EncodeToString(b)
 	a.mu.Lock()
 	a.sess[tok] = session{expires: time.Now().Add(7 * 24 * time.Hour)}

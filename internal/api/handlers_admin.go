@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mrcook1e/amneziawg-panel/internal/awg"
@@ -90,7 +91,7 @@ func (a *AdminHandlers) backup(w http.ResponseWriter, r *http.Request) {
 // rename), then the manager is reloaded.
 func (a *AdminHandlers) restore(w http.ResponseWriter, r *http.Request) {
 	var src io.Reader = r.Body
-	if r.Header.Get("Content-Type") != "" && r.MultipartForm == nil {
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
 		if err := r.ParseMultipartForm(32 << 20); err == nil {
 			if f, _, err := r.FormFile("file"); err == nil {
 				defer f.Close()
