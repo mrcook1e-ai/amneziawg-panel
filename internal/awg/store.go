@@ -3,10 +3,16 @@ package awg
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 )
+
+// ErrSchemaTooOld is returned by Load when state.json predates the AWG 2.0-only
+// schema (v3). There is no in-place migration: the operator must wipe state.json
+// (and the rendered awgN.conf files alongside it) and recreate profiles.
+var ErrSchemaTooOld = errors.New("state.json schema is older than v3 — wipe state and recreate profiles")
 
 const StateFile = "state.json"
 
@@ -42,6 +48,9 @@ func (s *Store) Load() (*Config, error) {
 	c := &Config{}
 	if err := json.Unmarshal(b, c); err != nil {
 		return nil, err
+	}
+	if c.SchemaVersion != 0 && c.SchemaVersion < SchemaVersion {
+		return nil, fmt.Errorf("%w (found v%d, need v%d)", ErrSchemaTooOld, c.SchemaVersion, SchemaVersion)
 	}
 	if c.Profiles == nil {
 		c.Profiles = map[string]*Profile{}

@@ -25,12 +25,20 @@ type Client struct {
 	AllowedIPsOverride string `json:"allowedIPsOverride,omitempty"`
 	MTUOverride        int    `json:"mtuOverride,omitempty"`
 
+	// Per-client Itime override. nil = inherit profile's Itime. Set to a
+	// pointer (not int) so 0 ("disable CPS for this client", typically for
+	// Windows) is distinguishable from "not set".
+	ItimeOverride *int `json:"itimeOverride,omitempty"`
+
 	TotalRx         uint64     `json:"totalRx,omitempty"`
 	TotalTx         uint64     `json:"totalTx,omitempty"`
 	LastHandshakeAt *time.Time `json:"lastHandshakeAt,omitempty"`
 }
 
-const SchemaVersion = 2
+// SchemaVersion = 3 marks the AWG 2.0-only format: H ranges (not single ints),
+// mandatory S3/S4/Itime, optional J1-J3. Stores with SchemaVersion < 3 are
+// refused (no in-place migration — wipe state.json and start fresh).
+const SchemaVersion = 3
 
 type Config struct {
 	SchemaVersion int                 `json:"schemaVersion"`
@@ -51,15 +59,21 @@ Jmin = {{.Profile.Jmin}}
 Jmax = {{.Profile.Jmax}}
 S1 = {{.Profile.S1}}
 S2 = {{.Profile.S2}}
+S3 = {{.Profile.S3}}
+S4 = {{.Profile.S4}}
 H1 = {{.Profile.H1}}
 H2 = {{.Profile.H2}}
 H3 = {{.Profile.H3}}
 H4 = {{.Profile.H4}}
+Itime = {{.Profile.Itime}}
 {{if .Profile.I1}}I1 = {{.Profile.I1}}
 {{end}}{{if .Profile.I2}}I2 = {{.Profile.I2}}
 {{end}}{{if .Profile.I3}}I3 = {{.Profile.I3}}
 {{end}}{{if .Profile.I4}}I4 = {{.Profile.I4}}
 {{end}}{{if .Profile.I5}}I5 = {{.Profile.I5}}
+{{end}}{{if .Profile.J1}}J1 = {{.Profile.J1}}
+{{end}}{{if .Profile.J2}}J2 = {{.Profile.J2}}
+{{end}}{{if .Profile.J3}}J3 = {{.Profile.J3}}
 {{end}}{{range .Peers}}
 # {{.Name}} ({{.ID}})
 [Peer]
@@ -78,15 +92,21 @@ Jmin = {{.Profile.Jmin}}
 Jmax = {{.Profile.Jmax}}
 S1 = {{.Profile.S1}}
 S2 = {{.Profile.S2}}
+S3 = {{.Profile.S3}}
+S4 = {{.Profile.S4}}
 H1 = {{.Profile.H1}}
 H2 = {{.Profile.H2}}
 H3 = {{.Profile.H3}}
 H4 = {{.Profile.H4}}
+Itime = {{.Itime}}
 {{if .Profile.I1}}I1 = {{.Profile.I1}}
 {{end}}{{if .Profile.I2}}I2 = {{.Profile.I2}}
 {{end}}{{if .Profile.I3}}I3 = {{.Profile.I3}}
 {{end}}{{if .Profile.I4}}I4 = {{.Profile.I4}}
 {{end}}{{if .Profile.I5}}I5 = {{.Profile.I5}}
+{{end}}{{if .Profile.J1}}J1 = {{.Profile.J1}}
+{{end}}{{if .Profile.J2}}J2 = {{.Profile.J2}}
+{{end}}{{if .Profile.J3}}J3 = {{.Profile.J3}}
 {{end}}
 [Peer]
 PublicKey = {{.Profile.PublicKey}}
@@ -117,6 +137,8 @@ type ClientRenderArgs struct {
 	AllowedIPs string
 	Endpoint   string
 	Keepalive  int
+	// Itime is resolved by RenderClient from Profile.Itime + Client.ItimeOverride.
+	Itime int
 }
 
 func RenderClient(a ClientRenderArgs) ([]byte, error) {
@@ -130,6 +152,13 @@ func RenderClient(a ClientRenderArgs) ([]byte, error) {
 		if a.Client.MTUOverride > 0 {
 			a.MTU = a.Client.MTUOverride
 		}
+		if a.Client.ItimeOverride != nil {
+			a.Itime = *a.Client.ItimeOverride
+		} else if a.Profile != nil {
+			a.Itime = a.Profile.Itime
+		}
+	} else if a.Profile != nil {
+		a.Itime = a.Profile.Itime
 	}
 	var buf bytes.Buffer
 	err := clientTmpl.Execute(&buf, a)

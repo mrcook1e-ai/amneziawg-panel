@@ -43,8 +43,6 @@ export const api = {
     request<ProfileInfo>(`/api/profiles/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteProfile:(id: string) =>
     request<{ success: boolean }>(`/api/profiles/${enc(id)}`, { method: 'DELETE' }),
-  regenerateProfileMagic: (id: string) =>
-    request<ProfileInfo>(`/api/profiles/${enc(id)}/regenerate-magic`, { method: 'POST' }),
   restartProfile: (id: string) =>
     request<{ success: boolean }>(`/api/profiles/${enc(id)}/restart`, { method: 'POST' }),
 
@@ -69,11 +67,8 @@ export const api = {
     request<Client>(`/api/wireguard/client/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 
   clientConfig: (id: string) => request<string>(`/api/wireguard/client/${enc(id)}/configuration`),
-  clientVPN:    (id: string) => request<string>(`/api/wireguard/client/${enc(id)}/amnezia.vpn`),
   qrUrl:        (id: string) => `/api/wireguard/client/${enc(id)}/qrcode.svg`,
-  vpnQrUrl:     (id: string) => `/api/wireguard/client/${enc(id)}/amnezia-qrcode.svg`,
   configDownloadUrl: (id: string) => `/api/wireguard/client/${enc(id)}/configuration`,
-  vpnDownloadUrl:    (id: string) => `/api/wireguard/client/${enc(id)}/amnezia.vpn`,
 
   overview:    () => request<Overview>('/api/stats/overview'),
   series:      (range = '24h') => request<Series>(`/api/stats/series?range=${encodeURIComponent(range)}`),

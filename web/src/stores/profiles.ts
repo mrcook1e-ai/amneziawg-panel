@@ -67,16 +67,6 @@ export const useProfilesStore = defineStore('profiles', {
         t.error(e?.message || 'Не удалось удалить'); throw e
       }
     },
-    async regenerateMagic(id: string) {
-      const t = useToastStore()
-      try {
-        await api.regenerateProfileMagic(id)
-        t.success('Ключи маскировки обновлены')
-        await this.fetch(true)
-      } catch (e: any) {
-        t.error(e?.message || 'Ошибка'); throw e
-      }
-    },
     async restart(id: string) {
       const t = useToastStore()
       try {

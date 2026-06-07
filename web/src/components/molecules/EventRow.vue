@@ -27,7 +27,6 @@ const meta = computed<{ verb: string; subject: string; note: string; tone: Tone 
     case 'profile.deleted':      return { verb: 'Профиль', subject: 'удалён', note: '', tone: 'danger' }
     case 'profile.patched':      return { verb: 'Профиль', subject: payload.name || 'изменён', note: '', tone: 'neutral' }
     case 'profile.restart':      return { verb: 'Профиль', subject: 'перезапущен', note: '', tone: 'warning' }
-    case 'profile.regen_magic':  return { verb: 'Профиль', subject: 'обновлены H1–H4', note: '', tone: 'warning' }
     case 'server.reset_clients': return { verb: 'Сервер', subject: 'удалены все клиенты',  note: `${payload.removed ?? 0}`, tone: 'danger' }
     case 'server.factory_reset': return { verb: 'Сервер', subject: 'заводской сброс',  note: '', tone: 'danger' }
     default: return { verb: e.kind, subject: name, note: '', tone: 'neutral' }

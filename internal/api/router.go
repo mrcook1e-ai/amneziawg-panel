@@ -59,7 +59,6 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 				r.Get("/{id}", h.profileGet)
 				r.Patch("/{id}", h.profilePatch)
 				r.Delete("/{id}", h.profileDelete)
-				r.Post("/{id}/regenerate-magic", h.profileRegenMagic)
 				r.Post("/{id}/restart", h.profileRestart)
 			})
 
@@ -80,8 +79,6 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 				r.Patch("/{id}/profile", h.clientMove)
 				r.Get("/{id}/configuration", h.clientConfig)
 				r.Get("/{id}/qrcode.svg", h.clientQR)
-				r.Get("/{id}/amnezia.vpn", h.clientVPN)
-				r.Get("/{id}/amnezia-qrcode.svg", h.clientVPNQR)
 				if stats != nil {
 					r.Patch("/{id}", stats.clientPatch)
 					r.Get("/{id}/stats", stats.clientStats)

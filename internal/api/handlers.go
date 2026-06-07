@@ -196,38 +196,8 @@ func (h *Handlers) clientQR(w http.ResponseWriter, r *http.Request) {
 	w.Write(png)
 }
 
-func (h *Handlers) clientVPN(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	c, link, err := h.Mgr.ClientAmneziaVPN(id, "AmneziaWG Panel")
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	name := nameSanitize.ReplaceAllString(c.Name, "-")
-	name = dashRuns.ReplaceAllString(name, "-")
-	name = strings.TrimSuffix(name, "-")
-	if name == "" {
-		name = id
-	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`.vpn"`)
-	w.Write([]byte(link))
-}
-
-func (h *Handlers) clientVPNQR(w http.ResponseWriter, r *http.Request) {
-	_, link, err := h.Mgr.ClientAmneziaVPN(chi.URLParam(r, "id"), "AmneziaWG Panel")
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	png, err := qrcode.Encode(link, qrcode.Low, 1024)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "image/png")
-	w.Write(png)
-}
+// AmneziaVPN-format ("vpn://" container) export removed in the AWG 2.0-only
+// migration. Clients consume the plain .conf via clientConfig / clientQR.
 
 // serverResetClients keeps the existing "wipe every client" surface but it now
 // wipes across all profiles.

@@ -34,7 +34,7 @@ const profiles = useProfilesStore()
 
 const loading = ref(true)
 const busyAction = ref<{kind: string; profileId?: string} | null>(null)
-const confirmAction = ref<{kind: 'reset' | 'factory' | 'regen' | 'restart' | 'delete'; profileId?: string} | null>(null)
+const confirmAction = ref<{kind: 'reset' | 'factory' | 'restart' | 'delete'; profileId?: string} | null>(null)
 
 const events = computed(() => statsStore.events)
 const eventsLoading = ref(true)
@@ -64,7 +64,6 @@ onMounted(load)
 const confirmTitle = computed(() => {
   const k = confirmAction.value?.kind
   return ({
-    regen:   'Обновить H1–H4?',
     restart: 'Перезапустить интерфейс?',
     reset:   'Удалить всех клиентов?',
     factory: 'Сброс до заводских настроек?',
@@ -74,16 +73,15 @@ const confirmTitle = computed(() => {
 const confirmMessage = computed(() => {
   const k = confirmAction.value?.kind
   return ({
-    regen:   'Существующие конфиги клиентов этого профиля перестанут работать — каждому понадобится новый. Ключ сервера не меняется.',
     restart: 'Активные соединения этого профиля ненадолго прервутся, пока интерфейс поднимается. Правила iptables встанут заново.',
     reset:   'Все клиенты во всех профилях будут удалены, доступ отозван. Действие необратимо.',
-    factory: 'Будут удалены все профили и клиенты, перевыпущен ключ сервера, очищены метрики и журнал. Останется один пустой default-профиль. Необратимо.',
+    factory: 'Будут удалены все профили и клиенты, очищены метрики и журнал. Сервер останется без профилей — нужно будет создать заново. Необратимо.',
     delete:  'Профиль будет удалён. Если в нём есть клиенты — сначала переместите или удалите их.',
   }[k!] || '')
 })
 const confirmText = computed(() => {
   const k = confirmAction.value?.kind
-  return ({ regen: 'Обновить', restart: 'Перезапустить', reset: 'Удалить всех', factory: 'Сбросить', delete: 'Удалить' }[k!] || '')
+  return ({ restart: 'Перезапустить', reset: 'Удалить всех', factory: 'Сбросить', delete: 'Удалить' }[k!] || '')
 })
 const confirmTone = computed(() => {
   const k = confirmAction.value?.kind
@@ -96,7 +94,6 @@ async function doConfirm() {
   busyAction.value = { kind: a.kind, profileId: a.profileId }
   confirmAction.value = null
   try {
-    if (a.kind === 'regen' && a.profileId)   await profiles.regenerateMagic(a.profileId)
     if (a.kind === 'restart' && a.profileId) await profiles.restart(a.profileId)
     if (a.kind === 'delete' && a.profileId)  await profiles.remove(a.profileId)
     if (a.kind === 'reset')   { await api.resetClients(); toasts.success('Все клиенты удалены'); await clients.fetch(true) }
@@ -202,13 +199,19 @@ async function doRestore() {
           </div>
         </template>
         <template v-else>
+          <div v-if="!profiles.items.length" class="px-5 py-6 text-[12.5px] text-ink-500 leading-relaxed">
+            Профилей нет. Создайте первый — обфускацию (Jc/J/S/H/I/Itime) сгенерируйте в
+            <a class="underline" target="_blank" rel="noopener" href="https://vadim-khristenko.github.io/AmneziaWG-Architect/">AmneziaWG-Architect</a>
+            и вставьте snippet в форме создания.
+          </div>
           <div class="divide-y divide-ink-900/5">
             <div v-for="p in profiles.items" :key="p.id" class="px-5 py-4 space-y-3">
               <div class="flex items-baseline justify-between gap-3 flex-wrap">
                 <div class="flex items-baseline gap-2">
                   <span class="text-[15px] text-ink-900 font-semibold">{{ p.name }}</span>
                   <span class="mono text-[11px] text-ink-500">{{ p.id }}</span>
-                  <span v-if="p.hasMimicry" class="text-[10px] uppercase tracking-[0.12em] text-success px-1.5 py-0.5 rounded bg-success/10">мимикрия 1.5</span>
+                  <span v-if="p.hasMimicry" class="text-[10px] uppercase tracking-[0.12em] text-success px-1.5 py-0.5 rounded bg-success/10">CPS</span>
+                  <span v-if="p.itime === 0" class="text-[10px] uppercase tracking-[0.12em] text-ink-500 px-1.5 py-0.5 rounded bg-ink-900/5">Itime off</span>
                 </div>
                 <div class="text-[11.5px] text-ink-500 tnum mono">
                   {{ p.iface }} · :{{ p.port }} · клиентов {{ p.clientCount }}
@@ -227,13 +230,23 @@ async function doRestore() {
                   <span class="mono text-ink-900 truncate">{{ p.publicKey }}</span>
                   <CopyButton :value="p.publicKey" />
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 sm:col-span-2">
                   <span class="text-ink-500 w-24 shrink-0">H1–H4</span>
-                  <span class="mono text-ink-700 text-[11px] truncate">{{ p.h1 }} · {{ p.h2 }} · {{ p.h3 }} · {{ p.h4 }}</span>
+                  <span class="mono text-ink-700 text-[11px] truncate" :title="`${p.h1} · ${p.h2} · ${p.h3} · ${p.h4}`">
+                    {{ p.h1 }} · {{ p.h2 }} · {{ p.h3 }} · {{ p.h4 }}
+                  </span>
                 </div>
                 <div class="flex items-center gap-2">
-                  <span class="text-ink-500 w-24 shrink-0">Jc/J/S</span>
-                  <span class="mono text-ink-700">{{ p.jc }} · {{ p.jmin }}–{{ p.jmax }} · {{ p.s1 }}/{{ p.s2 }}</span>
+                  <span class="text-ink-500 w-24 shrink-0">Jc/Jmin-Jmax</span>
+                  <span class="mono text-ink-700">{{ p.jc }} · {{ p.jmin }}–{{ p.jmax }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-ink-500 w-24 shrink-0">S1/S2/S3/S4</span>
+                  <span class="mono text-ink-700">{{ p.s1 }}/{{ p.s2 }}/{{ p.s3 }}/{{ p.s4 }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-ink-500 w-24 shrink-0">Itime</span>
+                  <span class="mono text-ink-700">{{ p.itime === 0 ? 'выкл' : `${p.itime}s` }}</span>
                 </div>
               </div>
 
@@ -242,18 +255,13 @@ async function doRestore() {
                   <Icon name="settings" :size="13" /> Редактировать
                 </Button>
                 <Button size="sm" variant="ghost"
-                  :loading="busyAction?.kind === 'regen' && busyAction?.profileId === p.id"
-                  @click="confirmAction = { kind: 'regen', profileId: p.id }">
-                  <Icon name="refresh" :size="13" /> Обновить H1–H4
-                </Button>
-                <Button size="sm" variant="ghost"
                   :loading="busyAction?.kind === 'restart' && busyAction?.profileId === p.id"
                   @click="confirmAction = { kind: 'restart', profileId: p.id }">
                   <Icon name="power" :size="13" /> Перезапустить
                 </Button>
                 <Button size="sm" variant="ghost"
-                  :disabled="profiles.items.length === 1 || p.clientCount > 0"
-                  :title="profiles.items.length === 1 ? 'Нельзя удалить единственный профиль' : p.clientCount > 0 ? 'Сначала переместите клиентов' : ''"
+                  :disabled="p.clientCount > 0"
+                  :title="p.clientCount > 0 ? 'Сначала переместите или удалите клиентов' : ''"
                   @click="confirmAction = { kind: 'delete', profileId: p.id }">
                   <Icon name="trash" :size="13" /> Удалить
                 </Button>

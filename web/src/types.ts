@@ -17,6 +17,9 @@ export interface Client {
   dnsOverride?: string
   allowedIPsOverride?: string
   mtuOverride?: number
+  // null/undefined = inherit Itime from profile, otherwise this exact value
+  // (including 0 for "disable CPS for this client", typically Windows).
+  itimeOverride?: number | null
   totalRx?: number
   totalTx?: number
   lastHandshakeAt?: string | null
@@ -36,43 +39,49 @@ export interface ProfileInfo {
   publicKey: string
   address: string
   endpoint: string
+  // Junk train
   jc: number
   jmin: number
   jmax: number
+  // Packet padding (AWG 2.0 — S3/S4 mandatory)
   s1: number
   s2: number
+  s3: number
+  s4: number
+  // Header ranges, format "min-max"
   h1: string
   h2: string
   h3: string
   h4: string
+  // Optional CPS strings
   i1?: string
   i2?: string
   i3?: string
   i4?: string
   i5?: string
+  j1?: string
+  j2?: string
+  j3?: string
+  // CPS chain interval in seconds, 0 = disabled
+  itime: number
   clientCount: number
   hasMimicry: boolean
 }
 
+// BYOC profile creation — the admin pastes an [Interface] snippet
+// (typically from AmneziaWG-Architect); the server parses it.
 export interface ProfileCreateBody {
   id?: string
   name: string
   description?: string
-  i1?: string
-  i2?: string
-  i3?: string
-  i4?: string
-  i5?: string
+  snippet: string
 }
 
 export interface ProfilePatchBody {
   name?: string
   description?: string
-  i1?: string
-  i2?: string
-  i3?: string
-  i4?: string
-  i5?: string
+  // When present, replaces the obfuscation block atomically.
+  snippet?: string
 }
 
 export type ToastKind = 'info' | 'success' | 'warning' | 'danger'
@@ -135,7 +144,6 @@ export type EventKind =
   | 'profile.deleted'
   | 'profile.patched'
   | 'profile.restart'
-  | 'profile.regen_magic'
   | 'server.reset_clients'
   | 'server.factory_reset'
 
@@ -154,6 +162,10 @@ export interface ClientPatch {
   dnsOverride?: string
   allowedIPsOverride?: string
   mtuOverride?: number
+  // To set, send a number. To clear (inherit profile's Itime), set
+  // clearItimeOverride = true.
+  itimeOverride?: number
+  clearItimeOverride?: boolean
 }
 
 export interface CreateClientArgs {

@@ -1,13 +1,10 @@
 package awg
 
 import (
-	"crypto/rand"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,25 +13,6 @@ import (
 
 	"github.com/mrcook1e/amneziawg-panel/internal/config"
 )
-
-func randomMagic() string {
-	var b [4]byte
-	_, _ = rand.Read(b[:])
-	v := binary.BigEndian.Uint32(b[:])
-	if v < 1_000_000 {
-		v += 1_000_000
-	}
-	return strconv.FormatUint(uint64(v), 10)
-}
-
-func uniqueMagic() (string, string, string, string) {
-	for {
-		a, b, c, d := randomMagic(), randomMagic(), randomMagic(), randomMagic()
-		if a != b && a != c && a != d && b != c && b != d && c != d {
-			return a, b, c, d
-		}
-	}
-}
 
 type profileState struct {
 	profile *Profile
@@ -100,10 +78,9 @@ func (m *Manager) Start() error {
 		return err
 	}
 	if c == nil {
-		c, err = m.bootstrap()
-		if err != nil {
-			return err
-		}
+		// Fresh install: no auto-bootstrap. The admin must create the first
+		// profile via POST /api/profiles with an obfuscation snippet.
+		c = &Config{SchemaVersion: SchemaVersion, Profiles: map[string]*Profile{}, Clients: map[string]*Client{}}
 	}
 	m.hydrate(c)
 
@@ -133,8 +110,6 @@ func (m *Manager) Shutdown() error {
 
 func (m *Manager) StateDir() string { return m.cfg.WGPath }
 
-// IfaceNames returns the interface names of all configured profiles, sorted
-// for deterministic output. Used by stats collector and SSE broker.
 func (m *Manager) IfaceNames() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -205,18 +180,6 @@ func (m *Manager) subnetCIDR() string {
 	return strings.Replace(m.cfg.Subnet, "x", "0", 1) + "/24"
 }
 
-func (m *Manager) bootstrap() (*Config, error) {
-	p, err := m.newProfile("default", "Default", "")
-	if err != nil {
-		return nil, err
-	}
-	return &Config{
-		SchemaVersion: SchemaVersion,
-		Profiles:      map[string]*Profile{p.ID: p},
-		Clients:       map[string]*Client{},
-	}, nil
-}
-
 var profileIDRe = regexp.MustCompile(`^[a-z0-9-]{2,32}$`)
 
 func (m *Manager) usedPortsLocked() map[int]struct{} {
@@ -227,10 +190,9 @@ func (m *Manager) usedPortsLocked() map[int]struct{} {
 	return used
 }
 
-// newProfile builds a fresh Profile but does NOT insert it into m.profiles —
-// callers (bootstrap, CreateProfile) own that step. It generates a server
-// keypair, allocates a port + matching iface name, and rolls fresh H1-H4.
-func (m *Manager) newProfile(id, name, description string) (*Profile, error) {
+// newProfile builds a fresh Profile from a parsed obfuscation spec. Caller
+// (CreateProfile) is responsible for inserting into m.profiles and persisting.
+func (m *Manager) newProfile(id, name, description string, spec ObfuscationSpec) (*Profile, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		id = m.nextProfileIDLocked()
@@ -257,18 +219,12 @@ func (m *Manager) newProfile(id, name, description string) (*Profile, error) {
 		return nil, err
 	}
 
-	o := m.cfg.Obf
-	h1, h2, h3, h4 := o.H1, o.H2, o.H3, o.H4
-	if h1 == "1" && h2 == "2" && h3 == "3" && h4 == "4" {
-		h1, h2, h3, h4 = uniqueMagic()
-	}
-
 	displayName := strings.TrimSpace(name)
 	if displayName == "" {
 		displayName = id
 	}
 
-	return &Profile{
+	p := &Profile{
 		ID:          id,
 		Name:        displayName,
 		Description: description,
@@ -277,11 +233,21 @@ func (m *Manager) newProfile(id, name, description string) (*Profile, error) {
 		PrivateKey:  priv,
 		PublicKey:   pub,
 		Address:     m.ipam.ServerIP(),
-		Jc:          o.Jc, Jmin: o.Jmin, Jmax: o.Jmax,
-		S1: o.S1, S2: o.S2,
-		H1: h1, H2: h2, H3: h3, H4: h4,
-		CreatedAt: time.Now().UTC(),
-	}, nil
+		CreatedAt:   time.Now().UTC(),
+	}
+	applySpec(p, spec)
+	return p, nil
+}
+
+// applySpec copies every obfuscation field from spec into the profile.
+// Centralised so create and patch stay in sync.
+func applySpec(p *Profile, s ObfuscationSpec) {
+	p.Jc, p.Jmin, p.Jmax = s.Jc, s.Jmin, s.Jmax
+	p.S1, p.S2, p.S3, p.S4 = s.S1, s.S2, s.S3, s.S4
+	p.H1, p.H2, p.H3, p.H4 = s.H1, s.H2, s.H3, s.H4
+	p.I1, p.I2, p.I3, p.I4, p.I5 = s.I1, s.I2, s.I3, s.I4, s.I5
+	p.J1, p.J2, p.J3 = s.J1, s.J2, s.J3
+	p.Itime = s.Itime
 }
 
 func (m *Manager) nextProfileIDLocked() string {
@@ -294,8 +260,6 @@ func (m *Manager) nextProfileIDLocked() string {
 	return "profile-" + uuid.NewString()[:8]
 }
 
-// peersFor returns enabled clients for a profile, sorted by Name for stable
-// .conf rendering.
 func (m *Manager) peersForLocked(profileID string) []*Client {
 	peers := []*Client{}
 	for _, c := range m.clients {
@@ -343,7 +307,7 @@ func (m *Manager) syncProfileLocked(ps *profileState) error {
 
 type ProfileSpec struct {
 	ID, Name, Description string
-	I1, I2, I3, I4, I5    string
+	Obf                   ObfuscationSpec
 }
 
 type ProfileView struct {
@@ -355,22 +319,30 @@ type ProfileView struct {
 	PublicKey   string `json:"publicKey"`
 	Address     string `json:"address"`
 	Endpoint    string `json:"endpoint"`
-	Jc          int    `json:"jc"`
-	Jmin        int    `json:"jmin"`
-	Jmax        int    `json:"jmax"`
-	S1          int    `json:"s1"`
-	S2          int    `json:"s2"`
-	H1          string `json:"h1"`
-	H2          string `json:"h2"`
-	H3          string `json:"h3"`
-	H4          string `json:"h4"`
-	I1          string `json:"i1,omitempty"`
-	I2          string `json:"i2,omitempty"`
-	I3          string `json:"i3,omitempty"`
-	I4          string `json:"i4,omitempty"`
-	I5          string `json:"i5,omitempty"`
-	ClientCount int    `json:"clientCount"`
-	HasMimicry  bool   `json:"hasMimicry"`
+
+	Jc    int    `json:"jc"`
+	Jmin  int    `json:"jmin"`
+	Jmax  int    `json:"jmax"`
+	S1    int    `json:"s1"`
+	S2    int    `json:"s2"`
+	S3    int    `json:"s3"`
+	S4    int    `json:"s4"`
+	H1    string `json:"h1"`
+	H2    string `json:"h2"`
+	H3    string `json:"h3"`
+	H4    string `json:"h4"`
+	I1    string `json:"i1,omitempty"`
+	I2    string `json:"i2,omitempty"`
+	I3    string `json:"i3,omitempty"`
+	I4    string `json:"i4,omitempty"`
+	I5    string `json:"i5,omitempty"`
+	J1    string `json:"j1,omitempty"`
+	J2    string `json:"j2,omitempty"`
+	J3    string `json:"j3,omitempty"`
+	Itime int    `json:"itime"`
+
+	ClientCount int  `json:"clientCount"`
+	HasMimicry  bool `json:"hasMimicry"`
 }
 
 func (m *Manager) viewProfileLocked(p *Profile) ProfileView {
@@ -383,11 +355,13 @@ func (m *Manager) viewProfileLocked(p *Profile) ProfileView {
 	return ProfileView{
 		ID: p.ID, Name: p.Name, Description: p.Description,
 		Iface: p.Iface, Port: p.Port, PublicKey: p.PublicKey, Address: p.Address,
-		Endpoint:    fmt.Sprintf("%s:%d", m.cfg.WGHost, p.Port),
-		Jc:          p.Jc, Jmin: p.Jmin, Jmax: p.Jmax,
-		S1: p.S1, S2: p.S2,
+		Endpoint: fmt.Sprintf("%s:%d", m.cfg.WGHost, p.Port),
+		Jc:       p.Jc, Jmin: p.Jmin, Jmax: p.Jmax,
+		S1: p.S1, S2: p.S2, S3: p.S3, S4: p.S4,
 		H1: p.H1, H2: p.H2, H3: p.H3, H4: p.H4,
 		I1: p.I1, I2: p.I2, I3: p.I3, I4: p.I4, I5: p.I5,
+		J1: p.J1, J2: p.J2, J3: p.J3,
+		Itime:       p.Itime,
 		ClientCount: count,
 		HasMimicry:  p.I1 != "" || p.I2 != "" || p.I3 != "" || p.I4 != "" || p.I5 != "",
 	}
@@ -415,7 +389,7 @@ func (m *Manager) ProfileInfo(id string) (ProfileView, error) {
 }
 
 // DefaultProfileID returns the profile selected when the UI doesn't ask for a
-// specific one. We pick the lowest-port profile for determinism.
+// specific one. Lowest-port profile wins (deterministic). Empty string if none.
 func (m *Manager) DefaultProfileID() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -434,11 +408,10 @@ func (m *Manager) DefaultProfileID() string {
 func (m *Manager) CreateProfile(spec ProfileSpec) (ProfileView, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	p, err := m.newProfile(spec.ID, spec.Name, spec.Description)
+	p, err := m.newProfile(spec.ID, spec.Name, spec.Description, spec.Obf)
 	if err != nil {
 		return ProfileView{}, err
 	}
-	p.I1, p.I2, p.I3, p.I4, p.I5 = spec.I1, spec.I2, spec.I3, spec.I4, spec.I5
 
 	ps := &profileState{
 		profile: p,
@@ -463,11 +436,9 @@ func (m *Manager) CreateProfile(spec ProfileSpec) (ProfileView, error) {
 type ProfilePatch struct {
 	Name        *string
 	Description *string
-	I1          *string
-	I2          *string
-	I3          *string
-	I4          *string
-	I5          *string
+	// Obf, when non-nil, replaces the whole obfuscation block atomically.
+	// Parsed and validated by the caller (handler) before reaching here.
+	Obf *ObfuscationSpec
 }
 
 func (m *Manager) PatchProfile(id string, p ProfilePatch) (ProfileView, error) {
@@ -487,20 +458,8 @@ func (m *Manager) PatchProfile(id string, p ProfilePatch) (ProfileView, error) {
 	if p.Description != nil {
 		pr.Description = *p.Description
 	}
-	if p.I1 != nil {
-		pr.I1 = strings.TrimSpace(*p.I1)
-	}
-	if p.I2 != nil {
-		pr.I2 = strings.TrimSpace(*p.I2)
-	}
-	if p.I3 != nil {
-		pr.I3 = strings.TrimSpace(*p.I3)
-	}
-	if p.I4 != nil {
-		pr.I4 = strings.TrimSpace(*p.I4)
-	}
-	if p.I5 != nil {
-		pr.I5 = strings.TrimSpace(*p.I5)
+	if p.Obf != nil {
+		applySpec(pr, *p.Obf)
 	}
 	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
 		return ProfileView{}, err
@@ -519,9 +478,6 @@ func (m *Manager) DeleteProfile(id string) error {
 	if !ok {
 		return errProfileNotFound
 	}
-	if len(m.profiles) == 1 {
-		return errors.New("cannot delete the last profile")
-	}
 	for _, c := range m.clients {
 		if c.ProfileID == id {
 			return errProfileHasClients
@@ -535,24 +491,6 @@ func (m *Manager) DeleteProfile(id string) error {
 	}
 	m.fire("profile.deleted", id, nil)
 	return nil
-}
-
-func (m *Manager) RegenerateMagic(profileID string) (ProfileView, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	ps, ok := m.profiles[profileID]
-	if !ok {
-		return ProfileView{}, errProfileNotFound
-	}
-	ps.profile.H1, ps.profile.H2, ps.profile.H3, ps.profile.H4 = uniqueMagic()
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
-		return ProfileView{}, err
-	}
-	if err := m.syncProfileLocked(ps); err != nil {
-		return ProfileView{}, err
-	}
-	m.fire("profile.regen_magic", profileID, nil)
-	return m.viewProfileLocked(ps.profile), nil
 }
 
 func (m *Manager) RestartInterface(profileID string) error {
@@ -823,6 +761,10 @@ type ClientPatch struct {
 	DNSOverride        *string    `json:"dnsOverride"`
 	AllowedIPsOverride *string    `json:"allowedIPsOverride"`
 	MTUOverride        *int       `json:"mtuOverride"`
+	// ItimeOverride: nil = no change. To set, send a pointer to the desired
+	// value. To clear, set ClearItimeOverride = true.
+	ItimeOverride      *int `json:"itimeOverride"`
+	ClearItimeOverride bool `json:"clearItimeOverride"`
 }
 
 func (m *Manager) PatchClient(id string, p ClientPatch) (*Client, error) {
@@ -849,6 +791,12 @@ func (m *Manager) PatchClient(id string, p ClientPatch) (*Client, error) {
 	}
 	if p.MTUOverride != nil {
 		c.MTUOverride = *p.MTUOverride
+	}
+	if p.ClearItimeOverride {
+		c.ItimeOverride = nil
+	} else if p.ItimeOverride != nil {
+		v := *p.ItimeOverride
+		c.ItimeOverride = &v
 	}
 	c.UpdatedAt = time.Now().UTC()
 	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
@@ -989,8 +937,6 @@ func (m *Manager) SetAddress(id, addr string) error {
 	return nil
 }
 
-// MoveClient transfers a client from its current profile to a new one. Both
-// .conf files are re-rendered and syncconf'd so the kernel state matches.
 func (m *Manager) MoveClient(id, toProfileID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1033,6 +979,7 @@ func (m *Manager) renderArgs(profile *Profile, c *Client) ClientRenderArgs {
 		AllowedIPs: m.cfg.AllowedIPs,
 		Endpoint:   fmt.Sprintf("%s:%d", m.cfg.WGHost, profile.Port),
 		Keepalive:  m.cfg.PersistentKA,
+		// Itime is resolved inside RenderClient from profile + per-client override.
 	}
 }
 
@@ -1048,21 +995,6 @@ func (m *Manager) ClientConfig(id string) (*Client, []byte, error) {
 		return nil, nil, errProfileNotFound
 	}
 	out, err := RenderClient(m.renderArgs(ps.profile, c))
-	return c, out, err
-}
-
-func (m *Manager) ClientAmneziaVPN(id, description string) (*Client, string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	c, ok := m.clients[id]
-	if !ok {
-		return nil, "", errNotFound
-	}
-	ps, ok := m.profiles[c.ProfileID]
-	if !ok {
-		return nil, "", errProfileNotFound
-	}
-	out, err := RenderAmneziaVPN(m.renderArgs(ps.profile, c), description)
 	return c, out, err
 }
 
@@ -1084,8 +1016,9 @@ func (m *Manager) ResetClients() error {
 	return nil
 }
 
-// FactoryReset drops everything (profiles + clients) and recreates a single
-// default profile with fresh keys + magic. Interfaces are bounced.
+// FactoryReset drops every profile and every client, leaving the server in
+// the same state as a fresh install: no profiles, no clients, no interfaces
+// running. The admin must create the first profile via the API.
 func (m *Manager) FactoryReset() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1097,21 +1030,7 @@ func (m *Manager) FactoryReset() error {
 	m.profiles = map[string]*profileState{}
 	m.clients = map[string]*Client{}
 
-	p, err := m.newProfile("default", "Default", "")
-	if err != nil {
-		return err
-	}
-	ps := &profileState{
-		profile: p,
-		runner:  Runner{AWGBin: m.cfg.AWGBin, AWGQuickBin: m.cfg.AWGQuickBin, Iface: p.Iface},
-	}
-	m.profiles[p.ID] = ps
-
-	if err := m.persistAllLocked(); err != nil {
-		return err
-	}
-	_ = ps.runner.Down()
-	if err := ps.runner.Up(); err != nil {
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
 		return err
 	}
 	m.fire("server.factory_reset", "", nil)
@@ -1128,8 +1047,8 @@ func IsNotFound(err error) bool        { return errors.Is(err, errNotFound) || e
 func IsProfileHasClients(err error) bool { return errors.Is(err, errProfileHasClients) }
 
 // mergedDump runs `awg show <iface> dump` for each interface and returns a
-// single map keyed by peer pubkey (pubkey is globally unique). Failures on a
-// single interface are silently skipped — happens during a profile restart.
+// single map keyed by peer pubkey. Failures on a single interface are silently
+// skipped — happens during a profile restart.
 func mergedDump(bin string, ifaces []string) map[string]PeerStatus {
 	out := map[string]PeerStatus{}
 	for _, iface := range ifaces {

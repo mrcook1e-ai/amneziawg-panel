@@ -27,14 +27,6 @@ type Config struct {
 
 	AWGBin      string
 	AWGQuickBin string
-
-	Obf Obfuscation
-}
-
-type Obfuscation struct {
-	Jc, Jmin, Jmax int
-	S1, S2         int
-	H1, H2, H3, H4 string
 }
 
 func Load() Config {
@@ -56,17 +48,6 @@ func Load() Config {
 		EgressIface:  env("WG_EGRESS_IFACE", "eth0"),
 		AWGBin:       env("AWG_BIN", "awg"),
 		AWGQuickBin:  env("AWG_QUICK_BIN", "awg-quick"),
-		Obf: Obfuscation{
-			Jc:   envInt("JC", 4),
-			Jmin: envInt("JMIN", 40),
-			Jmax: envInt("JMAX", 70),
-			S1:   envInt("S1", 50),
-			S2:   envInt("S2", 100),
-			H1:   env("H1", "1"),
-			H2:   env("H2", "2"),
-			H3:   env("H3", "3"),
-			H4:   env("H4", "4"),
-		},
 	}
 }
 
