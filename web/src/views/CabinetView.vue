@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useTitle } from '@/composables/useTitle'
 import { useRoute } from 'vue-router'
 import {
   Shield, Lock, Key, Smartphone, Laptop, Monitor,
   QrCode, Download, Copy, Check, Trash2, X,
   Sun, Moon, Plus, ChevronLeft, ChevronRight, Loader2,
-  MoreHorizontal, Globe, ExternalLink,
+  MoreHorizontal, Globe, ExternalLink, Zap, EyeOff, Gauge,
 } from 'lucide-vue-next'
 
 import { api } from '@/lib/api'
@@ -21,6 +21,9 @@ import Input from '@/components/atoms/Input.vue'
 import Modal from '@/components/molecules/Modal.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import QrCarousel from '@/components/molecules/QrCarousel.vue'
+import DropdownMenu from '@/components/molecules/DropdownMenu.vue'
+import DropdownItem from '@/components/molecules/DropdownItem.vue'
+import DropdownSeparator from '@/components/molecules/DropdownSeparator.vue'
 
 const route = useRoute()
 const token  = computed(() => String(route.params.token || ''))
@@ -46,7 +49,10 @@ function toggleTheme() {
 }
 
 // ── Add-device wizard ──────────────────────────────────────────────────
-type WizardStep = 'pick' | 'creating' | 'done'
+// Two-stage flow: pick (type + name) → config (protection profile) →
+// creating → done. The config step is opt-out-friendly: 'Авто' is
+// pre-selected, the user can just tap "Создать ключ" without thinking.
+type WizardStep = 'pick' | 'config' | 'creating' | 'done'
 const wizardOpen     = ref(false)
 const wizardStep     = ref<WizardStep>('pick')
 const wizardErr      = ref('')
@@ -58,8 +64,52 @@ const customName     = ref('')
 
 import type { Intensity, MimicProfile } from '@/utils/generator'
 
-// Always use balanced "auto" preset — no UI knobs exposed to end-users.
-const AUTO_PARAMS = { intensity: 'medium' as Intensity, profile: 'quic_initial' as MimicProfile, mtu: 1500, extreme: false }
+/*
+  Protection profile — 3 named presets bake the right combinations of
+  intensity/profile/mtu/extreme. Avg user picks "Авто" and forgets;
+  power users can flip to "Тихий" for strict networks (Iran, Turkmenistan,
+  school WiFi) or "Быстрый" for low-latency / low-overhead.
+*/
+type PresetKey = 'auto' | 'stealth' | 'fast'
+
+interface Params {
+  intensity: Intensity
+  profile:   MimicProfile
+  mtu:       number
+  extreme:   boolean
+}
+
+interface PresetDef {
+  v: PresetKey
+  label: string
+  hint: string
+  icon: any
+  params: Params
+}
+
+const PRESETS: PresetDef[] = [
+  {
+    v: 'auto', label: 'Авто', icon: Shield,
+    hint: 'Баланс скорости и обхода — рекомендуется',
+    params: { intensity: 'medium', profile: 'quic_initial', mtu: 1500, extreme: false },
+  },
+  {
+    v: 'stealth', label: 'Тихий', icon: EyeOff,
+    hint: 'Максимальная маскировка для строгих сетей',
+    params: { intensity: 'high', profile: 'tls_client_hello', mtu: 1500, extreme: true },
+  },
+  {
+    v: 'fast', label: 'Быстрый', icon: Gauge,
+    hint: 'Минимум обфускации, ниже задержка',
+    params: { intensity: 'low', profile: 'random', mtu: 1280, extreme: false },
+  },
+]
+
+const pickedPreset = ref<PresetKey>('auto')
+
+function presetParams(): Params {
+  return (PRESETS.find(p => p.v === pickedPreset.value) || PRESETS[0]).params
+}
 
 interface Template { key: DeviceTemplate; icon: any; label: string }
 const templates: Template[] = [
@@ -128,30 +178,6 @@ function qrNext() {
   startQrTimer()
 }
 
-// ── Per-card overflow menu (compass/copy/delete on narrow screens) ─────
-const menuFor = ref<string | null>(null)
-function toggleMenu(id: string) {
-  menuFor.value = menuFor.value === id ? null : id
-}
-function closeMenu() { menuFor.value = null }
-
-// Close menu on outside pointerdown / Escape.
-function onDocPointer(e: MouseEvent) {
-  const t = e.target as HTMLElement
-  if (!t.closest('[data-card-menu]')) closeMenu()
-}
-function onDocKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') closeMenu()
-}
-onMounted(() => {
-  document.addEventListener('pointerdown', onDocPointer)
-  document.addEventListener('keydown', onDocKey)
-})
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onDocPointer)
-  document.removeEventListener('keydown', onDocKey)
-})
-
 // ── Delete state ───────────────────────────────────────────────────────
 const deleteFor  = ref<CabinetDevice | null>(null)
 const deleteBusy = ref(false)
@@ -161,7 +187,7 @@ const deleteBusy = ref(false)
 // inject them into the .vpn config. So we just hand the user a download
 // link to the curated iplist.opencck.org "amnezia" format and show the
 // in-app import steps. One link covers all devices on the account.
-const IPLIST_URL = 'https://iplist.opencck.org/?format=amnezia&data=cidr4'
+const IPLIST_URL = 'https://iplist.opencck.org/?format=amnezia&data=cidr4&filesave=1'
 
 // Sites modal — the full info+download lives in a popup, triggered by
 // a small button below the device list. The card-on-page version was
@@ -183,6 +209,7 @@ onMounted(reload)
 function openWizard(tpl: DeviceTemplate = 'phone') {
   pickedTemplate.value = tpl
   customName.value     = ''
+  pickedPreset.value   = 'auto'
   wizardErr.value      = ''
   justAdded.value      = null
   wizardStep.value     = 'pick'
@@ -190,13 +217,18 @@ function openWizard(tpl: DeviceTemplate = 'phone') {
 }
 function closeWizard() { wizardOpen.value = false; justAdded.value = null }
 
+function goToConfig() {
+  // Name is optional; defaults to the template name. No validation gate here.
+  wizardStep.value = 'config'
+}
+
 async function createDevice() {
   if (wizardStep.value === 'creating') return
   wizardErr.value  = ''
   const name       = customName.value.trim() || defaultName[pickedTemplate.value]
   wizardStep.value = 'creating'
 
-  const p = AUTO_PARAMS
+  const p = presetParams()
   const cfg = genCfg({
     version: '2.0',
     intensity: p.intensity,
@@ -517,57 +549,35 @@ const qrDeviceName = computed(() =>
                   .vpn
                 </a>
 
-                <!--
-                  Overflow menu — Routes / Copy vpn:// / Delete.
-                  Bundled together so the QR + .vpn primary actions stay
-                  large-tappable on narrow phones (<360 px) without the
-                  row wrapping. Active-style: ⋯ becomes amber-tinted when
-                  the menu is open.
-                -->
-                <div class="relative shrink-0" data-card-menu>
-                  <button
-                    class="h-10 w-10 flex items-center justify-center rounded-xl transition-all"
-                    :class="menuFor === d.id
-                      ? 'bg-amber-400/15 text-amber-600'
-                      : 'text-ink-400 hover:text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50'"
-                    :aria-haspopup="true"
-                    :aria-expanded="menuFor === d.id"
-                    :aria-label="`Действия с ${d.name}`"
-                    title="Ещё"
-                    @click.stop="toggleMenu(d.id)">
-                    <MoreHorizontal :size="16" />
-                  </button>
-
-                  <Transition
-                    enter-active-class="transition duration-120 ease-out"
-                    enter-from-class="opacity-0 scale-95 -translate-y-1"
-                    enter-to-class="opacity-100 scale-100 translate-y-0"
-                    leave-active-class="transition duration-100 ease-in"
-                    leave-from-class="opacity-100"
-                    leave-to-class="opacity-0">
-                    <div
-                      v-if="menuFor === d.id"
-                      role="menu"
-                      class="absolute right-0 top-12 z-20 w-52 rounded-2xl bg-surface-raised shadow-pop py-1.5 origin-top-right">
-                      <button
-                        role="menuitem"
-                        class="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50 transition-colors"
-                        @click="closeMenu(); copyVpn(d.id)">
-                        <Check v-if="copiedId === d.id" :size="15" class="text-success" />
-                        <Copy  v-else :size="15" class="text-ink-500" />
-                        {{ copiedId === d.id ? 'Скопировано' : 'Скопировать vpn://' }}
-                      </button>
-                      <div class="my-1 mx-3 hairline" />
-                      <button
-                        role="menuitem"
-                        class="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-danger hover:bg-danger/10 transition-colors"
-                        @click="closeMenu(); deleteFor = d">
-                        <Trash2 :size="15" />
-                        Удалить устройство
-                      </button>
-                    </div>
-                  </Transition>
-                </div>
+                <!-- Overflow menu — shared DropdownMenu molecule. -->
+                <DropdownMenu align="right" width="w-52">
+                  <template #trigger="{ open, toggle }">
+                    <button
+                      class="h-10 w-10 flex items-center justify-center rounded-xl transition-all shrink-0"
+                      :class="open
+                        ? 'bg-amber-400/15 text-amber-600'
+                        : 'text-ink-400 hover:text-ink-700 hover:bg-ink-100 dark:hover:bg-ink-200/50'"
+                      :aria-haspopup="true"
+                      :aria-expanded="open"
+                      :aria-label="`Действия с ${d.name}`"
+                      title="Ещё"
+                      @click="toggle">
+                      <MoreHorizontal :size="16" />
+                    </button>
+                  </template>
+                  <template #default="{ close }">
+                    <DropdownItem @click="copyVpn(d.id); close()">
+                      <Check v-if="copiedId === d.id" :size="15" class="text-success" />
+                      <Copy  v-else :size="15" class="text-ink-500" />
+                      {{ copiedId === d.id ? 'Скопировано' : 'Скопировать vpn://' }}
+                    </DropdownItem>
+                    <DropdownSeparator />
+                    <DropdownItem tone="danger" @click="deleteFor = d; close()">
+                      <Trash2 :size="15" />
+                      Удалить устройство
+                    </DropdownItem>
+                  </template>
+                </DropdownMenu>
               </div>
             </div>
 
@@ -778,20 +788,95 @@ const qrDeviceName = computed(() =>
                 <Input
                   v-model="customName"
                   :placeholder="defaultName[pickedTemplate]"
-                  @keydown.enter="createDevice"
+                  @keydown.enter="goToConfig"
                 />
               </div>
 
+              <p v-if="wizardErr" class="text-[12.5px] text-danger bg-danger/10 rounded-xl px-4 py-3">{{ wizardErr }}</p>
+
+              <Button variant="accent" size="xl" block @click="goToConfig">
+                Далее
+                <ChevronRight :size="16" />
+              </Button>
+
+              <!-- Step indicator — small dots under the CTA. -->
+              <div class="flex items-center justify-center gap-1.5 pt-1">
+                <span class="w-5 h-1 rounded-full bg-amber-400" />
+                <span class="w-1 h-1 rounded-full bg-ink-300" />
+              </div>
+            </div>
+
+            <!-- ── Step: Config — protection profile ── -->
+            <div v-else-if="wizardStep === 'config'" class="p-6 space-y-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="text-[19px] font-semibold">Профиль защиты</h3>
+                  <p class="text-[12.5px] text-ink-500 mt-0.5">Подбираем под вашу сеть</p>
+                </div>
+                <IconButton size="sm" title="Закрыть" @click="closeWizard">
+                  <X :size="16" />
+                </IconButton>
+              </div>
+
+              <!--
+                3 preset cards — full-width rows. Each card is a real
+                situation phrased in user-language, not a generator-config
+                combo. Avg user keeps "Авто"; power users flip to "Тихий"
+                for strict networks or "Быстрый" for low-latency.
+              -->
+              <div class="space-y-2">
+                <button
+                  v-for="p in PRESETS" :key="p.v"
+                  type="button"
+                  role="radio"
+                  :aria-checked="pickedPreset === p.v"
+                  class="w-full text-left p-3.5 rounded-2xl transition-all duration-150 active:translate-y-px focus-ring relative flex items-start gap-3"
+                  :class="pickedPreset === p.v
+                    ? 'bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)]'
+                    : 'bg-ink-100 hover:bg-ink-200 dark:bg-ink-200/40 dark:hover:bg-ink-200/60'"
+                  @click="pickedPreset = p.v">
+                  <span
+                    class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                    :class="pickedPreset === p.v ? 'bg-amber-400/25' : 'bg-ink-50/60 dark:bg-ink-100/40'">
+                    <component
+                      :is="p.icon"
+                      :size="16"
+                      :class="pickedPreset === p.v ? 'text-amber-600' : 'text-ink-500'" />
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span
+                      class="block text-[13.5px] font-semibold leading-tight"
+                      :class="pickedPreset === p.v ? 'text-amber-700 dark:text-amber-400' : 'text-ink-900'">
+                      {{ p.label }}
+                    </span>
+                    <span class="block text-[11.5px] text-ink-500 leading-snug mt-0.5">{{ p.hint }}</span>
+                  </span>
+                  <span
+                    class="absolute top-3.5 right-3.5 w-3 h-3 rounded-full transition-all"
+                    :class="pickedPreset === p.v
+                      ? 'bg-amber-400 ring-[3px] ring-amber-400/25'
+                      : 'border border-ink-300 dark:border-ink-400/60'"
+                  />
+                </button>
+              </div>
 
               <p v-if="wizardErr" class="text-[12.5px] text-danger bg-danger/10 rounded-xl px-4 py-3">{{ wizardErr }}</p>
 
-              <Button variant="accent" size="xl" block @click="createDevice">
-                Получить VPN-ключ
-              </Button>
+              <div class="flex items-center gap-2">
+                <Button variant="secondary" size="lg" @click="wizardStep = 'pick'">
+                  <ChevronLeft :size="16" />
+                  Назад
+                </Button>
+                <Button variant="accent" size="lg" block @click="createDevice">
+                  Создать ключ
+                </Button>
+              </div>
 
-              <p class="text-[11.5px] text-ink-500 text-center pb-1">
-                Уникальная защита AmneziaWG 2.0 создаётся автоматически
-              </p>
+              <!-- Step indicator -->
+              <div class="flex items-center justify-center gap-1.5 pt-1">
+                <span class="w-1 h-1 rounded-full bg-ink-300" />
+                <span class="w-5 h-1 rounded-full bg-amber-400" />
+              </div>
             </div>
 
             <!-- ── Step: Creating ── -->
@@ -809,19 +894,24 @@ const qrDeviceName = computed(() =>
               </div>
             </div>
 
-            <!-- ── Step: Done ── -->
+            <!--
+              ── Step: Done ──
+              The QR is the centerpiece — phone-camera scanning takes
+              seconds, .vpn download is for desktop. So: large QR hero,
+              one primary "Скачать .vpn" + a thin "Скопировать vpn://"
+              inline under it. Header collapses to the success chip +
+              device name; no redundant "Этот ключ только для..."
+              copy since the device name is already at the top.
+            -->
             <div v-else-if="wizardStep === 'done' && justAdded" class="p-6 space-y-5 animate-fade-in">
               <div class="flex items-start justify-between gap-3">
-                <div class="space-y-1">
-                  <div class="flex items-center gap-2">
-                    <div class="w-6 h-6 rounded-full bg-success/15 flex items-center justify-center">
-                      <Check :size="13" class="text-success" />
-                    </div>
-                    <h3 class="text-[18px] font-semibold">Ключ готов!</h3>
+                <div class="min-w-0 flex-1">
+                  <div class="inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] font-semibold text-success bg-success/12 px-2 py-1 rounded-full">
+                    <Check :size="11" />
+                    Ключ готов
                   </div>
-                  <p class="text-[12.5px] text-ink-500 pl-8">
-                    {{ justAdded.name }} <span class="mono">· {{ justAdded.address }}</span>
-                  </p>
+                  <h3 class="text-[22px] font-semibold mt-2.5 leading-tight truncate">{{ justAdded.name }}</h3>
+                  <p class="text-[11.5px] text-ink-500 mt-0.5 mono">{{ justAdded.address }}</p>
                 </div>
                 <IconButton size="sm" title="Закрыть" @click="closeWizard">
                   <X :size="16" />
@@ -834,47 +924,43 @@ const qrDeviceName = computed(() =>
                 the obfuscated payload exceeded ~3KB; we reuse the same
                 chunked carousel that the device-card fullscreen viewer uses.
               -->
-              <div class="flex flex-col items-center gap-3 py-1">
+              <div class="flex flex-col items-center gap-2 py-1">
                 <QrCarousel
                   :token="token"
                   :device-id="justAdded.deviceId"
                   :device-name="justAdded.name"
-                  :size="240"
+                  :size="260"
                 />
-                <div class="text-center">
-                  <p class="text-[12.5px] font-semibold text-ink-700 dark:text-ink-600">Отсканируйте в приложении AmneziaVPN</p>
-                  <p class="text-[11px] text-ink-500 mt-0.5">Android · iOS · Windows · macOS · Linux</p>
-                </div>
+                <p class="text-[11.5px] text-ink-500 text-center mt-1">
+                  Отсканируйте в приложении AmneziaVPN
+                </p>
               </div>
 
               <a
                 :href="amneziaVpn(justAdded.deviceId)"
                 :download="`${justAdded.name}.vpn`"
-                class="btn-primary flex w-full h-13 items-center justify-center gap-2 text-[14.5px] py-3.5">
+                class="btn-primary flex w-full h-12 items-center justify-center gap-2 text-[14px]">
                 <Download :size="16" />
                 Скачать .vpn файл
               </a>
 
-              <div class="flex gap-2">
+              <!-- Secondary inline row: copy vpn:// + add another. -->
+              <div class="flex items-center justify-between gap-2 text-[12px]">
                 <button
-                  class="flex-1 h-11 flex items-center justify-center gap-1.5 rounded-xl text-[12.5px] font-semibold transition-all"
-                  :class="justCopied ? 'bg-success/12 text-success' : 'btn-secondary'"
+                  class="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors"
+                  :class="justCopied ? 'text-success' : 'text-ink-500 hover:text-ink-900'"
                   @click="copyJustAddedVpn">
-                  <Check v-if="justCopied" :size="14" />
-                  <Copy v-else :size="14" />
+                  <Check v-if="justCopied" :size="13" />
+                  <Copy v-else :size="13" />
                   {{ justCopied ? 'Скопировано' : 'Скопировать vpn://' }}
                 </button>
+                <button
+                  class="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-ink-500 hover:text-ink-900 transition-colors"
+                  @click="openWizard()">
+                  <Plus :size="13" />
+                  Добавить ещё
+                </button>
               </div>
-
-              <p class="text-[11.5px] text-ink-500 text-center leading-relaxed">
-                Этот ключ только для «{{ justAdded.name }}».<br>
-                Каждое устройство — свой ключ.
-              </p>
-
-              <Button variant="secondary" size="md" block @click="openWizard()">
-                <Plus :size="15" />
-                Добавить ещё устройство
-              </Button>
             </div>
 
           </div>
