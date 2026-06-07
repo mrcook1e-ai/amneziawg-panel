@@ -26,6 +26,7 @@ import CopyButton from '@/components/molecules/CopyButton.vue'
 import EventRow from '@/components/molecules/EventRow.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import StatBlock from '@/components/molecules/StatBlock.vue'
+import SplitTunnelPicker from '@/components/molecules/SplitTunnelPicker.vue'
 import QrModal from '@/components/organisms/QrModal.vue'
 import ConfigModal from '@/components/organisms/ConfigModal.vue'
 import Button from '@/components/atoms/Button.vue'
@@ -378,9 +379,13 @@ async function confirmDelete() {
               <Input v-model="form.dnsOverride" placeholder="по умолчанию" mono />
             </div>
 
-            <div>
-              <label class="eyebrow block mb-2">Allowed IPs</label>
+            <div class="space-y-3">
+              <label class="eyebrow block">Allowed IPs</label>
               <Input v-model="form.allowedIPsOverride" placeholder="по умолчанию" mono />
+              <SplitTunnelPicker
+                :value="form.allowedIPsOverride"
+                @update:value="v => form.allowedIPsOverride = v"
+              />
             </div>
           </div>
           <div class="hairline mx-4" />
