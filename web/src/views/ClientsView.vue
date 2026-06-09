@@ -10,6 +10,7 @@ import { bytes, handshakeFreshness, relativeTime } from '@/lib/format'
 
 import TopBar from '@/components/organisms/TopBar.vue'
 import MetricCard from '@/components/molecules/MetricCard.vue'
+import Segmented from '@/components/atoms/Segmented.vue'
 import SubscriberModal from '@/components/organisms/SubscriberModal.vue'
 import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import EmptyState from '@/components/molecules/EmptyState.vue'
@@ -218,51 +219,31 @@ async function doRegen() {
       </header>
 
       <!-- ── Stats strip ── -->
-      <section class="space-y-4 animate-rise delay-1">
-        <!-- Period tabs -->
-        <div class="flex items-center gap-1 w-fit p-1 bg-ink-100 rounded-xl">
-          <button
-            v-for="p in periods"
-            :key="p.value"
-            type="button"
-            class="px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all"
-            :class="period === p.value
-              ? 'bg-white shadow-sm text-ink-900'
-              : 'text-ink-500 hover:text-ink-700'"
-            @click="period = p.value"
-          >{{ p.label }}</button>
-        </div>
+      <section class="space-y-6 animate-rise delay-1">
+        <!-- Period selector — uses the Segmented atom -->
+        <Segmented v-model="period" :options="periods" />
 
-        <!-- Metrics -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <!-- Devices online — neutral -->
-          <div class="rounded-xl border border-ink-200 bg-ink-50/60 px-5 py-4">
-            <MetricCard
-              eyebrow="Устройств онлайн"
-              kind="ratio"
-              size="normal"
-              :numerator="onlineNow"
-              :denominator="clients.items.length"
-            />
-          </div>
-          <!-- Incoming — green -->
-          <div class="rounded-xl border-l-[3px] border border-success/30 border-l-success bg-success/5 px-5 py-4">
-            <MetricCard
-              :eyebrow="`↓ Входящий · ${periodLabel}`"
-              kind="bytes"
-              size="normal"
-              :value="rxForPeriod"
-            />
-          </div>
-          <!-- Outgoing — amber -->
-          <div class="rounded-xl border-l-[3px] border border-amber-200 border-l-amber-400 bg-amber-50/70 px-5 py-4">
-            <MetricCard
-              :eyebrow="`↑ Исходящий · ${periodLabel}`"
-              kind="bytes"
-              size="normal"
-              :value="txForPeriod"
-            />
-          </div>
+        <!-- Metrics — clean grid, no card backgrounds -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-8 sm:gap-6">
+          <MetricCard
+            eyebrow="Устройств онлайн"
+            kind="ratio"
+            size="normal"
+            :numerator="onlineNow"
+            :denominator="clients.items.length"
+          />
+          <MetricCard
+            :eyebrow="`↓ Входящий · ${periodLabel}`"
+            kind="bytes"
+            size="normal"
+            :value="rxForPeriod"
+          />
+          <MetricCard
+            :eyebrow="`↑ Исходящий · ${periodLabel}`"
+            kind="bytes"
+            size="normal"
+            :value="txForPeriod"
+          />
         </div>
       </section>
 

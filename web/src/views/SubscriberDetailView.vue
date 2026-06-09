@@ -10,7 +10,7 @@ import { useTitle } from '@/composables/useTitle'
 import { handshakeFreshness, relativeTime } from '@/lib/format'
 import type { Subscriber, ClientStats } from '@/types'
 
-import { Download, QrCode, ArrowDown, ArrowUp } from 'lucide-vue-next'
+import { Download, QrCode } from 'lucide-vue-next'
 import TopBar from '@/components/organisms/TopBar.vue'
 import QrModal from '@/components/organisms/QrModal.vue'
 import ConfigModal from '@/components/organisms/ConfigModal.vue'
@@ -300,18 +300,25 @@ async function doRegen() {
 
         <!-- Метрики -->
         <template v-if="statsLoading">
-          <div class="grid grid-cols-3 gap-6 sm:gap-4">
-            <div v-for="i in 6" :key="i" class="space-y-2">
-              <Skeleton width="80" height="10" />
-              <Skeleton width="70%" height="36" rounded="lg" />
+          <div class="space-y-6">
+            <div v-for="row in 2" :key="row" class="space-y-3">
+              <Skeleton width="100" height="10" />
+              <div class="grid grid-cols-3 gap-6 sm:gap-4">
+                <div v-for="i in 3" :key="i" class="space-y-2">
+                  <Skeleton width="72" height="10" />
+                  <Skeleton width="80%" height="36" rounded="lg" />
+                </div>
+              </div>
             </div>
           </div>
         </template>
         <template v-else>
-          <!-- Входящий -->
-          <div class="rounded-xl border-l-[3px] border border-success/25 border-l-success bg-success/5 px-5 py-4 space-y-3">
-            <div class="eyebrow text-success flex items-center gap-1.5 font-semibold">
-              <ArrowDown :size="11" />Входящий
+          <!-- Входящий — dot accent -->
+          <div class="space-y-4">
+            <div class="flex items-center gap-2">
+              <span class="inline-block w-2 h-2 rounded-full bg-success shrink-0" />
+              <span class="eyebrow">Входящий</span>
+              <div class="hairline flex-1" />
             </div>
             <div class="grid grid-cols-3 gap-6 sm:gap-4">
               <StatBlock eyebrow="За 5 минут" :value="cs?.rxLast || 0" />
@@ -319,10 +326,12 @@ async function doRegen() {
               <StatBlock eyebrow="За 7 дней"  :value="cs?.rx7d || 0" />
             </div>
           </div>
-          <!-- Исходящий -->
-          <div class="rounded-xl border-l-[3px] border border-amber-200 border-l-amber-400 bg-amber-50/70 px-5 py-4 space-y-3">
-            <div class="eyebrow text-amber-500 flex items-center gap-1.5 font-semibold">
-              <ArrowUp :size="11" />Исходящий
+          <!-- Исходящий — dot accent -->
+          <div class="space-y-4">
+            <div class="flex items-center gap-2">
+              <span class="inline-block w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+              <span class="eyebrow">Исходящий</span>
+              <div class="hairline flex-1" />
             </div>
             <div class="grid grid-cols-3 gap-6 sm:gap-4">
               <StatBlock eyebrow="За 5 минут" :value="cs?.txLast || 0" />
@@ -330,19 +339,14 @@ async function doRegen() {
               <StatBlock eyebrow="За 7 дней"  :value="cs?.tx7d || 0" />
             </div>
           </div>
-          <!-- Online ratio — progress bar -->
-          <div class="space-y-2 pt-1 border-t border-ink-900/5">
-            <div class="eyebrow text-ink-500">Онлайн · 7 дн</div>
-            <div class="flex items-center gap-4">
-              <span class="num-display-soft tnum text-ink-900 text-[34px] sm:text-[40px] leading-none">
-                {{ Math.round((cs?.onlineRatio7d || 0) * 100) }}<span class="mono text-[10.5px] text-ink-500 uppercase tracking-wider ml-1">%</span>
-              </span>
-              <div class="flex-1 h-1.5 bg-ink-200 rounded-full overflow-hidden">
-                <div
-                  class="h-full bg-success rounded-full transition-all duration-700"
-                  :style="{ width: Math.round((cs?.onlineRatio7d || 0) * 100) + '%' }"
-                />
-              </div>
+          <!-- Online ratio -->
+          <div class="flex items-center gap-6 pt-2 border-t border-ink-900/5">
+            <StatBlock eyebrow="Онлайн · 7 дн" :raw="Math.round((cs?.onlineRatio7d || 0) * 100) + '%'" />
+            <div class="flex-1 h-px bg-ink-200 rounded-full overflow-hidden mt-6">
+              <div
+                class="h-full bg-ink-400 rounded-full transition-all duration-700"
+                :style="{ width: Math.round((cs?.onlineRatio7d || 0) * 100) + '%' }"
+              />
             </div>
           </div>
         </template>

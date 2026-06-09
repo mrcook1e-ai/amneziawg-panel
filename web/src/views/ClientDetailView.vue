@@ -15,7 +15,6 @@ import { useProfilesStore } from '@/stores/profiles'
 import { useInterval } from '@/composables/useInterval'
 import { useTitle } from '@/composables/useTitle'
 import { useToastStore } from '@/stores/toasts'
-import { ArrowDown, ArrowUp } from 'lucide-vue-next'
 import { bytes, relativeTime, handshakeFreshness, stateLabelRu } from '@/lib/format'
 import type { ClientStats, AppEvent } from '@/types'
 
@@ -272,11 +271,13 @@ async function confirmDelete() {
 
       <template v-if="client">
         <!-- Телеметрия -->
-        <section class="space-y-4 animate-rise delay-1">
-          <!-- Входящий -->
-          <div class="rounded-xl border-l-[3px] border border-success/25 border-l-success bg-success/5 px-5 py-4 space-y-3">
-            <div class="eyebrow text-success flex items-center gap-1.5 font-semibold">
-              <ArrowDown :size="11" />Входящий
+        <section class="space-y-6 animate-rise delay-1">
+          <!-- Входящий — dot accent -->
+          <div class="space-y-4">
+            <div class="flex items-center gap-2">
+              <span class="inline-block w-2 h-2 rounded-full bg-success shrink-0" />
+              <span class="eyebrow">Входящий</span>
+              <div class="hairline flex-1" />
             </div>
             <div class="grid grid-cols-3 gap-6 sm:gap-4">
               <StatBlock eyebrow="За 5 минут" :value="cs?.rxLast || 0" />
@@ -284,10 +285,12 @@ async function confirmDelete() {
               <StatBlock eyebrow="За 7 дней"  :value="cs?.rx7d || 0" />
             </div>
           </div>
-          <!-- Исходящий -->
-          <div class="rounded-xl border-l-[3px] border border-amber-200 border-l-amber-400 bg-amber-50/70 px-5 py-4 space-y-3">
-            <div class="eyebrow text-amber-500 flex items-center gap-1.5 font-semibold">
-              <ArrowUp :size="11" />Исходящий
+          <!-- Исходящий — dot accent -->
+          <div class="space-y-4">
+            <div class="flex items-center gap-2">
+              <span class="inline-block w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+              <span class="eyebrow">Исходящий</span>
+              <div class="hairline flex-1" />
             </div>
             <div class="grid grid-cols-3 gap-6 sm:gap-4">
               <StatBlock eyebrow="За 5 минут" :value="cs?.txLast || 0" />
@@ -295,19 +298,14 @@ async function confirmDelete() {
               <StatBlock eyebrow="За 7 дней"  :value="cs?.tx7d || 0" />
             </div>
           </div>
-          <!-- Online ratio — progress bar -->
-          <div class="space-y-2 pt-1 border-t border-ink-900/5">
-            <div class="eyebrow text-ink-500">Доступен · 7 дн</div>
-            <div class="flex items-center gap-4">
-              <span class="num-display-soft tnum text-ink-900 text-[34px] sm:text-[40px] leading-none">
-                {{ Math.round((cs?.onlineRatio7d || 0) * 100) }}<span class="mono text-[10.5px] text-ink-500 uppercase tracking-wider ml-1">%</span>
-              </span>
-              <div class="flex-1 h-1.5 bg-ink-200 rounded-full overflow-hidden">
-                <div
-                  class="h-full bg-success rounded-full transition-all duration-700"
-                  :style="{ width: Math.round((cs?.onlineRatio7d || 0) * 100) + '%' }"
-                />
-              </div>
+          <!-- Online ratio -->
+          <div class="flex items-center gap-6 pt-2 border-t border-ink-900/5">
+            <StatBlock eyebrow="Доступен · 7 дн" :raw="Math.round((cs?.onlineRatio7d || 0) * 100) + '%'" />
+            <div class="flex-1 h-px bg-ink-200 rounded-full overflow-hidden mt-6">
+              <div
+                class="h-full bg-ink-400 rounded-full transition-all duration-700"
+                :style="{ width: Math.round((cs?.onlineRatio7d || 0) * 100) + '%' }"
+              />
             </div>
           </div>
         </section>

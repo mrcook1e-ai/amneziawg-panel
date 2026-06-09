@@ -4,7 +4,9 @@
 
 @layer base {
   /*
-    Two themes, one variable set. Light = warm paper. Dark = graphite.
+    Two themes, one variable set.
+    Light  = warm paper  (cream whites, warm grays).
+    Dark   = warm graphite (R-channel nudged +1..+2 so surfaces don't read blue).
     Components reference --ink-* / --surface-* and never know which theme is on.
   */
   :root {
@@ -34,11 +36,6 @@
   }
 
   .dark {
-    /*
-      Warm graphite — same value scale as before, but the base R-channel is
-      nudged +1..+2 so dark surfaces don't read as clinical/blue. Pairs with
-      the amber accent without becoming sepia.
-    */
     --ink-50:    12  11  10;
     --ink-100:  30  28  26;
     --ink-200:  46  44  42;
@@ -78,16 +75,17 @@
 
   ::selection { background: rgb(var(--ink-900)); color: rgb(var(--ink-50)); }
 
-  /* Tabular numerals — telemetry needs aligned digits everywhere. */
+  /* Tabular numerals — telemetry needs aligned digits. */
   .tnum { font-variant-numeric: tabular-nums; }
 }
 
 @layer components {
-  /*
-    Card / glass — no border. 0.5px subpixel borders on filled surfaces look
-    misaligned on most displays and read as generic shadcn. Edge comes from
-    surface-against-page contrast + a soft shadow only.
+  /* ── Surfaces ──────────────────────────────────────────────────────────
+     Card: no border — edge comes from surface-vs-page contrast + soft shadow.
+     Glass: backdrop-blur panel for modals and overlays.
+     Scrim: translucent overlay; blur is committed from frame 0 to avoid lag.
   */
+
   .card {
     background-color: rgb(var(--surface-raised));
     @apply rounded-2xl;
@@ -105,13 +103,6 @@
       0 16px 36px -18px rgba(0, 0, 0, 0.32);
   }
 
-  /*
-    Scrim — mounted at full opacity so backdrop-filter is composited from
-    the first frame. Lighter blur (6px vs 10px) keeps GPU cost low and
-    avoids the "dark first, blur later" lag that opacity-transitioned
-    scrims show on Chrome/Safari. The dark dim fades in via a short CSS
-    keyframe on background-color, while the filter stays committed.
-  */
   .scrim {
     background-color: rgb(var(--scrim) / var(--scrim-alpha));
     backdrop-filter: blur(6px) saturate(140%);
@@ -124,27 +115,29 @@
     to   { background-color: rgb(var(--scrim) / var(--scrim-alpha)); }
   }
 
+  /* ── Focus ─────────────────────────────────────────────────────────── */
+
   .focus-ring {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-900/15 focus-visible:ring-offset-1;
     --tw-ring-offset-color: rgb(var(--surface));
   }
 
-  /* Eyebrow — small uppercase label above sections / cards. */
+  /* ── Typography ────────────────────────────────────────────────────── */
+
+  /* Eyebrow — small uppercase label above sections / stats. */
   .eyebrow {
     @apply text-[10.5px] uppercase text-ink-500;
     font-weight: 500;
     letter-spacing: 0.12em;
   }
 
+  /* Hairline — 1px semantic separator. */
   .hairline {
     height: 1px;
     background-color: var(--hairline);
   }
 
-  /*
-    Display numerals — Onest at heavy weight, tight tracking, tabular nums.
-    Clean, no serif, no italic. Reads as instrument/console.
-  */
+  /* Display numerals — heavy, tight, instrument-console feel. */
   .num-display {
     font-family: theme('fontFamily.sans');
     font-weight: 700;
@@ -153,6 +146,7 @@
     line-height: 0.95;
   }
 
+  /* Soft display — medium weight for secondary metric values. */
   .num-display-soft {
     font-family: theme('fontFamily.sans');
     font-weight: 500;
@@ -161,18 +155,16 @@
     line-height: 1;
   }
 
+  /* Mono — IPs, keys, ports, timestamps. */
   .mono {
     font-family: theme('fontFamily.mono');
     font-feature-settings: 'tnum' 1;
     letter-spacing: 0;
   }
-}
 
-@layer components {
-  /*
-    Skeleton — мягкий пульс серой полоски, держит layout пока данные грузятся.
-    Используется только для верхнеуровневых блоков (карточки, строки списка),
-    не для каждого элементного байта.
+  /* ── Skeletons ──────────────────────────────────────────────────────
+     Soft pulse — holds layout while data loads.
+     Only for block-level elements, not individual bytes.
   */
   .skeleton {
     background-color: rgb(var(--ink-900) / 0.06);
@@ -185,28 +177,11 @@
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.55; }
   }
-}
 
-@layer utilities {
-  .delay-1 { animation-delay: 60ms;  }
-  .delay-2 { animation-delay: 120ms; }
-  .delay-3 { animation-delay: 180ms; }
-  .delay-4 { animation-delay: 240ms; }
-  .delay-5 { animation-delay: 320ms; }
-  .delay-6 { animation-delay: 420ms; }
-  .delay-7 { animation-delay: 520ms; }
-  .delay-8 { animation-delay: 640ms; }
-}
-
-/* ── Cabinet (user-facing) background ─────────────────────────── */
-@layer utilities {
-  .cabinet-surface {
-    background-color: rgb(var(--surface));
-  }
-
-  /*
-    Live dot — shown next to online clients.
-    Two layers: inner solid + outer expanding ring.
+  /* ── Dots ───────────────────────────────────────────────────────────
+     live-dot  — pulsing green ring for online peers (main status indicator).
+     amber-dot — pulsing amber ring for topbar / admin accent.
+     Use plain Tailwind w-2 h-2 rounded-full for static point accents.
   */
   .live-dot {
     position: relative;
@@ -235,7 +210,6 @@
     background: #34c759;
   }
 
-  /* Amber live dot variant — for topbar / admin accent */
   .amber-dot {
     position: relative;
     display: inline-flex;
@@ -262,27 +236,20 @@
     border-radius: 9999px;
     background: #E8A041;
   }
-}
 
-/* ── Universal button primitives ────────────────────────────────
-   btn-primary: тёмный фон в светлой теме / светлый фон в тёмной.
-   Используем amber как accent, чтобы не зависеть от ink-инверсии.
-   btn-secondary: тонированный, нейтральный.
-   btn-ghost: прозрачный с hover-fill.
-*/
-@layer components {
+  /* ── Buttons ────────────────────────────────────────────────────────
+     btn-primary: amber accent — theme-independent, always warm gold.
+     btn-secondary: tinted neutral.
+     btn-ghost: transparent with hover fill.
+     Used in CabinetView and DownloadActions.
+  */
   .btn-primary {
     @apply px-4 py-2 rounded-2xl font-semibold transition-all active:scale-[0.97];
     background-color: #E8A041;
     color: #1A1200;
   }
   .btn-primary:hover { background-color: #D4882A; }
-
-  /* dark: amber на тёмном смотрится хорошо и сохраняет контраст */
-  .dark .btn-primary {
-    background-color: #E8A041;
-    color: #0E0900;
-  }
+  .dark .btn-primary       { background-color: #E8A041; color: #0E0900; }
   .dark .btn-primary:hover { background-color: #F5B558; }
 
   .btn-secondary {
@@ -300,10 +267,8 @@
     background-color: rgb(var(--ink-100));
     color: rgb(var(--ink-900));
   }
-}
 
-/* ── Device card lift on hover ────────────────────────────────── */
-@layer components {
+  /* ── Device card (CabinetView) ──────────────────────────────────── */
   .device-card {
     transition: box-shadow 0.2s ease, transform 0.2s ease;
   }
@@ -311,20 +276,28 @@
     box-shadow: 0 2px 8px rgba(10,10,12,0.06), 0 12px 32px -12px rgba(10,10,12,0.12);
     transform: translateY(-1px);
   }
-}
 
-/* ── Stat hero number ─────────────────────────────────────────── */
-@layer components {
-  .stat-hero {
-    font-family: theme('fontFamily.sans');
-    font-weight: 700;
-    font-feature-settings: 'tnum' 1, 'lnum' 1, 'ss01' 1;
-    letter-spacing: -0.04em;
-    line-height: 0.9;
+  /* ── Cabinet surface ────────────────────────────────────────────── */
+  .cabinet-surface {
+    background-color: rgb(var(--surface));
   }
+
+  /* ── Sheet (bottom drawer) transitions ─────────────────────────── */
 }
 
-/* ── Bottom sheet transition ─────────────────────────────────── */
+@layer utilities {
+  /* Staggered animation delays — for list/section reveal sequences. */
+  .delay-1 { animation-delay: 60ms;  }
+  .delay-2 { animation-delay: 120ms; }
+  .delay-3 { animation-delay: 180ms; }
+  .delay-4 { animation-delay: 240ms; }
+  .delay-5 { animation-delay: 320ms; }
+  .delay-6 { animation-delay: 420ms; }
+  .delay-7 { animation-delay: 520ms; }
+  .delay-8 { animation-delay: 640ms; }
+}
+
+/* Sheet transitions — kept outside @layer to preserve specificity order. */
 .sheet-enter-active { transition: opacity 0.22s ease; }
 .sheet-leave-active { transition: opacity 0.18s ease; }
 .sheet-enter-active .sheet-panel { transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
