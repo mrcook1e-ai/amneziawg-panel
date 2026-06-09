@@ -33,7 +33,8 @@ services:
 
     ports:
       # Диапазон UDP-портов: один на каждый профиль (awg0=51820, awg1=51821, …).
-      - "${WG_PORT_RANGE_START:-51820}-${WG_PORT_RANGE_END:-51829}:51820-51829/udp"
+      # По умолчанию 40 портов (51820-51859) — достаточно для 40 профилей.
+      - "${WG_PORT_RANGE_START:-51820}-${WG_PORT_RANGE_END:-51859}:51820-51859/udp"
       - "${HTTP_PORT:-51821}:51821/tcp" # Веб-морда панели
 
     environment:
@@ -45,7 +46,7 @@ services:
       # только если знаешь зачем).
       WG_PORT: ${WG_PORT:-51820}
       WG_PORT_RANGE_START: ${WG_PORT_RANGE_START:-51820}
-      WG_PORT_RANGE_END: ${WG_PORT_RANGE_END:-51829}
+      WG_PORT_RANGE_END: ${WG_PORT_RANGE_END:-51859}
       WG_INTERFACE: ${WG_INTERFACE:-awg0}
       WG_DEFAULT_ADDRESS: ${WG_DEFAULT_ADDRESS:-10.8.0.x}
       WG_DEFAULT_DNS: ${WG_DEFAULT_DNS:-1.1.1.1}
