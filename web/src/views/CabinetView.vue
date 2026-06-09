@@ -491,12 +491,12 @@ const qrDeviceName = computed(() =>
             <div class="p-4">
               <!-- Top row: icon + name + status -->
               <div class="flex items-start gap-3.5 mb-3.5">
-                <!-- Device icon with status colour -->
+                <!-- Device icon — background matches status: green / amber / gray -->
                 <div
                   class="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
                   :class="{
-                    'bg-success/12': devStatus(d) === 'online',
-                    'bg-warning/10': devStatus(d) === 'recent',
+                    'bg-success/20':                devStatus(d) === 'online',
+                    'bg-warning/15':                devStatus(d) === 'recent',
                     'bg-ink-100 dark:bg-ink-200/50': devStatus(d) === 'away' || devStatus(d) === 'never',
                   }">
                   <component
@@ -533,9 +533,7 @@ const qrDeviceName = computed(() =>
                     </Badge>
                     <template v-else>
                       <span class="text-ink-300 text-[9px] select-none">·</span>
-                      <span
-                        class="text-[11.5px]"
-                        :class="devStatus(d) === 'recent' ? 'text-warning font-medium' : 'text-ink-500'">
+                      <span class="text-[11.5px] text-ink-500">
                         {{ relTime(d.latestHandshakeAt) }}
                       </span>
                     </template>
