@@ -106,6 +106,12 @@ export interface Overview {
   txLast: number
   rxToday: number
   txToday: number
+  rx7d: number
+  tx7d: number
+  rx30d: number
+  tx30d: number
+  rxTotal: number
+  txTotal: number
   top: TopRow[] | null
   asof: string
 }

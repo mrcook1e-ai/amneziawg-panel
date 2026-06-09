@@ -28,6 +28,12 @@ type Overview struct {
 	TxLast        uint64    `json:"txLast"`        // bytes outbound in the window
 	RxToday       uint64    `json:"rxToday"`
 	TxToday       uint64    `json:"txToday"`
+	Rx7d          uint64    `json:"rx7d"`
+	Tx7d          uint64    `json:"tx7d"`
+	Rx30d         uint64    `json:"rx30d"`
+	Tx30d         uint64    `json:"tx30d"`
+	RxTotal       uint64    `json:"rxTotal"`
+	TxTotal       uint64    `json:"txTotal"`
 	Top           []TopRow  `json:"top"`          // top talkers, 24h
 	Asof          time.Time `json:"asof"`
 }
@@ -124,6 +130,26 @@ func GetOverview(ctx context.Context, d *db.DB) (Overview, error) {
 		`SELECT COALESCE(SUM(rx),0), COALESCE(SUM(tx),0)
 		 FROM peer_daily WHERE day = ?`, dayStart,
 	).Scan(&out.RxToday, &out.TxToday); err != nil {
+		return out, err
+	}
+
+	day7 := dayBucket(now.Add(-7 * 24 * time.Hour))
+	if err := d.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(rx),0), COALESCE(SUM(tx),0) FROM peer_daily WHERE day >= ?`, day7,
+	).Scan(&out.Rx7d, &out.Tx7d); err != nil {
+		return out, err
+	}
+
+	day30 := dayBucket(now.Add(-30 * 24 * time.Hour))
+	if err := d.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(rx),0), COALESCE(SUM(tx),0) FROM peer_daily WHERE day >= ?`, day30,
+	).Scan(&out.Rx30d, &out.Tx30d); err != nil {
+		return out, err
+	}
+
+	if err := d.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(rx),0), COALESCE(SUM(tx),0) FROM peer_daily`,
+	).Scan(&out.RxTotal, &out.TxTotal); err != nil {
 		return out, err
 	}
 

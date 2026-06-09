@@ -15,6 +15,7 @@ import { useProfilesStore } from '@/stores/profiles'
 import { useInterval } from '@/composables/useInterval'
 import { useTitle } from '@/composables/useTitle'
 import { useToastStore } from '@/stores/toasts'
+import { ArrowDown, ArrowUp } from 'lucide-vue-next'
 import { bytes, relativeTime, handshakeFreshness, stateLabelRu } from '@/lib/format'
 import type { ClientStats, AppEvent } from '@/types'
 
@@ -28,7 +29,6 @@ import ConfirmDialog from '@/components/molecules/ConfirmDialog.vue'
 import StatBlock from '@/components/molecules/StatBlock.vue'
 import DownloadActions from '@/components/molecules/DownloadActions.vue'
 import Button from '@/components/atoms/Button.vue'
-import Select from '@/components/atoms/Select.vue'
 import Switch from '@/components/atoms/Switch.vue'
 import StatusDot from '@/components/atoms/StatusDot.vue'
 import Spinner from '@/components/atoms/Spinner.vue'
@@ -77,21 +77,6 @@ onMounted(async () => {
   await loadAll()
 })
 
-// Profile-move (administrative). Changing peer's profile re-issues the WG
-// peer on the new interface, which means a brief reconnect.
-const profileOptions = computed(() =>
-  profiles.items.map(p => ({ value: p.id, label: `${p.name} · :${p.port}` })),
-)
-const movingProfile = ref(false)
-async function moveToProfile(newId: string) {
-  if (!client.value || newId === client.value.profileId || movingProfile.value) return
-  movingProfile.value = true
-  try {
-    await clients.move(client.value.id, newId)
-  } finally {
-    movingProfile.value = false
-  }
-}
 // SSE handles audit events for this client; poll only for handshake freshness.
 useInterval(() => clients.fetch(true), 15000, { pauseHidden: true })
 useInterval(loadAll, 8000, { pauseHidden: true })
@@ -287,11 +272,44 @@ async function confirmDelete() {
 
       <template v-if="client">
         <!-- Телеметрия -->
-        <section class="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-4 animate-rise delay-1">
-          <StatBlock eyebrow="За 5 минут"   :value="cs?.rxLast || 0" />
-          <StatBlock eyebrow="За 24 часа"   :value="cs?.rx24h || 0" />
-          <StatBlock eyebrow="За 7 дней"    :value="cs?.rx7d || 0" />
-          <StatBlock eyebrow="Доступен · 7 дн" :raw="Math.round((cs?.onlineRatio7d || 0) * 100) + '%'" />
+        <section class="space-y-4 animate-rise delay-1">
+          <!-- Входящий -->
+          <div class="rounded-xl border-l-[3px] border border-success/25 border-l-success bg-success/5 px-5 py-4 space-y-3">
+            <div class="eyebrow text-success flex items-center gap-1.5 font-semibold">
+              <ArrowDown :size="11" />Входящий
+            </div>
+            <div class="grid grid-cols-3 gap-6 sm:gap-4">
+              <StatBlock eyebrow="За 5 минут" :value="cs?.rxLast || 0" />
+              <StatBlock eyebrow="За 24 часа" :value="cs?.rx24h || 0" />
+              <StatBlock eyebrow="За 7 дней"  :value="cs?.rx7d || 0" />
+            </div>
+          </div>
+          <!-- Исходящий -->
+          <div class="rounded-xl border-l-[3px] border border-amber-200 border-l-amber-400 bg-amber-50/70 px-5 py-4 space-y-3">
+            <div class="eyebrow text-amber-500 flex items-center gap-1.5 font-semibold">
+              <ArrowUp :size="11" />Исходящий
+            </div>
+            <div class="grid grid-cols-3 gap-6 sm:gap-4">
+              <StatBlock eyebrow="За 5 минут" :value="cs?.txLast || 0" />
+              <StatBlock eyebrow="За 24 часа" :value="cs?.tx24h || 0" />
+              <StatBlock eyebrow="За 7 дней"  :value="cs?.tx7d || 0" />
+            </div>
+          </div>
+          <!-- Online ratio — progress bar -->
+          <div class="space-y-2 pt-1 border-t border-ink-900/5">
+            <div class="eyebrow text-ink-500">Доступен · 7 дн</div>
+            <div class="flex items-center gap-4">
+              <span class="num-display-soft tnum text-ink-900 text-[34px] sm:text-[40px] leading-none">
+                {{ Math.round((cs?.onlineRatio7d || 0) * 100) }}<span class="mono text-[10.5px] text-ink-500 uppercase tracking-wider ml-1">%</span>
+              </span>
+              <div class="flex-1 h-1.5 bg-ink-200 rounded-full overflow-hidden">
+                <div
+                  class="h-full bg-success rounded-full transition-all duration-700"
+                  :style="{ width: Math.round((cs?.onlineRatio7d || 0) * 100) + '%' }"
+                />
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- График 24ч -->
@@ -363,22 +381,6 @@ async function confirmDelete() {
           </InfoRow>
           <InfoRow label="Добавлен">
             <span class="mono text-ink-700">{{ new Date(client.createdAt).toLocaleString('ru-RU') }}</span>
-          </InfoRow>
-        </Section>
-
-        <!-- Профиль подключения -->
-        <Section title="Профиль" footer="При смене профиля устройство перевыпускается на другом интерфейсе — короткий разрыв подключения, клиент переподключится автоматически.">
-          <InfoRow label="Профиль подключения">
-            <div class="w-full max-w-xs">
-              <Select
-                :model-value="client.profileId"
-                :options="profileOptions"
-                size="sm"
-                :disabled="movingProfile || profileOptions.length <= 1"
-                aria-label="Профиль подключения"
-                @update:model-value="moveToProfile"
-              />
-            </div>
           </InfoRow>
         </Section>
 

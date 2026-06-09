@@ -10,7 +10,7 @@ import { useTitle } from '@/composables/useTitle'
 import { handshakeFreshness, relativeTime } from '@/lib/format'
 import type { Subscriber, ClientStats } from '@/types'
 
-import { Download, QrCode } from 'lucide-vue-next'
+import { Download, QrCode, ArrowDown, ArrowUp } from 'lucide-vue-next'
 import TopBar from '@/components/organisms/TopBar.vue'
 import QrModal from '@/components/organisms/QrModal.vue'
 import ConfigModal from '@/components/organisms/ConfigModal.vue'
@@ -299,24 +299,57 @@ async function doRegen() {
         </div>
 
         <!-- Метрики -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-4">
-          <template v-if="statsLoading">
-            <div v-for="i in 4" :key="i" class="space-y-2">
+        <template v-if="statsLoading">
+          <div class="grid grid-cols-3 gap-6 sm:gap-4">
+            <div v-for="i in 6" :key="i" class="space-y-2">
               <Skeleton width="80" height="10" />
               <Skeleton width="70%" height="36" rounded="lg" />
             </div>
-          </template>
-          <template v-else>
-            <StatBlock eyebrow="За 5 минут"      :value="cs?.rxLast || 0" />
-            <StatBlock eyebrow="За 24 часа"      :value="cs?.rx24h || 0" />
-            <StatBlock eyebrow="За 7 дней"       :value="cs?.rx7d || 0" />
-            <StatBlock eyebrow="Онлайн · 7 дн"   :raw="Math.round((cs?.onlineRatio7d || 0) * 100) + '%'" />
-          </template>
-        </div>
+          </div>
+        </template>
+        <template v-else>
+          <!-- Входящий -->
+          <div class="rounded-xl border-l-[3px] border border-success/25 border-l-success bg-success/5 px-5 py-4 space-y-3">
+            <div class="eyebrow text-success flex items-center gap-1.5 font-semibold">
+              <ArrowDown :size="11" />Входящий
+            </div>
+            <div class="grid grid-cols-3 gap-6 sm:gap-4">
+              <StatBlock eyebrow="За 5 минут" :value="cs?.rxLast || 0" />
+              <StatBlock eyebrow="За 24 часа" :value="cs?.rx24h || 0" />
+              <StatBlock eyebrow="За 7 дней"  :value="cs?.rx7d || 0" />
+            </div>
+          </div>
+          <!-- Исходящий -->
+          <div class="rounded-xl border-l-[3px] border border-amber-200 border-l-amber-400 bg-amber-50/70 px-5 py-4 space-y-3">
+            <div class="eyebrow text-amber-500 flex items-center gap-1.5 font-semibold">
+              <ArrowUp :size="11" />Исходящий
+            </div>
+            <div class="grid grid-cols-3 gap-6 sm:gap-4">
+              <StatBlock eyebrow="За 5 минут" :value="cs?.txLast || 0" />
+              <StatBlock eyebrow="За 24 часа" :value="cs?.tx24h || 0" />
+              <StatBlock eyebrow="За 7 дней"  :value="cs?.tx7d || 0" />
+            </div>
+          </div>
+          <!-- Online ratio — progress bar -->
+          <div class="space-y-2 pt-1 border-t border-ink-900/5">
+            <div class="eyebrow text-ink-500">Онлайн · 7 дн</div>
+            <div class="flex items-center gap-4">
+              <span class="num-display-soft tnum text-ink-900 text-[34px] sm:text-[40px] leading-none">
+                {{ Math.round((cs?.onlineRatio7d || 0) * 100) }}<span class="mono text-[10.5px] text-ink-500 uppercase tracking-wider ml-1">%</span>
+              </span>
+              <div class="flex-1 h-1.5 bg-ink-200 rounded-full overflow-hidden">
+                <div
+                  class="h-full bg-success rounded-full transition-all duration-700"
+                  :style="{ width: Math.round((cs?.onlineRatio7d || 0) * 100) + '%' }"
+                />
+              </div>
+            </div>
+          </div>
+        </template>
 
         <!-- Sparkline 24ч -->
         <div class="card p-5 sm:p-7">
-          <div class="eyebrow mb-4 text-ink-500">Входящий трафик за 24 часа</div>
+          <div class="eyebrow mb-4 text-ink-500">Трафик за 24 часа</div>
           <Sparkline v-if="cs && cs.series?.length" :points="cs.series" :height="100" />
           <Skeleton v-else-if="statsLoading" height="100" rounded="lg" />
           <div v-else class="h-[100px] grid place-items-center text-[12px] text-ink-500">

@@ -87,6 +87,37 @@ const hasActivity = computed(() =>
   (stats.overview?.rxToday ?? 0) > 0 || (stats.overview?.txToday ?? 0) > 0
 )
 
+// ── Period selector ─────────────────────────────────────────────────────
+type Period = 'today' | '7d' | '30d' | 'total'
+const period = ref<Period>('today')
+
+const periods: { value: Period; label: string }[] = [
+  { value: 'today', label: 'Сегодня' },
+  { value: '7d',    label: '7 дней' },
+  { value: '30d',   label: '30 дней' },
+  { value: 'total', label: 'Всё время' },
+]
+
+const rxForPeriod = computed(() => {
+  const o = stats.overview
+  if (!o) return 0
+  if (period.value === 'today') return o.rxToday
+  if (period.value === '7d')    return o.rx7d
+  if (period.value === '30d')   return o.rx30d
+  return o.rxTotal
+})
+
+const txForPeriod = computed(() => {
+  const o = stats.overview
+  if (!o) return 0
+  if (period.value === 'today') return o.txToday
+  if (period.value === '7d')    return o.tx7d
+  if (period.value === '30d')   return o.tx30d
+  return o.txTotal
+})
+
+const periodLabel = computed(() => periods.find(p => p.value === period.value)?.label ?? '')
+
 // ── Create subscriber ───────────────────────────────────────────────────
 const subModalOpen = ref(false)
 const subModalBusy = ref(false)
@@ -187,26 +218,52 @@ async function doRegen() {
       </header>
 
       <!-- ── Stats strip ── -->
-      <section class="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-rise delay-1">
-        <MetricCard
-          eyebrow="Устройств онлайн"
-          kind="ratio"
-          size="normal"
-          :numerator="onlineNow"
-          :denominator="clients.items.length"
-        />
-        <MetricCard
-          eyebrow="Входящий · сегодня"
-          kind="bytes"
-          size="normal"
-          :value="stats.overview?.rxToday || 0"
-        />
-        <MetricCard
-          eyebrow="Исходящий · сегодня"
-          kind="bytes"
-          size="normal"
-          :value="stats.overview?.txToday || 0"
-        />
+      <section class="space-y-4 animate-rise delay-1">
+        <!-- Period tabs -->
+        <div class="flex items-center gap-1 w-fit p-1 bg-ink-100 rounded-xl">
+          <button
+            v-for="p in periods"
+            :key="p.value"
+            type="button"
+            class="px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all"
+            :class="period === p.value
+              ? 'bg-white shadow-sm text-ink-900'
+              : 'text-ink-500 hover:text-ink-700'"
+            @click="period = p.value"
+          >{{ p.label }}</button>
+        </div>
+
+        <!-- Metrics -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <!-- Devices online — neutral -->
+          <div class="rounded-xl border border-ink-200 bg-ink-50/60 px-5 py-4">
+            <MetricCard
+              eyebrow="Устройств онлайн"
+              kind="ratio"
+              size="normal"
+              :numerator="onlineNow"
+              :denominator="clients.items.length"
+            />
+          </div>
+          <!-- Incoming — green -->
+          <div class="rounded-xl border-l-[3px] border border-success/30 border-l-success bg-success/5 px-5 py-4">
+            <MetricCard
+              :eyebrow="`↓ Входящий · ${periodLabel}`"
+              kind="bytes"
+              size="normal"
+              :value="rxForPeriod"
+            />
+          </div>
+          <!-- Outgoing — amber -->
+          <div class="rounded-xl border-l-[3px] border border-amber-200 border-l-amber-400 bg-amber-50/70 px-5 py-4">
+            <MetricCard
+              :eyebrow="`↑ Исходящий · ${periodLabel}`"
+              kind="bytes"
+              size="normal"
+              :value="txForPeriod"
+            />
+          </div>
+        </div>
       </section>
 
       <!-- ── Subscriber list ── -->
@@ -390,8 +447,8 @@ async function doRegen() {
         <span class="text-ink-300">·</span>
         <span class="mono normal-case tracking-normal text-ink-500">
           {{ onlineNow }} / {{ clients.items.length }} онлайн
-          <template v-if="hasActivity">
-            · <ArrowDown :size="10" class="inline-block align-middle" /> {{ bytes(stats.overview!.rxToday) }} · <ArrowUp :size="10" class="inline-block align-middle" /> {{ bytes(stats.overview!.txToday) }}
+          <template v-if="rxForPeriod > 0 || txForPeriod > 0">
+            · <ArrowDown :size="10" class="inline-block align-middle" /> {{ bytes(rxForPeriod) }} · <ArrowUp :size="10" class="inline-block align-middle" /> {{ bytes(txForPeriod) }}
           </template>
         </span>
       </footer>
