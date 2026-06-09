@@ -53,7 +53,7 @@ function toggleTheme() {
 // Two-stage flow: pick (type + name) → config (protection profile) →
 // creating → done. The config step is opt-out-friendly: 'Авто' is
 // pre-selected, the user can just tap "Создать ключ" without thinking.
-type WizardStep = 'pick' | 'config' | 'creating' | 'done'
+type WizardStep = 'pick' | 'config' | 'split' | 'creating' | 'done'
 const wizardOpen     = ref(false)
 const wizardStep     = ref<WizardStep>('pick')
 const wizardErr      = ref('')
@@ -233,6 +233,10 @@ function closeWizard() { wizardOpen.value = false; justAdded.value = null }
 function goToConfig() {
   // Name is optional; defaults to the template name. No validation gate here.
   wizardStep.value = 'config'
+}
+
+function goToSplit() {
+  wizardStep.value = 'split'
 }
 
 async function createDevice() {
@@ -552,7 +556,7 @@ const qrDeviceName = computed(() =>
 
               <!-- Actions -->
               <div class="flex items-center gap-2 pt-3.5">
-                <!-- QR — primary, opens inline fullscreen -->
+                <!-- QR — primary, opens fullscreen carousel -->
                 <Button
                   variant="accent"
                   class="flex-1 !text-[12.5px]"
@@ -563,17 +567,21 @@ const qrDeviceName = computed(() =>
                   QR-код
                 </Button>
 
-                <!-- .vpn download -->
-                <a
-                  :href="amneziaVpn(d.id)"
-                  :download="`${d.name}.vpn`"
-                  class="btn-secondary flex-1 flex items-center justify-center gap-1.5 h-10 text-[12.5px] font-semibold"
-                  title="Скачать .vpn">
-                  <Download :size="14" />
-                  .vpn
-                </a>
+                <!-- Copy vpn:// — replaces the old .vpn download button -->
+                <button
+                  class="flex-1 flex items-center justify-center gap-1.5 h-10 rounded-xl text-[12.5px] font-semibold transition-colors"
+                  :class="copiedId === d.id
+                    ? 'bg-success/12 text-success'
+                    : 'bg-ink-100 dark:bg-ink-200/50 text-ink-700 hover:bg-ink-200 dark:hover:bg-ink-300/50'"
+                  :title="copiedId === d.id ? 'Скопировано!' : 'Скопировать ключ'"
+                  :aria-label="`Скопировать ключ для ${d.name}`"
+                  @click="copyVpn(d.id)">
+                  <Check v-if="copiedId === d.id" :size="14" />
+                  <Copy  v-else :size="14" />
+                  {{ copiedId === d.id ? 'Скопировано' : 'Скопировать' }}
+                </button>
 
-                <!-- Overflow menu — shared DropdownMenu molecule. -->
+                <!-- Overflow menu — .vpn download + delete -->
                 <DropdownMenu align="right" width="w-52">
                   <template #trigger="{ open, toggle }">
                     <button
@@ -590,10 +598,15 @@ const qrDeviceName = computed(() =>
                     </button>
                   </template>
                   <template #default="{ close }">
-                    <DropdownItem @click="copyVpn(d.id); close()">
-                      <Check v-if="copiedId === d.id" :size="15" class="text-success" />
-                      <Copy  v-else :size="15" class="text-ink-500" />
-                      {{ copiedId === d.id ? 'Скопировано' : 'Скопировать vpn://' }}
+                    <DropdownItem @click="close()">
+                      <a
+                        :href="amneziaVpn(d.id)"
+                        :download="`${d.name}.vpn`"
+                        class="flex items-center gap-2 w-full"
+                        @click.stop="close()">
+                        <Download :size="15" class="text-ink-500 shrink-0" />
+                        Скачать .vpn
+                      </a>
                     </DropdownItem>
                     <DropdownSeparator />
                     <DropdownItem tone="danger" @click="deleteFor = d; close()">
@@ -823,9 +836,10 @@ const qrDeviceName = computed(() =>
                 <ChevronRight :size="16" />
               </Button>
 
-              <!-- Step indicator — small dots under the CTA. -->
+              <!-- Step indicator — 3 dots -->
               <div class="flex items-center justify-center gap-1.5 pt-1">
                 <span class="w-5 h-1 rounded-full bg-amber-400" />
+                <span class="w-1 h-1 rounded-full bg-ink-300" />
                 <span class="w-1 h-1 rounded-full bg-ink-300" />
               </div>
             </div>
@@ -891,13 +905,74 @@ const qrDeviceName = computed(() =>
                   <ChevronLeft :size="16" />
                   Назад
                 </Button>
+                <Button variant="accent" size="lg" block @click="goToSplit">
+                  Далее
+                  <ChevronRight :size="16" />
+                </Button>
+              </div>
+
+              <!-- Step indicator — 3 dots -->
+              <div class="flex items-center justify-center gap-1.5 pt-1">
+                <span class="w-1 h-1 rounded-full bg-ink-300" />
+                <span class="w-5 h-1 rounded-full bg-amber-400" />
+                <span class="w-1 h-1 rounded-full bg-ink-300" />
+              </div>
+            </div>
+
+            <!-- ── Step: Split tunneling ── -->
+            <!--
+              Step 3 of 3 — shown before key creation so the user downloads
+              the IP list while the app is fresh in mind. Most users skipped
+              this when it lived as a ghost button at the bottom of the page.
+              "Пропустить" is a small link — not a button — so it reads as
+              secondary without creating a visual distraction.
+            -->
+            <div v-else-if="wizardStep === 'split'" class="p-6 space-y-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="text-[19px] font-semibold">Раздельный туннель</h3>
+                  <p class="text-[12.5px] text-ink-500 mt-0.5">Только нужные сайты — через VPN</p>
+                </div>
+                <IconButton size="sm" title="Закрыть" @click="closeWizard">
+                  <X :size="16" />
+                </IconButton>
+              </div>
+
+              <div class="rounded-2xl bg-ink-100 dark:bg-ink-200/40 p-4 space-y-3">
+                <p class="text-[13px] text-ink-700 dark:text-ink-600 leading-relaxed">
+                  Скачайте список заблокированных ресурсов и импортируйте в AmneziaVPN —
+                  тогда через туннель пойдёт только нужное, а остальное без VPN.
+                </p>
+                <ol class="space-y-1 text-[12px] text-ink-500 list-decimal list-inside marker:text-ink-300 leading-relaxed">
+                  <li>Скачайте файл ниже.</li>
+                  <li>В AmneziaVPN: ключ → <strong class="text-ink-700 dark:text-ink-500">Раздельное туннелирование</strong>.</li>
+                  <li>Нажмите <span class="mono font-semibold">•••</span> → <strong class="text-ink-700 dark:text-ink-500">Импорт</strong> → выберите файл.</li>
+                </ol>
+              </div>
+
+              <a
+                :href="IPLIST_URL"
+                target="_blank"
+                rel="noopener"
+                class="btn-primary flex items-center justify-center gap-2 h-12 text-[14px] w-full">
+                <Download :size="16" />
+                Скачать список сайтов
+                <ExternalLink :size="13" class="opacity-60" />
+              </a>
+
+              <div class="flex items-center gap-2">
+                <Button variant="secondary" size="lg" @click="wizardStep = 'config'">
+                  <ChevronLeft :size="16" />
+                  Назад
+                </Button>
                 <Button variant="accent" size="lg" block @click="createDevice">
                   Создать ключ
                 </Button>
               </div>
 
-              <!-- Step indicator -->
+              <!-- Step indicator — 3 dots, last active -->
               <div class="flex items-center justify-center gap-1.5 pt-1">
+                <span class="w-1 h-1 rounded-full bg-ink-300" />
                 <span class="w-1 h-1 rounded-full bg-ink-300" />
                 <span class="w-5 h-1 rounded-full bg-amber-400" />
               </div>
@@ -918,14 +993,11 @@ const qrDeviceName = computed(() =>
               </div>
             </div>
 
-            <!--
-              ── Step: Done ──
-              The QR is the centerpiece — phone-camera scanning takes
-              seconds, .vpn download is for desktop. So: large QR hero,
-              one primary "Скачать .vpn" + a thin "Скопировать vpn://"
-              inline under it. Header collapses to the success chip +
-              device name; no redundant "Этот ключ только для..."
-              copy since the device name is already at the top.
+            <!-- ── Step: Done ──
+              Copy is the primary action: one tap, paste in AmneziaVPN.
+              QR removed — chunked QRs at 260px are too dense for most
+              phone cameras; copy+paste is more reliable.
+              Download stays as a fallback for desktop users.
             -->
             <div v-else-if="wizardStep === 'done' && justAdded" class="p-6 space-y-5 animate-fade-in">
               <div class="flex items-start justify-between gap-3">
@@ -942,42 +1014,37 @@ const qrDeviceName = computed(() =>
                 </IconButton>
               </div>
 
-              <!--
-                Amnezia QR hero — chunked carousel.
-                The legacy single-PNG endpoint produced un-scannable QRs once
-                the obfuscated payload exceeded ~3KB; we reuse the same
-                chunked carousel that the device-card fullscreen viewer uses.
-              -->
-              <div class="flex flex-col items-center gap-2 py-1">
-                <QrCarousel
-                  :token="token"
-                  :device-id="justAdded.deviceId"
-                  :device-name="justAdded.name"
-                  :size="260"
-                />
-                <p class="text-[11.5px] text-ink-500 text-center mt-1">
-                  Отсканируйте в приложении AmneziaVPN
-                </p>
+              <!-- How-to card -->
+              <div class="rounded-2xl bg-ink-100/70 dark:bg-ink-200/30 p-4 space-y-1.5">
+                <p class="text-[12px] font-semibold text-ink-700 dark:text-ink-500 uppercase tracking-[0.10em]">Как подключиться</p>
+                <ol class="space-y-1 text-[12.5px] text-ink-600 dark:text-ink-500 list-decimal list-inside marker:text-ink-400 leading-relaxed">
+                  <li>Нажмите <strong class="text-ink-800 dark:text-ink-400">«Скопировать ключ»</strong> ниже.</li>
+                  <li>Откройте <strong class="text-ink-800 dark:text-ink-400">AmneziaVPN</strong> → «+» → «Вставить конфигурацию».</li>
+                  <li>Или скачайте <span class="mono font-semibold">.vpn</span> и откройте через приложение.</li>
+                </ol>
               </div>
 
-              <a
-                :href="amneziaVpn(justAdded.deviceId)"
-                :download="`${justAdded.name}.vpn`"
-                class="btn-primary flex w-full h-12 items-center justify-center gap-2 text-[14px]">
-                <Download :size="16" />
-                Скачать .vpn файл
-              </a>
+              <!-- Primary: Copy — large amber button -->
+              <button
+                class="w-full h-13 flex items-center justify-center gap-2.5 rounded-2xl text-[15px] font-semibold transition-all active:scale-[0.98]"
+                :class="justCopied
+                  ? 'bg-success/15 text-success ring-2 ring-success/25'
+                  : 'bg-amber-400 text-amber-950 hover:bg-amber-500'"
+                @click="copyJustAddedVpn">
+                <Check v-if="justCopied" :size="17" />
+                <Copy  v-else :size="17" />
+                {{ justCopied ? 'Скопировано!' : 'Скопировать ключ' }}
+              </button>
 
-              <!-- Secondary inline row: copy vpn:// + add another. -->
+              <!-- Secondary row: .vpn download + add more -->
               <div class="flex items-center justify-between gap-2 text-[12px]">
-                <button
-                  class="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors"
-                  :class="justCopied ? 'text-success' : 'text-ink-500 hover:text-ink-900'"
-                  @click="copyJustAddedVpn">
-                  <Check v-if="justCopied" :size="13" />
-                  <Copy v-else :size="13" />
-                  {{ justCopied ? 'Скопировано' : 'Скопировать vpn://' }}
-                </button>
+                <a
+                  :href="amneziaVpn(justAdded.deviceId)"
+                  :download="`${justAdded.name}.vpn`"
+                  class="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-ink-500 hover:text-ink-900 transition-colors">
+                  <Download :size="13" />
+                  Скачать .vpn
+                </a>
                 <button
                   class="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-ink-500 hover:text-ink-900 transition-colors"
                   @click="openWizard()">
