@@ -16,6 +16,7 @@
 - **Метрики** — 24-часовой график трафика, top-talkers, per-client история, дневные агрегаты на 365 дней.
 - **AmneziaWG-обфускация** — Jc / Jmin / Jmax / S1 / S2 / H1–H4, кнопка регенерации.
 - **AmneziaVPN-ссылки** + QR-коды (стандарт WG и AmneziaVPN).
+- **Расходы на хостинг** — поделите стоимость сервера между «плательщиками»: расчётные периоды с равным делением суммы, авто-отключение должников после льготного периода, ручная отметка оплаты или приём платежей через ЮKassa.
 - **Тёмная / светлая тема** с автоматикой по системе.
 - **Rate-limit** на логине (5 попыток/мин на IP), session-cookie auth.
 - **Healthz** для uptime-мониторинга.
@@ -83,6 +84,10 @@ docker run -d \
 | `AWG_BIN` | `awg` | путь к `awg` |
 | `AWG_QUICK_BIN` | `awg-quick` | путь к `awg-quick` |
 | `JC`, `JMIN`, `JMAX`, `S1`, `S2`, `H1..H4` | дефолты | обфускация (`1,2,3,4` для H = триггер на random) |
+| `YOOKASSA_SHOP_ID` | пусто | ID магазина ЮKassa — онлайн-оплата включается, только если заданы и `YOOKASSA_SHOP_ID`, и `YOOKASSA_SECRET_KEY`, и `PUBLIC_URL` |
+| `YOOKASSA_SECRET_KEY` | пусто | секретный ключ ЮKassa |
+| `YOOKASSA_VAT_CODE` | `1` | код НДС для чека (1 = без НДС) |
+| `PUBLIC_URL` | пусто | внешний HTTPS-адрес панели для возврата после оплаты (напр. `https://vpn.example.com`) |
 
 ## API
 
@@ -118,6 +123,18 @@ GET    /api/wireguard/client/{id}/events
 GET    /api/stats/overview
 GET    /api/stats/series?range=24h
 GET    /api/events?limit=50
+
+GET    /api/billing/cycles
+POST   /api/billing/cycles                       { title, periodStart, periodEnd, paymentDueAt, graceEndsAt, totalAmount }
+GET    /api/billing/cycles/{id}
+POST   /api/billing/cycles/{id}/publish
+POST   /api/billing/invoices/{id}/pay
+GET    /api/billing/summary
+
+GET    /api/cabinet/{token}/billing              — публичная сводка для кабинета плательщика
+POST   /api/cabinet/{token}/billing/checkout     { invoiceId, email }
+POST   /api/billing/yookassa/webhook             — webhook ЮKassa
+GET    /payment/return/{publicToken}             — редирект после оплаты
 
 GET    /api/backup                              → tar.gz
 POST   /api/restore                             multipart file=
