@@ -195,6 +195,7 @@ export interface CabinetView {
 export type InvoiceStatus = 'pending' | 'paid' | 'canceled'
 export type BillingCycleStatus = 'draft' | 'published' | 'closed'
 export type CabinetBillingStatus = 'exempt' | 'pending' | 'grace' | 'overdue' | 'paid'
+export type BillingSplitMode = 'equal' | 'traffic'
 
 export interface BillingInvoice {
 	 id: number
@@ -215,10 +216,18 @@ export interface BillingCycle {
 	 graceEndsAt: number
 	 totalAmount: number
 	 status: BillingCycleStatus
+	 splitMode: BillingSplitMode
 	 payerCount: number
 	 createdAt: number
 	 publishedAt?: number | null
 	 invoices?: BillingInvoice[]
+}
+
+export interface BillingPreviewLine {
+	 subscriberId: string
+	 subscriberName: string
+	 bytes: number
+	 amount: number
 }
 
 export interface BillingSummary {

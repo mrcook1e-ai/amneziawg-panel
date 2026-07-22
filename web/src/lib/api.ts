@@ -3,7 +3,7 @@ import type {
   Overview, Series, ClientStats, AppEvent, ClientPatch,
   ProfileInfo, ProfileCreateBody, ProfilePatchBody, CreateClientArgs,
 	 Subscriber, CabinetView, AddDeviceResult, BillingRole,
-	 BillingCycle, BillingSummary, CabinetBillingSummary,
+	 BillingCycle, BillingSummary, CabinetBillingSummary, BillingPreviewLine,
 } from '@/types'
 
 export class ApiError extends Error {
@@ -96,6 +96,7 @@ export const api = {
 	 // Shared hosting expenses (admin)
 	 billingCycles: () => request<BillingCycle[]>('/api/billing/cycles'),
 	 billingCycle: (id: number) => request<BillingCycle>(`/api/billing/cycles/${id}`),
+	 billingCyclePreview: (id: number) => request<BillingPreviewLine[]>(`/api/billing/cycles/${id}/preview`),
 	 createBillingCycle: (body: Omit<BillingCycle, 'id' | 'status' | 'payerCount' | 'createdAt' | 'publishedAt' | 'invoices'>) =>
 		 request<BillingCycle>('/api/billing/cycles', { method: 'POST', body: JSON.stringify(body) }),
 	 publishBillingCycle: (id: number) =>

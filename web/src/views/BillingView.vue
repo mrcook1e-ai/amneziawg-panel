@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { useSubscribersStore } from '@/stores/subscribers'
 import { useToastStore } from '@/stores/toasts'
 import { useTitle } from '@/composables/useTitle'
-import type { BillingCycle, BillingInvoice } from '@/types'
+import type { BillingCycle, BillingInvoice, BillingPreviewLine, BillingSplitMode } from '@/types'
 import TopBar from '@/components/organisms/TopBar.vue'
 import Button from '@/components/atoms/Button.vue'
 import Badge from '@/components/atoms/Badge.vue'
@@ -46,7 +46,10 @@ const draft = ref({
 	 periodEnd: dateInput(monthEnd),
 	 paymentDueAt: dateInput(addDays(monthEnd, 5)),
 	 graceEndsAt: dateInput(addDays(monthEnd, 8)),
+	 splitMode: 'equal' as BillingSplitMode,
 })
+const preview = ref<BillingPreviewLine[]>([])
+const previewLoading = ref(false)
 
 const payerCount = computed(() => subs.items.filter(s => s.billingRole === 'payer').length)
 const previewShare = computed(() => {
@@ -57,6 +60,13 @@ const previewShare = computed(() => {
 function money(kopecks: number) {
 	 return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }).format(kopecks / 100)
 }
+function fmtBytes(n: number) {
+	 if (!n) return '0 МБ'
+	 const mb = n / (1024 * 1024)
+	 if (mb < 1024) return `${mb.toFixed(0)} МБ`
+	 return `${(mb / 1024).toFixed(1)} ГБ`
+}
+function splitLabel(m?: string) { return m === 'traffic' ? 'по трафику' : 'поровну' }
 function day(ts: number) {
 	 return new Date(ts * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
@@ -80,9 +90,20 @@ async function load() {
 
 async function openCycle(cycle: BillingCycle) {
 	 detailLoading.value = true
-	 try { selected.value = await api.billingCycle(cycle.id) }
+	 preview.value = []
+	 try {
+		 selected.value = await api.billingCycle(cycle.id)
+		 if (selected.value?.status === 'draft') loadPreview(cycle.id)
+	 }
 	 catch (e: any) { toasts.error(e?.message || 'Не удалось загрузить счета') }
 	 finally { detailLoading.value = false }
+}
+
+async function loadPreview(id: number) {
+	 previewLoading.value = true
+	 try { preview.value = await api.billingCyclePreview(id) }
+	 catch { preview.value = [] }
+	 finally { previewLoading.value = false }
 }
 
 async function createCycle() {
@@ -97,6 +118,7 @@ async function createCycle() {
 			 title: draft.value.title.trim(), totalAmount,
 			 periodStart: unix(draft.value.periodStart), periodEnd: unix(draft.value.periodEnd),
 			 paymentDueAt: unix(draft.value.paymentDueAt), graceEndsAt: unix(draft.value.graceEndsAt),
+			 splitMode: draft.value.splitMode,
 		 })
 		 createOpen.value = false
 		 await load()
@@ -207,7 +229,7 @@ onMounted(load)
 					<button v-for="cycle in cycles" :key="cycle.id" class="w-full px-5 py-4 flex items-center gap-4 text-left hover:bg-ink-100/50 transition-colors" @click="openCycle(cycle)">
 						<CalendarDays :size="18" class="text-ink-400 shrink-0" />
 						<div class="flex-1 min-w-0"><div class="font-semibold text-[14px]">{{ cycle.title }}</div><div class="text-[11.5px] text-ink-500 mt-0.5">{{ day(cycle.periodStart) }} — {{ day(cycle.periodEnd) }} · {{ cycle.payerCount || payerCount }} чел.</div></div>
-						<div class="text-right"><div class="mono tnum text-[13px] font-semibold">{{ money(cycle.totalAmount) }}</div><Badge :tone="statusTone(cycle.status)" size="xs">{{ cycle.status === 'draft' ? 'черновик' : cycle.status === 'closed' ? 'закрыт' : 'опубликован' }}</Badge></div>
+						<div class="text-right"><div class="mono tnum text-[13px] font-semibold">{{ money(cycle.totalAmount) }}</div><Badge :tone="statusTone(cycle.status)" size="xs">{{ cycle.status === 'draft' ? 'черновик' : cycle.status === 'closed' ? 'закрыт' : 'опубликован' }}</Badge><div class="text-[10.5px] text-ink-400 mt-0.5">{{ splitLabel(cycle.splitMode) }}</div></div>
 					</button>
 				</div>
 			</section>
@@ -220,12 +242,32 @@ onMounted(load)
 					<div class="p-4 rounded-2xl bg-ink-100"><div class="eyebrow mb-1">Сумма</div><div class="num-display text-[25px]">{{ money(selected.totalAmount) }}</div></div>
 					<div class="p-4 rounded-2xl bg-ink-100"><div class="eyebrow mb-1">Плательщиков</div><div class="num-display text-[25px]">{{ selected.payerCount || payerCount }}</div></div>
 				</div>
-				<div class="text-[12px] text-ink-500 flex flex-wrap gap-4"><span><Clock3 :size="13" class="inline" /> оплатить до {{ day(selected.paymentDueAt) }}</span><span>отключение после {{ day(selected.graceEndsAt) }}</span></div>
-				<div v-if="selected.status === 'draft'" class="p-4 rounded-2xl bg-warning/10 space-y-3">
-					<p class="text-[12.5px] text-warning">При публикации состав и суммы счетов фиксируются навсегда.</p>
-					<Button variant="primary" block :loading="publishing === selected.id" @click="publish(selected)"><Users :size="15" /> Опубликовать счета</Button>
-					<Button variant="ghost" block :loading="deleting === selected.id" @click="deleteDraft(selected)">Удалить черновик</Button>
+			<div class="text-[12px] text-ink-500 flex flex-wrap gap-4"><span><Clock3 :size="13" class="inline" /> оплатить до {{ day(selected.paymentDueAt) }}</span><span>отключение после {{ day(selected.graceEndsAt) }}</span></div>
+
+			<!-- Превью дележа для черновика -->
+			<div v-if="selected.status === 'draft'" class="rounded-2xl bg-ink-100 p-4 space-y-3">
+				<div class="flex items-center justify-between">
+					<div class="eyebrow text-ink-500">Делёж · {{ splitLabel(selected.splitMode) }}</div>
+					<div v-if="selected.splitMode === 'traffic'" class="text-[10.5px] text-ink-400">трафик за 30 дней</div>
 				</div>
+				<div v-if="previewLoading" class="space-y-2"><Skeleton v-for="i in Math.min(payerCount||1,3)" :key="i" height="36" rounded="lg" /></div>
+				<div v-else-if="preview.length" class="divide-y divide-ink-900/5">
+					<div v-for="row in preview" :key="row.subscriberId" class="py-2 flex items-center gap-3">
+						<div class="flex-1 min-w-0">
+							<div class="text-[13px] font-medium text-ink-900 truncate">{{ row.subscriberName }}</div>
+							<div v-if="selected.splitMode === 'traffic'" class="text-[11px] text-ink-400">{{ fmtBytes(row.bytes) }}</div>
+						</div>
+						<div class="mono text-[12.5px] text-ink-700">{{ money(row.amount) }}</div>
+					</div>
+				</div>
+				<p v-else class="text-[12px] text-ink-400">Нет плательщиков — укажите роль «Плательщик» у клиентов.</p>
+			</div>
+
+			<div v-if="selected.status === 'draft'" class="p-4 rounded-2xl bg-warning/10 space-y-3">
+				<p class="text-[12.5px] text-warning">При публикации состав и суммы счетов фиксируются навсегда.</p>
+				<Button variant="primary" block :loading="publishing === selected.id" @click="publish(selected)"><Users :size="15" /> Опубликовать счета</Button>
+				<Button variant="ghost" block :loading="deleting === selected.id" @click="deleteDraft(selected)">Удалить черновик</Button>
+			</div>
 			<div v-else class="space-y-4">
 				<div v-if="selected.status === 'published'" class="flex justify-end">
 					<Button variant="ghost" size="sm" :loading="closing === selected.id" @click="closeCycle(selected)">Закрыть период</Button>
@@ -245,9 +287,15 @@ onMounted(load)
 		<Modal :open="createOpen" size="md" title="Новый расчётный период" @close="createOpen = false">
 			<div class="space-y-4">
 				<Field label="Название"><Input v-model="draft.title" placeholder="Июль 2026" /></Field>
-				<Field label="Стоимость хоста, ₽" :hint="payerCount ? `Примерно ${money(previewShare)} с каждого из ${payerCount}` : 'Нет отмеченных плательщиков'">
-					<Input v-model="draft.total" type="number" placeholder="3000" />
-				</Field>
+			<Field label="Стоимость хоста, ₽" :hint="payerCount ? (draft.splitMode === 'equal' ? `Примерно ${money(previewShare)} с каждого из ${payerCount}` : `Делится по трафику за 30 дней, ${payerCount} плательщиков`) : 'Нет отмеченных плательщиков'">
+				<Input v-model="draft.total" type="number" placeholder="3000" />
+			</Field>
+			<Field label="Как делить сумму">
+				<div class="flex gap-2">
+					<button type="button" class="flex-1 h-11 rounded-2xl text-[13px] font-medium transition-colors" :class="draft.splitMode === 'equal' ? 'bg-amber-400/20 text-ink-900 ring-1 ring-amber-400/40' : 'bg-ink-100 text-ink-500'" @click="draft.splitMode = 'equal'">Поровну</button>
+					<button type="button" class="flex-1 h-11 rounded-2xl text-[13px] font-medium transition-colors" :class="draft.splitMode === 'traffic' ? 'bg-amber-400/20 text-ink-900 ring-1 ring-amber-400/40' : 'bg-ink-100 text-ink-500'" @click="draft.splitMode = 'traffic'">По трафику</button>
+				</div>
+			</Field>
 				<div class="grid grid-cols-2 gap-3"><Field label="Начало"><Input v-model="draft.periodStart" type="date" /></Field><Field label="Конец"><Input v-model="draft.periodEnd" type="date" /></Field></div>
 				<div class="grid grid-cols-2 gap-3"><Field label="Оплатить до"><Input v-model="draft.paymentDueAt" type="date" /></Field><Field label="Отключить после"><Input v-model="draft.graceEndsAt" type="date" /></Field></div>
 			</div>

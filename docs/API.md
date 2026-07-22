@@ -119,8 +119,10 @@ Body: `{ "name": "Вася", "notes": "опционально" }`
 ## Billing (admin)
 
 Расходы на хостинг: админ создаёт расчётный период (draft) и публикует его —
-сумма делится поровну между подписчиками в роли `payer`. Статусы cycle:
+сумма делится между подписчиками в роли `payer`. Статусы cycle:
 `draft → published → closed`. Статусы invoice: `pending → paid | canceled`.
+`splitMode`: `equal` (поровну) или `traffic` (пропорционально трафику за 30 дней,
+каждый платит не меньше `BILLING_MIN_SHARE_PCT`% от равной доли).
 
 ### `GET /api/billing/summary`
 ```json
@@ -133,13 +135,20 @@ Body: `{ "name": "Вася", "notes": "опционально" }`
 ### `POST /api/billing/cycles`
 Body (unix-секунды, `totalAmount` в копейках):
 ```json
-{ "title": "Июль 2026", "periodStart": …, "periodEnd": …, "paymentDueAt": …, "graceEndsAt": …, "totalAmount": 300000 }
+{ "title": "Июль 2026", "periodStart": …, "periodEnd": …, "paymentDueAt": …, "graceEndsAt": …, "totalAmount": 300000, "splitMode": "traffic" }
 ```
 - `201` → `BillingCycle` (статус `draft`)
-- `400` при невалидных датах/сумме
+- `400` при невалидных датах/сумме/режиме
 
 ### `GET /api/billing/cycles/{id}`
 Деталка с массивом `invoices[]` (счета плательщиков).
+
+### `GET /api/billing/cycles/{id}/preview`
+Предпросмотр дележа по `splitMode` цикла без записи:
+```json
+[ { "subscriberId": "ab12cd34", "subscriberName": "Вася", "bytes": 17179869184, "amount": 75000 } ]
+```
+`bytes` — трафик за 30 дней (значимо только для `traffic`).
 
 ### `POST /api/billing/cycles/{id}/publish`
 Фиксирует состав и суммы счетов (равный делёж, remainder — первому по порядку).

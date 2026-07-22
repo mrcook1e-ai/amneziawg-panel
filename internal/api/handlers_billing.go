@@ -28,6 +28,7 @@ func (h *HandlersBilling) RegisterBillingRoutes(r chi.Router, auth *Auth) {
 			r.Get("/cycles", h.listCycles)
 			r.Post("/cycles", h.createCycle)
 			r.Get("/cycles/{id}", h.getCycle)
+			r.Get("/cycles/{id}/preview", h.previewSplit)
 			r.Post("/cycles/{id}/publish", h.publishCycle)
 			r.Post("/cycles/{id}/close", h.closeCycle)
 			r.Delete("/cycles/{id}", h.deleteCycle)
@@ -70,13 +71,14 @@ func (h *HandlersBilling) createCycle(w http.ResponseWriter, r *http.Request) {
 		PaymentDueAt int64  `json:"paymentDueAt"`
 		GraceEndsAt  int64  `json:"graceEndsAt"`
 		TotalAmount  int64  `json:"totalAmount"`
+		SplitMode    string `json:"splitMode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	c, err := h.Service.CreateDraftCycle(r.Context(), in.Title, in.PeriodStart, in.PeriodEnd, in.PaymentDueAt, in.GraceEndsAt, in.TotalAmount)
+	c, err := h.Service.CreateDraftCycle(r.Context(), in.Title, in.PeriodStart, in.PeriodEnd, in.PaymentDueAt, in.GraceEndsAt, in.TotalAmount, in.SplitMode)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -111,6 +113,26 @@ func (h *HandlersBilling) getCycle(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(c)
+}
+
+func (h *HandlersBilling) previewSplit(w http.ResponseWriter, r *http.Request) {
+	if h.Service == nil {
+		http.Error(w, "billing service disabled", http.StatusNotImplemented)
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	lines, err := h.Service.PreviewSplit(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(lines)
 }
 
 func (h *HandlersBilling) publishCycle(w http.ResponseWriter, r *http.Request) {

@@ -784,6 +784,20 @@ func (m *Manager) ListPayerSubscriberIDs() []string {
 	return ids
 }
 
+// DeviceIDsBySubscriber returns the device (client) IDs owned by a subscriber.
+// Used by billing to aggregate per-subscriber traffic from SQLite.
+func (m *Manager) DeviceIDsBySubscriber(subscriberID string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids := make([]string, 0)
+	for _, c := range m.clients {
+		if c.SubscriberID == subscriberID {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
+}
+
 // SuspendSubscriberClients suspends currently enabled clients of a subscriber by setting Enabled=false and BillingSuspended=true.
 func (m *Manager) SuspendSubscriberClients(subscriberID string) error {
 	m.mu.Lock()

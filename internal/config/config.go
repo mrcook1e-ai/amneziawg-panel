@@ -38,6 +38,10 @@ type Config struct {
 	// PaymentContact — короткая инструкция для ручной оплаты (напр. Telegram
 	// @handle), показывается плательщику в кабинете, пока не подключена ЮKassa.
 	PaymentContact string
+
+	// BillingMinSharePct — при дележе по трафику каждый плательщик платит не
+	// меньше этого процента от равной доли (env BILLING_MIN_SHARE_PCT, 0..100).
+	BillingMinSharePct int
 }
 
 func Load() Config {
@@ -64,6 +68,7 @@ func Load() Config {
 		YookassaVatCode:   envInt("YOOKASSA_VAT_CODE", 1),
 		PublicURL:         env("PUBLIC_URL", ""),
 		PaymentContact:    strings.TrimSpace(env("PAYMENT_CONTACT", "")),
+		BillingMinSharePct: envIntClamp("BILLING_MIN_SHARE_PCT", 25, 0, 100),
 	}
 }
 
@@ -103,4 +108,17 @@ func envInt(k string, def int) int {
 		}
 	}
 	return def
+}
+
+// envIntClamp returns envInt(k) bounded to [min, max]; falls back to def when
+// unset or unparseable.
+func envIntClamp(k string, def, min, max int) int {
+	v := envInt(k, def)
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
 }

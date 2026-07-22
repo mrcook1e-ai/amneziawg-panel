@@ -116,7 +116,7 @@ func TestEqualSplitAndRemainder(t *testing.T) {
 	}
 
 	// Create draft cycle
-	cycle, err := svc.CreateDraftCycle(context.Background(), "Cycle 1", 100, 200, 300, 400, 1000)
+	cycle, err := svc.CreateDraftCycle(context.Background(), "Cycle 1", 100, 200, 300, 400, 1000, billing.SplitModeEqual)
 	if err != nil {
 		t.Fatalf("failed to create draft cycle: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestCheckoutRejectsAnotherCabinetInvoice(t *testing.T) {
 	svc := billing.NewService(dbStore, mgr, config.Config{})
 	first, _ := mgr.CreateSubscriber("first", "", "payer")
 	second, _ := mgr.CreateSubscriber("second", "", "payer")
-	cycle, _ := svc.CreateDraftCycle(context.Background(), "Cycle", 100, 200, 300, 400, 500)
+	cycle, _ := svc.CreateDraftCycle(context.Background(), "Cycle", 100, 200, 300, 400, 500, billing.SplitModeEqual)
 	if err := svc.PublishCycle(context.Background(), cycle.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestManualPaymentIdempotency(t *testing.T) {
 	svc := billing.NewService(dbStore, mgr, cfg)
 
 	s1, _ := mgr.CreateSubscriber("sub1", "notes", "payer")
-	cycle, _ := svc.CreateDraftCycle(context.Background(), "Cycle", 100, 200, 300, 400, 500)
+	cycle, _ := svc.CreateDraftCycle(context.Background(), "Cycle", 100, 200, 300, 400, 500, billing.SplitModeEqual)
 	err := svc.PublishCycle(context.Background(), cycle.ID)
 	if err != nil {
 		t.Fatalf("publish error: %v", err)
@@ -428,7 +428,7 @@ func TestCabinetBillingSummaryStatusDerivation(t *testing.T) {
 	}
 
 	// 4. Payer summary with paid invoice
-	cycle, _ := svc.CreateDraftCycle(context.Background(), "Cycle", 100, 200, 300, 400, 500)
+	cycle, _ := svc.CreateDraftCycle(context.Background(), "Cycle", 100, 200, 300, 400, 500, billing.SplitModeEqual)
 	_ = svc.PublishCycle(context.Background(), cycle.ID)
 	var invoiceID int64
 	_ = dbStore.QueryRowContext(context.Background(), "SELECT id FROM invoices WHERE subscriber_id = ?", sPayer.ID).Scan(&invoiceID)
@@ -444,7 +444,7 @@ func TestCabinetBillingSummaryStatusDerivation(t *testing.T) {
 
 	// Pending (now < payment_due_at)
 	_, _ = dbStore.ExecContext(context.Background(), "DELETE FROM invoices")
-	cPending, err := svc.CreateDraftCycle(context.Background(), "PendingCycle", now-1000, now-500, now+500, now+1000, 500)
+	cPending, err := svc.CreateDraftCycle(context.Background(), "PendingCycle", now-1000, now-500, now+500, now+1000, 500, billing.SplitModeEqual)
 	if err != nil {
 		t.Fatalf("failed to create pending cycle: %v", err)
 	}
@@ -456,7 +456,7 @@ func TestCabinetBillingSummaryStatusDerivation(t *testing.T) {
 
 	// Grace (payment_due_at <= now < grace_ends_at)
 	_, _ = dbStore.ExecContext(context.Background(), "DELETE FROM invoices")
-	cGrace, _ := svc.CreateDraftCycle(context.Background(), "GraceCycle", now-1000, now-500, now-200, now+200, 500)
+	cGrace, _ := svc.CreateDraftCycle(context.Background(), "GraceCycle", now-1000, now-500, now-200, now+200, 500, billing.SplitModeEqual)
 	_ = svc.PublishCycle(context.Background(), cGrace.ID)
 	sumPayerGrace, _ := svc.GetCabinetSummary(context.Background(), sPayer.AccessToken)
 	if sumPayerGrace.DerivedStatus != "grace" {
@@ -465,7 +465,7 @@ func TestCabinetBillingSummaryStatusDerivation(t *testing.T) {
 
 	// Overdue (now >= grace_ends_at)
 	_, _ = dbStore.ExecContext(context.Background(), "DELETE FROM invoices")
-	cOverdue, _ := svc.CreateDraftCycle(context.Background(), "OverdueCycle", now-1000, now-500, now-400, now-200, 500)
+	cOverdue, _ := svc.CreateDraftCycle(context.Background(), "OverdueCycle", now-1000, now-500, now-400, now-200, 500, billing.SplitModeEqual)
 	_ = svc.PublishCycle(context.Background(), cOverdue.ID)
 	sumPayerOverdue, _ := svc.GetCabinetSummary(context.Background(), sPayer.AccessToken)
 	if sumPayerOverdue.DerivedStatus != "overdue" {
@@ -480,7 +480,7 @@ func TestCancelInvoice(t *testing.T) {
 
 	svc := billing.NewService(dbStore, mgr, config.Config{})
 	s1, _ := mgr.CreateSubscriber("sub1", "", "payer")
-	cycle, _ := svc.CreateDraftCycle(context.Background(), "C", 100, 200, 300, 400, 500)
+	cycle, _ := svc.CreateDraftCycle(context.Background(), "C", 100, 200, 300, 400, 500, billing.SplitModeEqual)
 	_ = svc.PublishCycle(context.Background(), cycle.ID)
 
 	var invoiceID int64
@@ -515,7 +515,7 @@ func TestCloseCycle(t *testing.T) {
 
 	svc := billing.NewService(dbStore, mgr, config.Config{})
 	_, _ = mgr.CreateSubscriber("sub1", "", "payer")
-	cycle, _ := svc.CreateDraftCycle(context.Background(), "C", 100, 200, 300, 400, 500)
+	cycle, _ := svc.CreateDraftCycle(context.Background(), "C", 100, 200, 300, 400, 500, billing.SplitModeEqual)
 
 	// Cannot close a draft.
 	if err := svc.CloseCycle(context.Background(), cycle.ID); err == nil {
@@ -546,7 +546,7 @@ func TestDeleteCycle(t *testing.T) {
 
 	svc := billing.NewService(dbStore, mgr, config.Config{})
 	_, _ = mgr.CreateSubscriber("sub1", "", "payer")
-	cycle, _ := svc.CreateDraftCycle(context.Background(), "C", 100, 200, 300, 400, 500)
+	cycle, _ := svc.CreateDraftCycle(context.Background(), "C", 100, 200, 300, 400, 500, billing.SplitModeEqual)
 
 	// Draft can be deleted.
 	if err := svc.DeleteCycle(context.Background(), cycle.ID); err != nil {
@@ -559,7 +559,7 @@ func TestDeleteCycle(t *testing.T) {
 	}
 
 	// Published cycle cannot be deleted.
-	c2, _ := svc.CreateDraftCycle(context.Background(), "C2", 100, 200, 300, 400, 500)
+	c2, _ := svc.CreateDraftCycle(context.Background(), "C2", 100, 200, 300, 400, 500, billing.SplitModeEqual)
 	_ = svc.PublishCycle(context.Background(), c2.ID)
 	if err := svc.DeleteCycle(context.Background(), c2.ID); err == nil {
 		t.Fatal("must not delete a published cycle")
@@ -576,9 +576,9 @@ func TestCabinetHistoryAndContact(t *testing.T) {
 
 	payer, _ := mgr.CreateSubscriber("payer", "", "payer")
 	// Two published cycles → two history rows.
-	c1, _ := svc.CreateDraftCycle(context.Background(), "C1", 100, 200, 300, 400, 500)
+	c1, _ := svc.CreateDraftCycle(context.Background(), "C1", 100, 200, 300, 400, 500, billing.SplitModeEqual)
 	_ = svc.PublishCycle(context.Background(), c1.ID)
-	c2, _ := svc.CreateDraftCycle(context.Background(), "C2", 500, 600, 700, 800, 500)
+	c2, _ := svc.CreateDraftCycle(context.Background(), "C2", 500, 600, 700, 800, 500, billing.SplitModeEqual)
 	_ = svc.PublishCycle(context.Background(), c2.ID)
 
 	sum, err := svc.GetCabinetSummary(context.Background(), payer.AccessToken)

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -136,11 +137,23 @@ func migrate(db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id)`,
 	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for _, s := range stmts {
 		if _, err := db.ExecContext(ctx, s); err != nil {
 			return fmt.Errorf("migrate: %w (%s)", err, s)
+		}
+	}
+
+	// Аддитивные миграции колонок. SQLite не умеет ADD COLUMN IF NOT EXISTS,
+	// поэтому выполняем ALTER и игнорируем «duplicate column» (колонка уже есть).
+	additive := []string{
+		`ALTER TABLE billing_cycles ADD COLUMN split_mode TEXT NOT NULL DEFAULT 'equal'`,
+	}
+	for _, q := range additive {
+		if _, err := db.ExecContext(ctx, q); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("migrate: %w (%s)", err, q)
 		}
 	}
 	return nil

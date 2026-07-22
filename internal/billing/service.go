@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,20 +32,27 @@ const (
 	InvoiceStatusPending  = "pending"
 	InvoiceStatusPaid     = "paid"
 	InvoiceStatusCanceled = "canceled"
+
+	// Способ дележа суммы цикла между плательщиками.
+	SplitModeEqual   = "equal"
+	SplitModeTraffic = "traffic"
+
+	trafficWindowDays = 30
 )
 
 // Cycle represents a billing cycle.
 type Cycle struct {
 	ID           int64      `json:"id"`
-	Title        string     `json:"title"`
-	PeriodStart  int64      `json:"periodStart"`
-	PeriodEnd    int64      `json:"periodEnd"`
-	PaymentDueAt int64      `json:"paymentDueAt"`
-	GraceEndsAt  int64      `json:"graceEndsAt"`
-	TotalAmount  int64      `json:"totalAmount"` // in kopecks
-	Status       string     `json:"status"`      // draft, published, closed
-	PayerCount   int64      `json:"payerCount"`
-	CreatedAt    int64      `json:"createdAt"`
+	Title        string `json:"title"`
+	PeriodStart  int64  `json:"periodStart"`
+	PeriodEnd    int64  `json:"periodEnd"`
+	PaymentDueAt int64  `json:"paymentDueAt"`
+	GraceEndsAt  int64  `json:"graceEndsAt"`
+	TotalAmount  int64  `json:"totalAmount"` // in kopecks
+	Status       string `json:"status"`      // draft, published, closed
+	SplitMode    string `json:"splitMode"`   // equal, traffic
+	PayerCount   int64  `json:"payerCount"`
+	CreatedAt    int64  `json:"createdAt"`
 	PublishedAt  *int64     `json:"publishedAt,omitempty"`
 	Invoices     []*Invoice `json:"invoices,omitempty"`
 }
@@ -201,7 +209,7 @@ func (s *Service) ReconcileSuspensions(ctx context.Context) error {
 // ListCycles returns a list of cycles.
 func (s *Service) ListCycles(ctx context.Context) ([]*Cycle, error) {
 	rows, err := s.DB.QueryContext(ctx, `
-		SELECT id, title, period_start, period_end, payment_due_at, grace_ends_at, total_amount, status, payer_count, created_at, published_at
+		SELECT id, title, period_start, period_end, payment_due_at, grace_ends_at, total_amount, status, split_mode, payer_count, created_at, published_at
 		FROM billing_cycles ORDER BY created_at DESC
 	`)
 	if err != nil {
@@ -213,7 +221,7 @@ func (s *Service) ListCycles(ctx context.Context) ([]*Cycle, error) {
 	for rows.Next() {
 		var c Cycle
 		var publishedAt sql.NullInt64
-		if err := rows.Scan(&c.ID, &c.Title, &c.PeriodStart, &c.PeriodEnd, &c.PaymentDueAt, &c.GraceEndsAt, &c.TotalAmount, &c.Status, &c.PayerCount, &c.CreatedAt, &publishedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Title, &c.PeriodStart, &c.PeriodEnd, &c.PaymentDueAt, &c.GraceEndsAt, &c.TotalAmount, &c.Status, &c.SplitMode, &c.PayerCount, &c.CreatedAt, &publishedAt); err != nil {
 			return nil, err
 		}
 		if publishedAt.Valid {
@@ -225,7 +233,7 @@ func (s *Service) ListCycles(ctx context.Context) ([]*Cycle, error) {
 }
 
 // CreateDraftCycle creates a new billing cycle in 'draft' state.
-func (s *Service) CreateDraftCycle(ctx context.Context, title string, start, end, due, grace int64, totalAmount int64) (*Cycle, error) {
+func (s *Service) CreateDraftCycle(ctx context.Context, title string, start, end, due, grace int64, totalAmount int64, splitMode string) (*Cycle, error) {
 	if title == "" {
 		return nil, errors.New("title is required")
 	}
@@ -241,12 +249,18 @@ func (s *Service) CreateDraftCycle(ctx context.Context, title string, start, end
 	if totalAmount <= 0 {
 		return nil, errors.New("total amount must be greater than zero")
 	}
+	if splitMode == "" {
+		splitMode = SplitModeEqual
+	}
+	if splitMode != SplitModeEqual && splitMode != SplitModeTraffic {
+		return nil, fmt.Errorf("invalid splitMode: %s", splitMode)
+	}
 
 	now := time.Now().Unix()
 	res, err := s.DB.ExecContext(ctx, `
-		INSERT INTO billing_cycles (title, period_start, period_end, payment_due_at, grace_ends_at, total_amount, status, payer_count, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
-	`, title, start, end, due, grace, totalAmount, CycleStatusDraft, now)
+		INSERT INTO billing_cycles (title, period_start, period_end, payment_due_at, grace_ends_at, total_amount, status, split_mode, payer_count, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+	`, title, start, end, due, grace, totalAmount, CycleStatusDraft, splitMode, now)
 	if err != nil {
 		return nil, err
 	}
@@ -265,6 +279,7 @@ func (s *Service) CreateDraftCycle(ctx context.Context, title string, start, end
 		GraceEndsAt:  grace,
 		TotalAmount:  totalAmount,
 		Status:       CycleStatusDraft,
+		SplitMode:    splitMode,
 		PayerCount:   0,
 		CreatedAt:    now,
 	}, nil
@@ -275,9 +290,9 @@ func (s *Service) GetCycleDetail(ctx context.Context, id int64) (*Cycle, error) 
 	var c Cycle
 	var publishedAt sql.NullInt64
 	err := s.DB.QueryRowContext(ctx, `
-		SELECT id, title, period_start, period_end, payment_due_at, grace_ends_at, total_amount, status, payer_count, created_at, published_at
+		SELECT id, title, period_start, period_end, payment_due_at, grace_ends_at, total_amount, status, split_mode, payer_count, created_at, published_at
 		FROM billing_cycles WHERE id = ?
-	`, id).Scan(&c.ID, &c.Title, &c.PeriodStart, &c.PeriodEnd, &c.PaymentDueAt, &c.GraceEndsAt, &c.TotalAmount, &c.Status, &c.PayerCount, &c.CreatedAt, &publishedAt)
+	`, id).Scan(&c.ID, &c.Title, &c.PeriodStart, &c.PeriodEnd, &c.PaymentDueAt, &c.GraceEndsAt, &c.TotalAmount, &c.Status, &c.SplitMode, &c.PayerCount, &c.CreatedAt, &publishedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -312,8 +327,9 @@ func (s *Service) GetCycleDetail(ctx context.Context, id int64) (*Cycle, error) 
 	return &c, nil
 }
 
-// PublishCycle transition cycle to published, snapshots payers, and splits the total_amount equally.
-// Implemented as a single database transaction. Idempotently rejects non-draft/zero payers.
+// PublishCycle transition cycle to published, snapshots payers, and splits the
+// total_amount according to cycle.split_mode. Implemented as a single database
+// transaction. Idempotently rejects non-draft/zero payers.
 func (s *Service) PublishCycle(ctx context.Context, cycleID int64) error {
 	// 1. Get payers from manager
 	payerIDs := s.Mgr.ListPayerSubscriberIDs()
@@ -322,6 +338,25 @@ func (s *Service) PublishCycle(ctx context.Context, cycleID int64) error {
 		return errors.New("cannot publish cycle with zero payers")
 	}
 
+	// 2. Fetch cycle meta and ensure status is draft (single SQLite conn → no TOCTOU).
+	var status, splitMode string
+	var totalAmount int64
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT status, total_amount, split_mode FROM billing_cycles WHERE id = ?
+	`, cycleID).Scan(&status, &totalAmount, &splitMode)
+	if err != nil {
+		return err
+	}
+	if status != CycleStatusDraft {
+		return fmt.Errorf("cannot publish cycle in %s status", status)
+	}
+	if splitMode == "" {
+		splitMode = SplitModeEqual
+	}
+
+	// 3. Compute per-payer amounts (traffic query reads SQLite + manager outside tx).
+	amounts := s.computeSplit(ctx, totalAmount, payerIDs, splitMode)
+
 	// Begin SQL transaction
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -329,37 +364,14 @@ func (s *Service) PublishCycle(ctx context.Context, cycleID int64) error {
 	}
 	defer tx.Rollback()
 
-	// 2. Fetch cycle and ensure status is draft
-	var status string
-	var totalAmount int64
-	err = tx.QueryRowContext(ctx, `
-		SELECT status, total_amount FROM billing_cycles WHERE id = ?
-	`, cycleID).Scan(&status, &totalAmount)
-	if err != nil {
-		return err
-	}
-	if status != CycleStatusDraft {
-		return fmt.Errorf("cannot publish cycle in %s status", status)
-	}
-
-	// 3. Perform equal split with deterministic remainder distributed to the lexicographically first payer(s).
-	// Because payerIDs is already sorted lexicographically inside ListPayerSubscriberIDs.
-	share := totalAmount / payerCount
-	remainder := totalAmount % payerCount
-
 	now := time.Now().Unix()
 
 	// 4. Create invoices
-	for i, subID := range payerIDs {
+	for _, subID := range payerIDs {
 		sub, err := s.Mgr.FindSubscriber(subID)
 		subName := "Unknown"
 		if err == nil && sub != nil {
 			subName = sub.Name
-		}
-
-		invAmount := share
-		if int64(i) < remainder {
-			invAmount++
 		}
 
 		publicToken, err := generateRandomToken()
@@ -370,7 +382,7 @@ func (s *Service) PublishCycle(ctx context.Context, cycleID int64) error {
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO invoices (cycle_id, subscriber_id, subscriber_name, amount, public_token, status)
 			VALUES (?, ?, ?, ?, ?, ?)
-		`, cycleID, subID, subName, invAmount, publicToken, InvoiceStatusPending)
+		`, cycleID, subID, subName, amounts[subID], publicToken, InvoiceStatusPending)
 		if err != nil {
 			return err
 		}
@@ -581,14 +593,14 @@ func (s *Service) GetCabinetSummary(ctx context.Context, token string) (*PublicC
 
 	err = s.DB.QueryRowContext(ctx, `
 		SELECT i.id, i.cycle_id, i.subscriber_id, i.subscriber_name, i.amount, i.public_token, i.status, i.paid_at,
-		       c.id, c.title, c.period_start, c.period_end, c.payment_due_at, c.grace_ends_at, c.total_amount, c.status, c.payer_count, c.created_at, c.published_at
+		       c.id, c.title, c.period_start, c.period_end, c.payment_due_at, c.grace_ends_at, c.total_amount, c.status, c.split_mode, c.payer_count, c.created_at, c.published_at
 		FROM invoices i
 		JOIN billing_cycles c ON i.cycle_id = c.id
 		WHERE i.subscriber_id = ? AND c.status IN ('published', 'closed')
 		ORDER BY c.published_at DESC, i.id DESC LIMIT 1
 	`, sub.ID).Scan(
 		&inv.ID, &inv.CycleID, &inv.SubscriberID, &inv.SubscriberName, &inv.Amount, &inv.PublicToken, &inv.Status, &paidAt,
-		&c.ID, &c.Title, &c.PeriodStart, &c.PeriodEnd, &c.PaymentDueAt, &c.GraceEndsAt, &c.TotalAmount, &c.Status, &c.PayerCount, &c.CreatedAt, &publishedAt,
+		&c.ID, &c.Title, &c.PeriodStart, &c.PeriodEnd, &c.PaymentDueAt, &c.GraceEndsAt, &c.TotalAmount, &c.Status, &c.SplitMode, &c.PayerCount, &c.CreatedAt, &publishedAt,
 	)
 
 	if err != nil {
@@ -1005,4 +1017,195 @@ func generateRandomToken() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// computeSplit маршрутизирует на equal/traffic в зависимости от режима цикла.
+func (s *Service) computeSplit(ctx context.Context, totalAmount int64, payerIDs []string, mode string) map[string]int64 {
+	if mode == SplitModeTraffic {
+		traffic := s.subscribersTraffic(ctx, payerIDs, trafficWindowDays)
+		return splitByTraffic(totalAmount, traffic, payerIDs, s.Cfg.BillingMinSharePct)
+	}
+	return splitEqual(totalAmount, payerIDs)
+}
+
+// splitEqual делит поровну с детерминированным распределением остатка (коп.) на
+// первые по sorted-ID плательщиков.
+func splitEqual(totalAmount int64, payerIDs []string) map[string]int64 {
+	n := int64(len(payerIDs))
+	out := make(map[string]int64, n)
+	if n == 0 {
+		return out
+	}
+	share := totalAmount / n
+	remainder := totalAmount % n
+	for i, id := range payerIDs {
+		out[id] = share
+		if int64(i) < remainder {
+			out[id]++
+		}
+	}
+	return out
+}
+
+// splitByTraffic делит totalAmount пропорционально трафику с полом: каждый платит
+// не меньше minSharePct% от равной доли. Остаток в копейках раздаётся
+// детерминированно (по убыванию дробной части, при равенстве — по sorted-ID).
+func splitByTraffic(totalAmount int64, traffic map[string]uint64, payerIDs []string, minSharePct int) map[string]int64 {
+	n := len(payerIDs)
+	out := make(map[string]int64, n)
+	if n == 0 {
+		return out
+	}
+	if minSharePct < 0 {
+		minSharePct = 0
+	}
+	if minSharePct > 100 {
+		minSharePct = 100
+	}
+
+	equalShare := float64(totalAmount) / float64(n)
+	floor := equalShare * float64(minSharePct) / 100.0
+
+	raw := make(map[string]float64, n)
+	active := make(map[string]bool, n)
+	remaining := float64(totalAmount)
+	for _, id := range payerIDs {
+		active[id] = true
+	}
+	// Water-filling: тех, у кого пропорция ниже пола — фиксируем на полу, остаток
+	// перекладываем пропорционально на оставшихся. Итеративно сходится.
+	for {
+		var sumW uint64
+		for id := range active {
+			sumW += traffic[id]
+		}
+		if sumW == 0 {
+			share := remaining / float64(len(active))
+			for id := range active {
+				raw[id] = share
+			}
+			break
+		}
+		var clamp []string
+		for id := range active {
+			if remaining*float64(traffic[id])/float64(sumW) < floor {
+				clamp = append(clamp, id)
+			}
+		}
+		if len(clamp) == 0 {
+			for id := range active {
+				raw[id] = remaining * float64(traffic[id]) / float64(sumW)
+			}
+			break
+		}
+		for _, id := range clamp {
+			raw[id] = floor
+			remaining -= floor
+			delete(active, id)
+		}
+		if len(active) == 0 {
+			// Вырожденный случай: все на полу. Добиваем остаток поровну, чтобы
+			// сумма осталась равна totalAmount (при minSharePct<100 недостижимо).
+			if remaining > 0 {
+				add := remaining / float64(n)
+				for _, id := range payerIDs {
+					raw[id] += add
+				}
+			}
+			break
+		}
+	}
+
+	// Округляем до копеек, остаток копеек — тем, у кого больше дробная часть.
+	type frac struct {
+		id string
+		f  float64
+	}
+	fracs := make([]frac, 0, n)
+	var assigned int64
+	for _, id := range payerIDs {
+		k := int64(raw[id])
+		out[id] = k
+		assigned += k
+		fracs = append(fracs, frac{id, raw[id] - float64(k)})
+	}
+	leftover := totalAmount - assigned
+	sort.Slice(fracs, func(i, j int) bool {
+		if fracs[i].f != fracs[j].f {
+			return fracs[i].f > fracs[j].f
+		}
+		return fracs[i].id < fracs[j].id
+	})
+	for i := 0; i < int(leftover) && i < len(fracs); i++ {
+		out[fracs[i].id]++
+	}
+	return out
+}
+
+// subscribersTraffic суммирует rx+tx за последние days дней по всем устройствам
+// каждого плательщика из peer_daily (day — unix-секунды полуночи UTC).
+func (s *Service) subscribersTraffic(ctx context.Context, subscriberIDs []string, days int) map[string]uint64 {
+	out := make(map[string]uint64, len(subscriberIDs))
+	now := time.Now().UTC()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	cutoff := dayStart.Add(-time.Duration(days) * 24 * time.Hour).Unix()
+
+	for _, subID := range subscriberIDs {
+		devIDs := s.Mgr.DeviceIDsBySubscriber(subID)
+		if len(devIDs) == 0 {
+			continue
+		}
+		placeholders := make([]string, len(devIDs))
+		args := make([]any, 0, len(devIDs)+1)
+		for i, id := range devIDs {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		args = append(args, cutoff)
+		query := fmt.Sprintf(
+			`SELECT COALESCE(SUM(rx),0)+COALESCE(SUM(tx),0) FROM peer_daily WHERE client_id IN (%s) AND day >= ?`,
+			strings.Join(placeholders, ","),
+		)
+		var total uint64
+		_ = s.DB.QueryRowContext(ctx, query, args...).Scan(&total)
+		out[subID] = total
+	}
+	return out
+}
+
+// PreviewLine — строка предпросмотра дележа для админа (до публикации).
+type PreviewLine struct {
+	SubscriberID   string `json:"subscriberId"`
+	SubscriberName string `json:"subscriberName"`
+	Bytes          uint64 `json:"bytes"`
+	Amount         int64  `json:"amount"` // копейки
+}
+
+// PreviewSplit считает делёж цикла по его режиму без записи в БД. Трафик берётся
+// за последние 30 дней — ровно тот же, что применится при публикации.
+func (s *Service) PreviewSplit(ctx context.Context, cycleID int64) ([]PreviewLine, error) {
+	var totalAmount int64
+	var splitMode string
+	err := s.DB.QueryRowContext(ctx, `SELECT total_amount, split_mode FROM billing_cycles WHERE id = ?`, cycleID).Scan(&totalAmount, &splitMode)
+	if err != nil {
+		return nil, err
+	}
+	if splitMode == "" {
+		splitMode = SplitModeEqual
+	}
+	payerIDs := s.Mgr.ListPayerSubscriberIDs()
+	amounts := s.computeSplit(ctx, totalAmount, payerIDs, splitMode)
+	traffic := map[string]uint64{}
+	if splitMode == SplitModeTraffic {
+		traffic = s.subscribersTraffic(ctx, payerIDs, trafficWindowDays)
+	}
+	out := make([]PreviewLine, 0, len(payerIDs))
+	for _, id := range payerIDs {
+		name := "Unknown"
+		if sub, err := s.Mgr.FindSubscriber(id); err == nil && sub != nil {
+			name = sub.Name
+		}
+		out = append(out, PreviewLine{SubscriberID: id, SubscriberName: name, Bytes: traffic[id], Amount: amounts[id]})
+	}
+	return out, nil
 }
