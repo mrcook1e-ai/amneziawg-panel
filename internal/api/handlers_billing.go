@@ -30,6 +30,7 @@ func (h *HandlersBilling) RegisterBillingRoutes(r chi.Router, auth *Auth) {
 			r.Get("/cycles/{id}", h.getCycle)
 			r.Post("/cycles/{id}/publish", h.publishCycle)
 			r.Post("/cycles/{id}/close", h.closeCycle)
+			r.Delete("/cycles/{id}", h.deleteCycle)
 			r.Post("/invoices/{id}/pay", h.markInvoicePaid)
 			r.Post("/invoices/{id}/cancel", h.cancelInvoice)
 			r.Get("/summary", h.getSummary)
@@ -188,6 +189,27 @@ func (h *HandlersBilling) closeCycle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Service.CloseCycle(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+func (h *HandlersBilling) deleteCycle(w http.ResponseWriter, r *http.Request) {
+	if h.Service == nil {
+		http.Error(w, "billing service disabled", http.StatusNotImplemented)
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.Service.DeleteCycle(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

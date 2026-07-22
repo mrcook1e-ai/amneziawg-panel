@@ -492,6 +492,22 @@ func (s *Service) CloseCycle(ctx context.Context, cycleID int64) error {
 	return err
 }
 
+// DeleteCycle удаляет цикл. Разрешён только draft — у опубликованных/закрытых
+// уже есть счета и, возможно, платежи; их архивируйте через CloseCycle.
+// У draft нет счетов, так что каскад через FK остаётся страховкой.
+func (s *Service) DeleteCycle(ctx context.Context, cycleID int64) error {
+	var status string
+	err := s.DB.QueryRowContext(ctx, `SELECT status FROM billing_cycles WHERE id = ?`, cycleID).Scan(&status)
+	if err != nil {
+		return err
+	}
+	if status != CycleStatusDraft {
+		return fmt.Errorf("only draft cycles can be deleted (this one is %s)", status)
+	}
+	_, err = s.DB.ExecContext(ctx, `DELETE FROM billing_cycles WHERE id = ?`, cycleID)
+	return err
+}
+
 // SubscriberAccessAllowed checks the authoritative invoice state before a
 // payer creates another device. Exempt roles are always allowed.
 func (s *Service) SubscriberAccessAllowed(ctx context.Context, subscriberID string) (bool, error) {

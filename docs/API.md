@@ -148,6 +148,9 @@ Body (unix-секунды, `totalAmount` в копейках):
 ### `POST /api/billing/cycles/{id}/close`
 `published → closed` (архив). `400` если статус не `published`.
 
+### `DELETE /api/billing/cycles/{id}`
+Удалить цикл. Разрешён **только** `draft` (без счетов). `400` для `published`/`closed`.
+
 ### `POST /api/billing/invoices/{id}/pay`
 Ручная отметка оплаты (напр. после перевода через Telegram). Idempotent.
 Реактивирует устройства подписчика, если нет других просроченных счетов.

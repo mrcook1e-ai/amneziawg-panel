@@ -102,6 +102,8 @@ export const api = {
 		 request<{ status: string }>(`/api/billing/cycles/${id}/publish`, { method: 'POST' }),
 	 closeBillingCycle: (id: number) =>
 		 request<{ status: string }>(`/api/billing/cycles/${id}/close`, { method: 'POST' }),
+	 deleteBillingCycle: (id: number) =>
+		 request<{ status: string }>(`/api/billing/cycles/${id}`, { method: 'DELETE' }),
 	 markInvoicePaid: (id: number) =>
 		 request<{ status: string }>(`/api/billing/invoices/${id}/pay`, { method: 'POST' }),
 	 cancelInvoice: (id: number) =>

@@ -539,6 +539,33 @@ func TestCloseCycle(t *testing.T) {
 	}
 }
 
+func TestDeleteCycle(t *testing.T) {
+	dbStore, dbPath := setupTestDB(t)
+	mgr, statePath := setupTestManager(t)
+	defer cleanUp(dbPath, statePath)
+
+	svc := billing.NewService(dbStore, mgr, config.Config{})
+	_, _ = mgr.CreateSubscriber("sub1", "", "payer")
+	cycle, _ := svc.CreateDraftCycle(context.Background(), "C", 100, 200, 300, 400, 500)
+
+	// Draft can be deleted.
+	if err := svc.DeleteCycle(context.Background(), cycle.ID); err != nil {
+		t.Fatalf("delete draft: %v", err)
+	}
+	var n int
+	_ = dbStore.QueryRow("SELECT COUNT(*) FROM billing_cycles WHERE id = ?", cycle.ID).Scan(&n)
+	if n != 0 {
+		t.Fatal("draft cycle should be gone")
+	}
+
+	// Published cycle cannot be deleted.
+	c2, _ := svc.CreateDraftCycle(context.Background(), "C2", 100, 200, 300, 400, 500)
+	_ = svc.PublishCycle(context.Background(), c2.ID)
+	if err := svc.DeleteCycle(context.Background(), c2.ID); err == nil {
+		t.Fatal("must not delete a published cycle")
+	}
+}
+
 func TestCabinetHistoryAndContact(t *testing.T) {
 	dbStore, dbPath := setupTestDB(t)
 	mgr, statePath := setupTestManager(t)

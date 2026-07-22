@@ -30,6 +30,7 @@ const publishing = ref<number | null>(null)
 const paying = ref<number | null>(null)
 const canceling = ref<number | null>(null)
 const closing = ref<number | null>(null)
+const deleting = ref<number | null>(null)
 
 const pad = (n: number) => String(n).padStart(2, '0')
 function dateInput(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
@@ -153,6 +154,18 @@ async function closeCycle(cycle: BillingCycle) {
 	 finally { closing.value = null }
 }
 
+async function deleteDraft(cycle: BillingCycle) {
+	 if (!window.confirm(`Удалить черновик «${cycle.title}»? Это нельзя отменить.`)) return
+	 deleting.value = cycle.id
+	 try {
+		 await api.deleteBillingCycle(cycle.id)
+		 await load()
+		 selected.value = null
+		 toasts.success('Черновик удалён')
+	 } catch (e: any) { toasts.error(e?.message || 'Не удалось удалить черновик') }
+	 finally { deleting.value = null }
+}
+
 function invLabel(s: string) { return s === 'paid' ? 'оплачено' : s === 'canceled' ? 'списано' : 'ожидает' }
 function invTone(s: string) { return s === 'paid' ? 'success' : s === 'canceled' ? 'neutral' : 'warning' }
 
@@ -211,6 +224,7 @@ onMounted(load)
 				<div v-if="selected.status === 'draft'" class="p-4 rounded-2xl bg-warning/10 space-y-3">
 					<p class="text-[12.5px] text-warning">При публикации состав и суммы счетов фиксируются навсегда.</p>
 					<Button variant="primary" block :loading="publishing === selected.id" @click="publish(selected)"><Users :size="15" /> Опубликовать счета</Button>
+					<Button variant="ghost" block :loading="deleting === selected.id" @click="deleteDraft(selected)">Удалить черновик</Button>
 				</div>
 			<div v-else class="space-y-4">
 				<div v-if="selected.status === 'published'" class="flex justify-end">
