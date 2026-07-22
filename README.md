@@ -88,6 +88,7 @@ docker run -d \
 | `YOOKASSA_SECRET_KEY` | пусто | секретный ключ ЮKassa |
 | `YOOKASSA_VAT_CODE` | `1` | код НДС для чека (1 = без НДС) |
 | `PUBLIC_URL` | пусто | внешний HTTPS-адрес панели для возврата после оплаты (напр. `https://vpn.example.com`) |
+| `PAYMENT_CONTACT` | пусто | короткий контакт для ручной оплаты в кабинете (напр. `Telegram @mrcook1e`); показывается, пока не настроена ЮKassa |
 
 ## API
 

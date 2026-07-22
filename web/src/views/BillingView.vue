@@ -28,6 +28,8 @@ const createOpen = ref(false)
 const creating = ref(false)
 const publishing = ref<number | null>(null)
 const paying = ref<number | null>(null)
+const canceling = ref<number | null>(null)
+const closing = ref<number | null>(null)
 
 const pad = (n: number) => String(n).padStart(2, '0')
 function dateInput(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
@@ -127,6 +129,33 @@ async function markPaid(invoice: BillingInvoice) {
 	 finally { paying.value = null }
 }
 
+async function cancelInvoice(invoice: BillingInvoice) {
+	 if (!window.confirm(`Списать счёт ${invoice.subscriberName}? Доступ вернётся, если нет других долгов.`)) return
+	 canceling.value = invoice.id
+	 try {
+		 await api.cancelInvoice(invoice.id)
+		 if (selected.value) await openCycle(selected.value)
+		 await load()
+		 toasts.success(`Счёт ${invoice.subscriberName} списан`)
+	 } catch (e: any) { toasts.error(e?.message || 'Не удалось списать счёт') }
+	 finally { canceling.value = null }
+}
+
+async function closeCycle(cycle: BillingCycle) {
+	 if (!window.confirm(`Закрыть период «${cycle.title}»? Он уйдёт в архив.`)) return
+	 closing.value = cycle.id
+	 try {
+		 await api.closeBillingCycle(cycle.id)
+		 await load()
+		 selected.value = null
+		 toasts.success('Период закрыт')
+	 } catch (e: any) { toasts.error(e?.message || 'Не удалось закрыть период') }
+	 finally { closing.value = null }
+}
+
+function invLabel(s: string) { return s === 'paid' ? 'оплачено' : s === 'canceled' ? 'списано' : 'ожидает' }
+function invTone(s: string) { return s === 'paid' ? 'success' : s === 'canceled' ? 'neutral' : 'warning' }
+
 onMounted(load)
 </script>
 
@@ -165,7 +194,7 @@ onMounted(load)
 					<button v-for="cycle in cycles" :key="cycle.id" class="w-full px-5 py-4 flex items-center gap-4 text-left hover:bg-ink-100/50 transition-colors" @click="openCycle(cycle)">
 						<CalendarDays :size="18" class="text-ink-400 shrink-0" />
 						<div class="flex-1 min-w-0"><div class="font-semibold text-[14px]">{{ cycle.title }}</div><div class="text-[11.5px] text-ink-500 mt-0.5">{{ day(cycle.periodStart) }} — {{ day(cycle.periodEnd) }} · {{ cycle.payerCount || payerCount }} чел.</div></div>
-						<div class="text-right"><div class="mono tnum text-[13px] font-semibold">{{ money(cycle.totalAmount) }}</div><Badge :tone="statusTone(cycle.status)" size="xs">{{ cycle.status === 'draft' ? 'черновик' : 'опубликован' }}</Badge></div>
+						<div class="text-right"><div class="mono tnum text-[13px] font-semibold">{{ money(cycle.totalAmount) }}</div><Badge :tone="statusTone(cycle.status)" size="xs">{{ cycle.status === 'draft' ? 'черновик' : cycle.status === 'closed' ? 'закрыт' : 'опубликован' }}</Badge></div>
 					</button>
 				</div>
 			</section>
@@ -183,13 +212,19 @@ onMounted(load)
 					<p class="text-[12.5px] text-warning">При публикации состав и суммы счетов фиксируются навсегда.</p>
 					<Button variant="primary" block :loading="publishing === selected.id" @click="publish(selected)"><Users :size="15" /> Опубликовать счета</Button>
 				</div>
-				<div v-else class="divide-y divide-ink-900/5 rounded-2xl bg-ink-100 overflow-hidden">
+			<div v-else class="space-y-4">
+				<div v-if="selected.status === 'published'" class="flex justify-end">
+					<Button variant="ghost" size="sm" :loading="closing === selected.id" @click="closeCycle(selected)">Закрыть период</Button>
+				</div>
+				<div class="divide-y divide-ink-900/5 rounded-2xl bg-ink-100 overflow-hidden">
 					<div v-for="invoice in selected.invoices" :key="invoice.id" class="p-4 flex items-center gap-3">
 						<div class="flex-1 min-w-0"><div class="font-semibold text-[13.5px] truncate">{{ invoice.subscriberName }}</div><div class="mono text-[11.5px] text-ink-500">{{ money(invoice.amount) }}</div></div>
-						<Badge :tone="invoice.status === 'paid' ? 'success' : 'warning'" size="xs"><Check v-if="invoice.status === 'paid'" :size="10" />{{ invoice.status === 'paid' ? 'оплачено' : 'ожидает' }}</Badge>
+						<Badge :tone="invTone(invoice.status)" size="xs"><Check v-if="invoice.status === 'paid'" :size="10" />{{ invLabel(invoice.status) }}</Badge>
 						<Button v-if="invoice.status === 'pending'" variant="ghost" size="sm" :loading="paying === invoice.id" @click="markPaid(invoice)">Отметить</Button>
+						<Button v-if="invoice.status === 'pending'" variant="ghost" size="sm" :loading="canceling === invoice.id" @click="cancelInvoice(invoice)">Списать</Button>
 					</div>
 				</div>
+			</div>
 			</div>
 		</Modal>
 

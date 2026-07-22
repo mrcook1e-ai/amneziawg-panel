@@ -7,6 +7,7 @@
 - [Аутентификация](#аутентификация)
 - [Сессия](#сессия)
 - [Subscribers (admin)](#subscribers-admin)
+- [Billing (admin)](#billing-admin)
 - [Devices / WireGuard clients (admin)](#devices--wireguard-clients-admin)
 - [Cabinet (public, token-auth)](#cabinet-public-token-auth)
 - [Server-wide actions (admin)](#server-wide-actions-admin)
@@ -112,6 +113,50 @@ Body: `{ "name": "Вася", "notes": "опционально" }`
 Перевыпускает `AccessToken` — старая ссылка `/cabinet/<old>` сразу 404. Devices/profiles/интерфейсы не трогаются.
 - `200` → `Subscriber` с новым токеном
 - `404`
+
+---
+
+## Billing (admin)
+
+Расходы на хостинг: админ создаёт расчётный период (draft) и публикует его —
+сумма делится поровну между подписчиками в роли `payer`. Статусы cycle:
+`draft → published → closed`. Статусы invoice: `pending → paid | canceled`.
+
+### `GET /api/billing/summary`
+```json
+{ "totalReceived": 150000, "totalPending": 50000 }   // копейки
+```
+
+### `GET /api/billing/cycles`
+Список периодов, новые сверху.
+
+### `POST /api/billing/cycles`
+Body (unix-секунды, `totalAmount` в копейках):
+```json
+{ "title": "Июль 2026", "periodStart": …, "periodEnd": …, "paymentDueAt": …, "graceEndsAt": …, "totalAmount": 300000 }
+```
+- `201` → `BillingCycle` (статус `draft`)
+- `400` при невалидных датах/сумме
+
+### `GET /api/billing/cycles/{id}`
+Деталка с массивом `invoices[]` (счета плательщиков).
+
+### `POST /api/billing/cycles/{id}/publish`
+Фиксирует состав и суммы счетов (равный делёж, remainder — первому по порядку).
+Иммутабельно. `400` если нет `payer`-подписчиков или статус не `draft`.
+
+### `POST /api/billing/cycles/{id}/close`
+`published → closed` (архив). `400` если статус не `published`.
+
+### `POST /api/billing/invoices/{id}/pay`
+Ручная отметка оплаты (напр. после перевода через Telegram). Idempotent.
+Реактивирует устройства подписчика, если нет других просроченных счетов.
+
+### `POST /api/billing/invoices/{id}/cancel`
+Списать pending-счёт («простить»). Idempotent для уже списанных; `paid` отменить
+нельзя. Также реактивирует устройства при отсутствии других долгов.
+
+> Cabinet-эндпоинты биллинга (публичные, по токену) — см. [Cabinet](#cabinet-public-token-auth).
 
 ---
 
@@ -289,6 +334,24 @@ Backend парсит snippet (см. [snippet формат](#snippet-формат
 
 ### `GET /api/cabinet/{token}/devices/{devId}/amnezia-qrcode.svg`
 PNG 768×768 с `vpn://...` для AmneziaVPN-клиента.
+
+### `GET /api/cabinet/{token}/billing`
+Сводка по подписке для плательщика. Для `owner`/`trusted` → `derivedStatus: "exempt"`.
+```json
+{
+  "billingRole": "payer",
+  "derivedStatus": "pending",            // exempt|pending|grace|overdue|paid
+  "checkoutEnabled": false,              // true когда настроена ЮKassa
+  "paymentContact": "Telegram @mrcook1e", // способ ручной оплаты
+  "latestInvoice": { /* BillingInvoice */ },
+  "latestCycle": { /* BillingCycle */ },
+  "history": [ { "cycleTitle": "Июнь 2026", "amount": 150000, "status": "paid", "periodEnd": …, "paidAt": … } ]
+}
+```
+
+### `POST /api/cabinet/{token}/billing/checkout`
+Только при настроенной ЮKassa. Body: `{ "invoiceId": …, "email": "…" }` →
+`{ "confirmationUrl": "https://yoomoney.ru/…" }`.
 
 ---
 

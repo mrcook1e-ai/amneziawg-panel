@@ -34,6 +34,10 @@ type Config struct {
 	YookassaSecretKey string
 	YookassaVatCode   int
 	PublicURL         string
+
+	// PaymentContact — короткая инструкция для ручной оплаты (напр. Telegram
+	// @handle), показывается плательщику в кабинете, пока не подключена ЮKassa.
+	PaymentContact string
 }
 
 func Load() Config {
@@ -59,6 +63,7 @@ func Load() Config {
 		YookassaSecretKey: env("YOOKASSA_SECRET_KEY", ""),
 		YookassaVatCode:   envInt("YOOKASSA_VAT_CODE", 1),
 		PublicURL:         env("PUBLIC_URL", ""),
+		PaymentContact:    strings.TrimSpace(env("PAYMENT_CONTACT", "")),
 	}
 }
 

@@ -472,3 +472,100 @@ func TestCabinetBillingSummaryStatusDerivation(t *testing.T) {
 		t.Errorf("expected status overdue, got %s", sumPayerOverdue.DerivedStatus)
 	}
 }
+
+func TestCancelInvoice(t *testing.T) {
+	dbStore, dbPath := setupTestDB(t)
+	mgr, statePath := setupTestManager(t)
+	defer cleanUp(dbPath, statePath)
+
+	svc := billing.NewService(dbStore, mgr, config.Config{})
+	s1, _ := mgr.CreateSubscriber("sub1", "", "payer")
+	cycle, _ := svc.CreateDraftCycle(context.Background(), "C", 100, 200, 300, 400, 500)
+	_ = svc.PublishCycle(context.Background(), cycle.ID)
+
+	var invoiceID int64
+	_ = dbStore.QueryRow("SELECT id FROM invoices WHERE subscriber_id = ?", s1.ID).Scan(&invoiceID)
+
+	// Cancel a pending invoice → canceled.
+	if err := svc.CancelInvoice(context.Background(), invoiceID); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	var status string
+	_ = dbStore.QueryRow("SELECT status FROM invoices WHERE id = ?", invoiceID).Scan(&status)
+	if status != "canceled" {
+		t.Fatalf("expected canceled, got %s", status)
+	}
+
+	// Idempotent: second cancel is a no-op success.
+	if err := svc.CancelInvoice(context.Background(), invoiceID); err != nil {
+		t.Fatalf("second cancel should be idempotent: %v", err)
+	}
+
+	// A paid invoice cannot be canceled.
+	_, _ = dbStore.Exec("UPDATE invoices SET status = 'paid', paid_at = 1 WHERE id = ?", invoiceID)
+	if err := svc.CancelInvoice(context.Background(), invoiceID); err == nil {
+		t.Fatal("must not cancel a paid invoice")
+	}
+}
+
+func TestCloseCycle(t *testing.T) {
+	dbStore, dbPath := setupTestDB(t)
+	mgr, statePath := setupTestManager(t)
+	defer cleanUp(dbPath, statePath)
+
+	svc := billing.NewService(dbStore, mgr, config.Config{})
+	_, _ = mgr.CreateSubscriber("sub1", "", "payer")
+	cycle, _ := svc.CreateDraftCycle(context.Background(), "C", 100, 200, 300, 400, 500)
+
+	// Cannot close a draft.
+	if err := svc.CloseCycle(context.Background(), cycle.ID); err == nil {
+		t.Fatal("must not close a draft cycle")
+	}
+
+	// published → closed.
+	_ = svc.PublishCycle(context.Background(), cycle.ID)
+	if err := svc.CloseCycle(context.Background(), cycle.ID); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	var status string
+	_ = dbStore.QueryRow("SELECT status FROM billing_cycles WHERE id = ?", cycle.ID).Scan(&status)
+	if status != "closed" {
+		t.Fatalf("expected closed, got %s", status)
+	}
+
+	// Double-close is rejected (not published anymore).
+	if err := svc.CloseCycle(context.Background(), cycle.ID); err == nil {
+		t.Fatal("must not close an already-closed cycle")
+	}
+}
+
+func TestCabinetHistoryAndContact(t *testing.T) {
+	dbStore, dbPath := setupTestDB(t)
+	mgr, statePath := setupTestManager(t)
+	defer cleanUp(dbPath, statePath)
+
+	cfg := config.Config{PaymentContact: "Telegram @mrcook1e"}
+	svc := billing.NewService(dbStore, mgr, cfg)
+
+	payer, _ := mgr.CreateSubscriber("payer", "", "payer")
+	// Two published cycles → two history rows.
+	c1, _ := svc.CreateDraftCycle(context.Background(), "C1", 100, 200, 300, 400, 500)
+	_ = svc.PublishCycle(context.Background(), c1.ID)
+	c2, _ := svc.CreateDraftCycle(context.Background(), "C2", 500, 600, 700, 800, 500)
+	_ = svc.PublishCycle(context.Background(), c2.ID)
+
+	sum, err := svc.GetCabinetSummary(context.Background(), payer.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.PaymentContact != "Telegram @mrcook1e" {
+		t.Errorf("payment contact not surfaced: %q", sum.PaymentContact)
+	}
+	if len(sum.History) != 2 {
+		t.Fatalf("expected 2 history rows, got %d", len(sum.History))
+	}
+	// Latest cycle (C2) must be first because of ORDER BY published_at DESC.
+	if sum.History[0].CycleTitle != "C2" {
+		t.Errorf("expected C2 first, got %s", sum.History[0].CycleTitle)
+	}
+}

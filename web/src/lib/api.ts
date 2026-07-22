@@ -100,8 +100,12 @@ export const api = {
 		 request<BillingCycle>('/api/billing/cycles', { method: 'POST', body: JSON.stringify(body) }),
 	 publishBillingCycle: (id: number) =>
 		 request<{ status: string }>(`/api/billing/cycles/${id}/publish`, { method: 'POST' }),
+	 closeBillingCycle: (id: number) =>
+		 request<{ status: string }>(`/api/billing/cycles/${id}/close`, { method: 'POST' }),
 	 markInvoicePaid: (id: number) =>
 		 request<{ status: string }>(`/api/billing/invoices/${id}/pay`, { method: 'POST' }),
+	 cancelInvoice: (id: number) =>
+		 request<{ status: string }>(`/api/billing/invoices/${id}/cancel`, { method: 'POST' }),
 	 billingSummary: () => request<BillingSummary>('/api/billing/summary'),
 
   // Cabinet (public — token in URL is the credential)

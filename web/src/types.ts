@@ -230,8 +230,18 @@ export interface CabinetBillingSummary {
 	 billingRole: BillingRole
 	 derivedStatus: CabinetBillingStatus
 	 checkoutEnabled: boolean
+	 paymentContact?: string
 	 latestInvoice?: BillingInvoice
 	 latestCycle?: BillingCycle
+	 history?: BillingHistoryItem[]
+}
+
+export interface BillingHistoryItem {
+	 cycleTitle: string
+	 amount: number
+	 status: InvoiceStatus
+	 periodEnd: number
+	 paidAt?: number | null
 }
 
 export interface AddDeviceResult {

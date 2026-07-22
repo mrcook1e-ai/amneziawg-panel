@@ -81,11 +81,22 @@ type Summary struct {
 
 // PublicCabinetSummary represents public client cabinet billing summary.
 type PublicCabinetSummary struct {
-	BillingRole     string   `json:"billingRole"`
-	DerivedStatus   string   `json:"derivedStatus,omitempty"` // exempt, pending, grace, overdue, paid
-	CheckoutEnabled bool     `json:"checkoutEnabled"`
-	LatestInvoice   *Invoice `json:"latestInvoice,omitempty"`
-	LatestCycle     *Cycle   `json:"latestCycle,omitempty"`
+	BillingRole     string         `json:"billingRole"`
+	DerivedStatus   string         `json:"derivedStatus,omitempty"` // exempt, pending, grace, overdue, paid
+	CheckoutEnabled bool           `json:"checkoutEnabled"`
+	PaymentContact  string         `json:"paymentContact,omitempty"`
+	LatestInvoice   *Invoice       `json:"latestInvoice,omitempty"`
+	LatestCycle     *Cycle         `json:"latestCycle,omitempty"`
+	History         []HistoryItem  `json:"history,omitempty"`
+}
+
+// HistoryItem — одна строка истории оплат плательщика в кабинете.
+type HistoryItem struct {
+	CycleTitle string  `json:"cycleTitle"`
+	Amount     int64   `json:"amount"`
+	Status     string  `json:"status"`
+	PeriodEnd  int64   `json:"periodEnd"`
+	PaidAt     *int64  `json:"paidAt,omitempty"`
 }
 
 // Service handles billing operations, communicating with the db and awg.Manager.
@@ -416,6 +427,39 @@ func (s *Service) MarkInvoicePaid(ctx context.Context, invoiceID int64) error {
 	return s.resumeSubscriberIfSettled(ctx, subID)
 }
 
+// CancelInvoice списывает pending-счёт (админ «простил»). Idempotent для уже
+// списанных; paid отменить нельзя. Если у подписчика не осталось просроченных
+// pending-счетов — устройства реактивируются.
+func (s *Service) CancelInvoice(ctx context.Context, invoiceID int64) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var status, subID string
+	err = tx.QueryRowContext(ctx, `
+		SELECT status, subscriber_id FROM invoices WHERE id = ?
+	`, invoiceID).Scan(&status, &subID)
+	if err != nil {
+		return err
+	}
+	if status == InvoiceStatusCanceled {
+		_ = tx.Rollback()
+		return s.resumeSubscriberIfSettled(ctx, subID)
+	}
+	if status == InvoiceStatusPaid {
+		return errors.New("cannot cancel a paid invoice")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE invoices SET status = ? WHERE id = ?`, InvoiceStatusCanceled, invoiceID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.resumeSubscriberIfSettled(ctx, subID)
+}
+
 func (s *Service) resumeSubscriberIfSettled(ctx context.Context, subscriberID string) error {
 	var overdue int
 	err := s.DB.QueryRowContext(ctx, `
@@ -431,6 +475,21 @@ func (s *Service) resumeSubscriberIfSettled(ctx context.Context, subscriberID st
 		return nil
 	}
 	return s.Mgr.ResumeSubscriberClients(subscriberID)
+}
+
+// CloseCycle переводит опубликованный цикл в closed (архив). Чисто маркер: на
+// derived-статус и доступ не влияет — закрытые циклы остаются в истории.
+func (s *Service) CloseCycle(ctx context.Context, cycleID int64) error {
+	var status string
+	err := s.DB.QueryRowContext(ctx, `SELECT status FROM billing_cycles WHERE id = ?`, cycleID).Scan(&status)
+	if err != nil {
+		return err
+	}
+	if status != CycleStatusPublished {
+		return fmt.Errorf("cannot close cycle in %s status", status)
+	}
+	_, err = s.DB.ExecContext(ctx, `UPDATE billing_cycles SET status = ? WHERE id = ?`, CycleStatusClosed, cycleID)
+	return err
 }
 
 // SubscriberAccessAllowed checks the authoritative invoice state before a
@@ -488,6 +547,7 @@ func (s *Service) GetCabinetSummary(ctx context.Context, token string) (*PublicC
 	res := &PublicCabinetSummary{
 		BillingRole:     role,
 		CheckoutEnabled: s.Cfg.YookassaShopID != "" && s.Cfg.YookassaSecretKey != "" && s.Cfg.PublicURL != "",
+		PaymentContact:  s.Cfg.PaymentContact,
 	}
 
 	if role == "owner" || role == "trusted" {
@@ -537,7 +597,8 @@ func (s *Service) GetCabinetSummary(ctx context.Context, token string) (*PublicC
 	if inv.Status == InvoiceStatusPaid {
 		res.DerivedStatus = "paid"
 	} else if inv.Status == InvoiceStatusCanceled {
-		res.DerivedStatus = "paid" // or handle as paid/canceled
+		// Canceled = списан/не востребован: доступ не блокируем.
+		res.DerivedStatus = "paid"
 	} else {
 		now := time.Now().Unix()
 		if now > c.GraceEndsAt {
@@ -549,7 +610,38 @@ func (s *Service) GetCabinetSummary(ctx context.Context, token string) (*PublicC
 		}
 	}
 
+	res.History = s.loadSubscriberHistory(ctx, sub.ID)
 	return res, nil
+}
+
+// loadSubscriberHistory возвращает последние 12 счетов плательщика с названием
+// периода. Ошибки логируются и проглатываются — история необязательна для UX.
+func (s *Service) loadSubscriberHistory(ctx context.Context, subscriberID string) []HistoryItem {
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT c.title, c.period_end, i.amount, i.status, i.paid_at
+		FROM invoices i
+		JOIN billing_cycles c ON i.cycle_id = c.id
+		WHERE i.subscriber_id = ?
+		ORDER BY c.published_at DESC, i.id DESC
+		LIMIT 12
+	`, subscriberID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var items []HistoryItem
+	for rows.Next() {
+		var h HistoryItem
+		var paidAt sql.NullInt64
+		if err := rows.Scan(&h.CycleTitle, &h.PeriodEnd, &h.Amount, &h.Status, &paidAt); err != nil {
+			return nil
+		}
+		if paidAt.Valid {
+			h.PaidAt = &paidAt.Int64
+		}
+		items = append(items, h)
+	}
+	return items
 }
 
 // InitiateCheckout creates a YooKassa payment attempt for the given invoice and customer email.
