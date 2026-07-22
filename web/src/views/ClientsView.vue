@@ -20,7 +20,7 @@ import Spinner from '@/components/atoms/Spinner.vue'
 import Icon from '@/components/atoms/Icon.vue'
 import Badge from '@/components/atoms/Badge.vue'
 import { ArrowDown, ArrowUp } from 'lucide-vue-next'
-import type { Subscriber } from '@/types'
+import type { BillingRole, Subscriber } from '@/types'
 
 const clients = useClientsStore()
 const stats   = useStatsStore()
@@ -126,7 +126,7 @@ const createdSub   = ref<Subscriber | null>(null)
 
 function openCreate() { createdSub.value = null; subModalOpen.value = true }
 
-async function onSubSubmit(body: { name: string; notes?: string }) {
+async function onSubSubmit(body: { name: string; notes?: string; billingRole: BillingRole }) {
   subModalBusy.value = true
   try {
     createdSub.value = await subs.create(body)
@@ -367,6 +367,8 @@ async function doRegen() {
                     · <span class="text-success font-medium">{{ onlineOf(s) }} онлайн</span>
                   </template>
                 </span>
+								<Badge v-if="s.billingRole === 'payer'" tone="warning" size="xs">плательщик</Badge>
+								<Badge v-else-if="s.billingRole === 'owner'" tone="success" size="xs">владелец</Badge>
               </div>
               <div class="text-[11.5px] text-ink-400 mt-0.5 truncate">
                 <template v-if="s.notes">{{ s.notes }} · </template>

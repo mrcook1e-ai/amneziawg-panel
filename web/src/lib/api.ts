@@ -2,7 +2,8 @@ import type {
   Client, SessionState,
   Overview, Series, ClientStats, AppEvent, ClientPatch,
   ProfileInfo, ProfileCreateBody, ProfilePatchBody, CreateClientArgs,
-  Subscriber, CabinetView, AddDeviceResult,
+	 Subscriber, CabinetView, AddDeviceResult, BillingRole,
+	 BillingCycle, BillingSummary, CabinetBillingSummary,
 } from '@/types'
 
 export class ApiError extends Error {
@@ -81,9 +82,9 @@ export const api = {
   // Subscribers (admin)
   listSubscribers:  () => request<Subscriber[]>('/api/subscribers/'),
   getSubscriber:    (id: string) => request<Subscriber>(`/api/subscribers/${enc(id)}`),
-  createSubscriber: (body: { name: string; notes?: string }) =>
+	 createSubscriber: (body: { name: string; notes?: string; billingRole?: BillingRole }) =>
     request<Subscriber>('/api/subscribers/', { method: 'POST', body: JSON.stringify(body) }),
-  patchSubscriber: (id: string, body: { name?: string; notes?: string }) =>
+	 patchSubscriber: (id: string, body: { name?: string; notes?: string; billingRole?: BillingRole }) =>
     request<Subscriber>(`/api/subscribers/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   regenerateSubscriberToken: (id: string) =>
     request<Subscriber>(`/api/subscribers/${enc(id)}/regenerate-token`, { method: 'POST' }),
@@ -92,9 +93,26 @@ export const api = {
 
   subscriberStats: (id: string) => request<ClientStats>(`/api/subscribers/${enc(id)}/stats`),
 
+	 // Shared hosting expenses (admin)
+	 billingCycles: () => request<BillingCycle[]>('/api/billing/cycles'),
+	 billingCycle: (id: number) => request<BillingCycle>(`/api/billing/cycles/${id}`),
+	 createBillingCycle: (body: Omit<BillingCycle, 'id' | 'status' | 'payerCount' | 'createdAt' | 'publishedAt' | 'invoices'>) =>
+		 request<BillingCycle>('/api/billing/cycles', { method: 'POST', body: JSON.stringify(body) }),
+	 publishBillingCycle: (id: number) =>
+		 request<{ status: string }>(`/api/billing/cycles/${id}/publish`, { method: 'POST' }),
+	 markInvoicePaid: (id: number) =>
+		 request<{ status: string }>(`/api/billing/invoices/${id}/pay`, { method: 'POST' }),
+	 billingSummary: () => request<BillingSummary>('/api/billing/summary'),
+
   // Cabinet (public — token in URL is the credential)
   cabinetGet: (token: string) =>
     request<CabinetView>(`/api/cabinet/${enc(token)}`),
+	 cabinetBilling: (token: string) =>
+		 request<CabinetBillingSummary>(`/api/cabinet/${enc(token)}/billing`),
+	 cabinetCheckout: (token: string, invoiceId: number, email: string) =>
+		 request<{ confirmationUrl: string }>(`/api/cabinet/${enc(token)}/billing/checkout`, {
+			 method: 'POST', body: JSON.stringify({ invoiceId, email }),
+		 }),
   cabinetAddDevice: (token: string, body: { snippet: string; deviceName: string }) =>
     request<AddDeviceResult>(`/api/cabinet/${enc(token)}/devices`, {
       method: 'POST', body: JSON.stringify(body),

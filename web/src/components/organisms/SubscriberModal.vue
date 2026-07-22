@@ -13,7 +13,7 @@ import Input from '@/components/atoms/Input.vue'
 import Button from '@/components/atoms/Button.vue'
 import Icon from '@/components/atoms/Icon.vue'
 import { useToastStore } from '@/stores/toasts'
-import type { Subscriber } from '@/types'
+import type { BillingRole, Subscriber } from '@/types'
 
 const props = defineProps<{
   open: boolean
@@ -22,19 +22,21 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'submit', body: { name: string; notes?: string }): void
+	 (e: 'submit', body: { name: string; notes?: string; billingRole: BillingRole }): void
 }>()
 
 const toasts = useToastStore()
 const name = ref('')
 const notes = ref('')
+const billingRole = ref<BillingRole>('trusted')
 const err = ref('')
 const copied = ref(false)
 
 watch(() => props.open, (v) => {
   if (!v) return
   name.value = ''
-  notes.value = ''
+    notes.value = ''
+		 billingRole.value = 'trusted'
   err.value = ''
   copied.value = false
 })
@@ -42,7 +44,7 @@ watch(() => props.open, (v) => {
 function submit() {
   const n = name.value.trim()
   if (!n) { err.value = 'Укажите имя клиента'; return }
-  emit('submit', { name: n, notes: notes.value.trim() || undefined })
+	 emit('submit', { name: n, notes: notes.value.trim() || undefined, billingRole: billingRole.value })
 }
 
 async function copyURL() {
@@ -78,6 +80,14 @@ async function copyURL() {
       <Field label="Заметка (необязательно)" hint="Видна только админу. Что-то про оплату, контакт, срок и т.п.">
         <Input v-model="notes" placeholder="@vasya · до конца квартала" />
       </Field>
+
+			<Field label="Участие в расходах" hint="Плательщики делят опубликованную сумму хостинга поровну.">
+				<select v-model="billingRole" class="block w-full h-11 px-4 bg-ink-100 text-ink-900 rounded-2xl outline-none focus:bg-amber-50 dark:focus:bg-amber-400/10">
+					<option value="trusted">Доверенный · без оплаты</option>
+					<option value="payer">Плательщик</option>
+					<option value="owner">Владелец · без оплаты</option>
+				</select>
+			</Field>
 
       <p v-if="err" class="text-[12px] text-danger">{{ err }}</p>
     </div>

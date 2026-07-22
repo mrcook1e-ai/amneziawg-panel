@@ -12,7 +12,7 @@ import {
 import { api } from '@/lib/api'
 import { useThemeStore } from '@/stores/theme'
 import { useToastStore } from '@/stores/toasts'
-import type { CabinetView, CabinetDevice, AddDeviceResult } from '@/types'
+import type { CabinetView, CabinetDevice, AddDeviceResult, CabinetBillingSummary } from '@/types'
 import { genCfg } from '@/utils/generator'
 import Button from '@/components/atoms/Button.vue'
 import Badge from '@/components/atoms/Badge.vue'
@@ -25,6 +25,8 @@ import QrCarousel from '@/components/molecules/QrCarousel.vue'
 import DropdownMenu from '@/components/molecules/DropdownMenu.vue'
 import DropdownItem from '@/components/molecules/DropdownItem.vue'
 import DropdownSeparator from '@/components/molecules/DropdownSeparator.vue'
+import Field from '@/components/molecules/Field.vue'
+import CabinetBillingCard from '@/components/organisms/CabinetBillingCard.vue'
 
 const route = useRoute()
 const token  = computed(() => String(route.params.token || ''))
@@ -34,6 +36,12 @@ const toasts = useToastStore()
 type Phase = 'loading' | 'invalid' | 'ready'
 const phase   = ref<Phase>('loading')
 const cabinet = ref<CabinetView | null>(null)
+const billing = ref<CabinetBillingSummary | null>(null)
+const billingBlocked = computed(() => billing.value?.derivedStatus === 'overdue')
+const checkoutOpen = ref(false)
+const checkoutEmail = ref('')
+const checkoutBusy = ref(false)
+const checkoutError = ref('')
 
 // ── Browser title ──────────────────────────────────────────────────────
 useTitle(() => cabinet.value
@@ -211,15 +219,41 @@ const sitesOpen = ref(false)
 async function reload() {
   try {
     cabinet.value = await api.cabinetGet(token.value)
+		 try { billing.value = await api.cabinetBilling(token.value) } catch { billing.value = null }
     phase.value   = 'ready'
   } catch {
     phase.value = 'invalid'
   }
 }
-onMounted(reload)
+onMounted(async () => {
+	await reload()
+	if (route.query.payment === 'success') toasts.success('Оплата подтверждена. Спасибо!')
+	else if (route.query.payment === 'pending') toasts.info('Платёж обрабатывается. Статус обновится автоматически.')
+})
+
+function openCheckout() {
+	checkoutError.value = ''
+	checkoutOpen.value = true
+}
+
+async function startCheckout() {
+	if (!billing.value?.latestInvoice || checkoutBusy.value) return
+	checkoutError.value = ''
+	checkoutBusy.value = true
+	try {
+		const result = await api.cabinetCheckout(token.value, billing.value.latestInvoice.id, checkoutEmail.value.trim())
+		window.location.assign(result.confirmationUrl)
+	} catch (e: any) {
+		checkoutError.value = e?.message || 'Не удалось открыть оплату'
+	} finally { checkoutBusy.value = false }
+}
 
 // ── Wizard ──────────────────────────────────────────────────────────────
 function openWizard(tpl: DeviceTemplate = 'phone') {
+	if (billingBlocked.value) {
+		toasts.error('Сначала оплатите просроченный счёт')
+		return
+	}
   pickedTemplate.value = tpl
   customName.value     = ''
   pickedPreset.value   = 'auto'
@@ -448,6 +482,8 @@ const qrDeviceName = computed(() =>
           </div>
         </header>
 
+				<CabinetBillingCard v-if="billing" :billing="billing" @pay="openCheckout" />
+
         <!-- ── Empty state ── -->
         <div
           v-if="!cabinet.devices.length"
@@ -650,6 +686,23 @@ const qrDeviceName = computed(() =>
 
       </div>
     </template>
+
+		<Modal :open="checkoutOpen" size="sm" title="Оплата хостинга" @close="checkoutOpen = false">
+			<div class="space-y-4">
+				<div v-if="billing?.latestInvoice" class="rounded-2xl bg-ink-100 p-4 flex items-end justify-between gap-3">
+					<div><div class="eyebrow text-ink-500">Ваша доля</div><div class="text-[12px] text-ink-500 mt-1">{{ billing.latestCycle?.title }}</div></div>
+					<div class="num-display text-[28px]">{{ new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }).format(billing.latestInvoice.amount / 100) }}</div>
+				</div>
+				<Field label="Email для чека" hint="ЮKassa отправит электронный чек на этот адрес." :error="checkoutError">
+					<Input v-model="checkoutEmail" type="email" autocomplete="email" placeholder="you@example.com" @keydown.enter="startCheckout" />
+				</Field>
+				<p class="text-[11px] text-ink-500 leading-relaxed">Оплачивая счёт, вы подтверждаете согласие с условиями предоставления доступа к VPN.</p>
+			</div>
+			<template #footer>
+				<Button variant="ghost" size="sm" @click="checkoutOpen = false">Отмена</Button>
+				<Button variant="accent" size="sm" :loading="checkoutBusy" @click="startCheckout">Перейти в ЮKassa</Button>
+			</template>
+		</Modal>
 
     <!-- ─── QR Fullscreen carousel ───────────────────────────────────── -->
     <!--

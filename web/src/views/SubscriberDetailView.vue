@@ -8,7 +8,7 @@ import { useToastStore } from '@/stores/toasts'
 import { useInterval } from '@/composables/useInterval'
 import { useTitle } from '@/composables/useTitle'
 import { handshakeFreshness, relativeTime } from '@/lib/format'
-import type { Subscriber, ClientStats } from '@/types'
+import type { BillingRole, Subscriber, ClientStats } from '@/types'
 
 import { Download, QrCode } from 'lucide-vue-next'
 import TopBar from '@/components/organisms/TopBar.vue'
@@ -130,6 +130,13 @@ async function commitNotes() {
   if (v === (sub.value.notes ?? '')) return
   await subs.patch(sub.value.id, { notes: v })
   await loadSub()
+}
+
+async function changeBillingRole(event: Event) {
+	if (!sub.value) return
+	const billingRole = (event.target as HTMLSelectElement).value as BillingRole
+	await subs.patch(sub.value.id, { billingRole })
+	await loadSub()
 }
 
 // ── Device modals ─────────────────────────────────────────────────────────────
@@ -288,6 +295,23 @@ async function doRegen() {
               <Icon name="copy" :size="13" class="text-ink-400 group-hover:text-ink-900 transition-colors shrink-0 mt-0.5" />
             </div>
           </button>
+
+					<div class="mt-3 flex items-center justify-between gap-4 p-3.5 rounded-xl bg-ink-100">
+						<div>
+							<div class="eyebrow text-ink-500">Участие в расходах</div>
+							<p class="text-[11.5px] text-ink-500 mt-1">Плательщики получают счёт при публикации периода.</p>
+						</div>
+						<select
+							:value="sub.billingRole || 'trusted'"
+							class="h-9 px-3 rounded-xl bg-ink-50 text-[12.5px] text-ink-900 outline-none focus:ring-2 focus:ring-amber-400/30"
+							aria-label="Роль клиента в расходах"
+							@change="changeBillingRole"
+						>
+							<option value="trusted">Доверенный</option>
+							<option value="payer">Плательщик</option>
+							<option value="owner">Владелец</option>
+						</select>
+					</div>
         </template>
       </header>
 

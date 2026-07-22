@@ -25,7 +25,10 @@ export interface Client {
   totalRx?: number
   totalTx?: number
   lastHandshakeAt?: string | null
+	 billingSuspended?: boolean
 }
+
+export type BillingRole = 'owner' | 'trusted' | 'payer'
 
 export interface SessionState {
   requiresPassword: boolean
@@ -171,6 +174,7 @@ export interface Subscriber {
   createdAt: string
   deviceCount: number
   devices?: Client[]
+	 billingRole: BillingRole
 }
 
 // What the public cabinet sees — never includes the access token itself.
@@ -186,6 +190,48 @@ export interface CabinetDevice {
 export interface CabinetView {
   name: string
   devices: CabinetDevice[]
+}
+
+export type InvoiceStatus = 'pending' | 'paid' | 'canceled'
+export type BillingCycleStatus = 'draft' | 'published' | 'closed'
+export type CabinetBillingStatus = 'exempt' | 'pending' | 'grace' | 'overdue' | 'paid'
+
+export interface BillingInvoice {
+	 id: number
+	 cycleId: number
+	 subscriberId: string
+	 subscriberName: string
+	 amount: number
+	 status: InvoiceStatus
+	 paidAt?: number | null
+}
+
+export interface BillingCycle {
+	 id: number
+	 title: string
+	 periodStart: number
+	 periodEnd: number
+	 paymentDueAt: number
+	 graceEndsAt: number
+	 totalAmount: number
+	 status: BillingCycleStatus
+	 payerCount: number
+	 createdAt: number
+	 publishedAt?: number | null
+	 invoices?: BillingInvoice[]
+}
+
+export interface BillingSummary {
+	 totalReceived: number
+	 totalPending: number
+}
+
+export interface CabinetBillingSummary {
+	 billingRole: BillingRole
+	 derivedStatus: CabinetBillingStatus
+	 checkoutEnabled: boolean
+	 latestInvoice?: BillingInvoice
+	 latestCycle?: BillingCycle
 }
 
 export interface AddDeviceResult {

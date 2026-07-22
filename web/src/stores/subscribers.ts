@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { api } from '@/lib/api'
-import type { Subscriber } from '@/types'
+import type { BillingRole, Subscriber } from '@/types'
 import { useToastStore } from '@/stores/toasts'
 
 export const useSubscribersStore = defineStore('subscribers', {
@@ -24,7 +24,7 @@ export const useSubscribersStore = defineStore('subscribers', {
         this.loading = false
       }
     },
-    async create(body: { name: string; notes?: string }) {
+		 async create(body: { name: string; notes?: string; billingRole?: BillingRole }) {
       const t = useToastStore()
       try {
         const s = await api.createSubscriber(body)
@@ -35,7 +35,7 @@ export const useSubscribersStore = defineStore('subscribers', {
         t.error(e?.message || 'Не удалось создать клиента'); throw e
       }
     },
-    async patch(id: string, body: { name?: string; notes?: string }) {
+		 async patch(id: string, body: { name?: string; notes?: string; billingRole?: BillingRole }) {
       const t = useToastStore()
       try {
         const s = await api.patchSubscriber(id, body)

@@ -10,6 +10,7 @@ const router = createRouter({
     { path: '/subscribers/:id', name: 'subscriber', component: () => import('@/views/SubscriberDetailView.vue') },
     { path: '/clients/:id',     name: 'client',     component: () => import('@/views/ClientDetailView.vue') },
     { path: '/settings', name: 'settings', component: () => import('@/views/SettingsView.vue') },
+		 { path: '/billing', name: 'billing', component: () => import('@/views/BillingView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

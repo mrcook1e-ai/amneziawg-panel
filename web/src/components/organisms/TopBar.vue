@@ -9,7 +9,7 @@ import { useThemeStore } from '@/stores/theme'
 import { bytes, handshakeFreshness } from '@/lib/format'
 import IconButton from '@/components/atoms/IconButton.vue'
 import Icon from '@/components/atoms/Icon.vue'
-import { ArrowDown, ArrowUp } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, ReceiptText } from 'lucide-vue-next'
 
 /*
   Functional top bar. Left: wordmark + live status (онлайн X из Y · ↓rate ↑rate).
@@ -69,6 +69,7 @@ async function logout() {
 }
 function toClients()  { router.push({ name: 'clients' }) }
 function toSettings() { router.push({ name: 'settings' }) }
+function toBilling()  { router.push({ name: 'billing' }) }
 
 // Simple two-way toggle: light ↔ dark. Auto mode is available via Settings.
 // 'auto' is treated as its currently-resolved theme for icon purposes.
@@ -173,6 +174,14 @@ function toggleTheme() { theme.set(isDark.value ? 'light' : 'dark') }
             <Icon :name="isDark ? 'sun' : 'moon'" :size="18" />
           </IconButton>
           <IconButton
+				title="Расходы"
+				aria-label="Расходы на хостинг"
+				:class="route.name === 'billing' && 'bg-amber-400/15 text-amber-600'"
+				@click="toBilling"
+			>
+				<ReceiptText :size="18" />
+			</IconButton>
+			<IconButton
             :title="route.name === 'settings' ? 'На главную' : 'Настройки'"
             :aria-label="route.name === 'settings' ? 'На главную' : 'Настройки'"
             @click="route.name === 'settings' ? toClients() : toSettings()"
