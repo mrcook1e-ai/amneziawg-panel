@@ -34,7 +34,7 @@ type Overview struct {
 	Tx30d         uint64    `json:"tx30d"`
 	RxTotal       uint64    `json:"rxTotal"`
 	TxTotal       uint64    `json:"txTotal"`
-	Top           []TopRow  `json:"top"`          // top talkers, 24h
+	Top           []TopRow  `json:"top"` // top talkers, 24h
 	Asof          time.Time `json:"asof"`
 }
 
@@ -177,15 +177,15 @@ func GetOverview(ctx context.Context, d *db.DB) (Overview, error) {
 
 // ClientStats is the per-client summary panel.
 type ClientStats struct {
-	WindowSeconds  int     `json:"windowSeconds"`
-	RxLast         uint64  `json:"rxLast"`
-	TxLast         uint64  `json:"txLast"`
-	Rx24h          uint64  `json:"rx24h"`
-	Tx24h          uint64  `json:"tx24h"`
-	Rx7d           uint64  `json:"rx7d"`
-	Tx7d           uint64  `json:"tx7d"`
-	OnlineRatio7d  float64 `json:"onlineRatio7d"`
-	Series         []Point `json:"series"`
+	WindowSeconds int     `json:"windowSeconds"`
+	RxLast        uint64  `json:"rxLast"`
+	TxLast        uint64  `json:"txLast"`
+	Rx24h         uint64  `json:"rx24h"`
+	Tx24h         uint64  `json:"tx24h"`
+	Rx7d          uint64  `json:"rx7d"`
+	Tx7d          uint64  `json:"tx7d"`
+	OnlineRatio7d float64 `json:"onlineRatio7d"`
+	Series        []Point `json:"series"`
 }
 
 // GetSubscriberStats aggregates stats across all a subscriber's devices.
