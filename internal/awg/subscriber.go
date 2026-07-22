@@ -24,6 +24,25 @@ func tokenEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
+const (
+	BillingRoleOwner   = "owner"
+	BillingRoleTrusted = "trusted"
+	BillingRolePayer   = "payer"
+)
+
+func normalizeBillingRole(role string) (string, error) {
+	switch strings.TrimSpace(role) {
+	case "", BillingRoleTrusted:
+		return BillingRoleTrusted, nil
+	case BillingRoleOwner:
+		return BillingRoleOwner, nil
+	case BillingRolePayer:
+		return BillingRolePayer, nil
+	default:
+		return "", fmt.Errorf("invalid billingRole: %s", role)
+	}
+}
+
 // Subscriber is the human-level account: one named person who may own many
 // VPN devices (each device = one Client + one Profile = one awgN interface,
 // because obfuscation params are per-interface).
@@ -37,6 +56,7 @@ type Subscriber struct {
 	AccessToken string    `json:"accessToken"`
 	Notes       string    `json:"notes,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
+	BillingRole string    `json:"billingRole"`
 }
 
 // SubscriberView is the admin-facing projection with device count and the
@@ -50,12 +70,13 @@ type SubscriberView struct {
 	CreatedAt   time.Time `json:"createdAt"`
 	DeviceCount int       `json:"deviceCount"`
 	Devices     []Client  `json:"devices,omitempty"`
+	BillingRole string    `json:"billingRole"`
 }
 
 // CabinetView is what the subscriber sees in their cabinet. Excludes
 // AccessToken and internal IDs that aren't useful.
 type CabinetView struct {
-	Name    string         `json:"name"`
+	Name    string          `json:"name"`
 	Devices []CabinetDevice `json:"devices"`
 }
 
@@ -78,7 +99,7 @@ func newAccessToken() (string, error) {
 
 // CreateSubscriber: admin creates a new account. Returns the fresh record
 // including its accessToken (so the admin can copy the cabinet URL).
-func (m *Manager) CreateSubscriber(name, notes string) (*Subscriber, error) {
+func (m *Manager) CreateSubscriber(name, notes string, billingRole ...string) (*Subscriber, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, errors.New("name is required")
@@ -87,12 +108,20 @@ func (m *Manager) CreateSubscriber(name, notes string) (*Subscriber, error) {
 	if err != nil {
 		return nil, err
 	}
+	role := BillingRoleTrusted
+	if len(billingRole) > 0 {
+		role, err = normalizeBillingRole(billingRole[0])
+		if err != nil {
+			return nil, err
+		}
+	}
 	s := &Subscriber{
 		ID:          uuid.NewString()[:8],
 		Name:        name,
 		AccessToken: tok,
 		Notes:       strings.TrimSpace(notes),
 		CreatedAt:   time.Now().UTC(),
+		BillingRole: role,
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -130,9 +159,14 @@ func (m *Manager) SubscriberDetail(id string) (SubscriberView, error) {
 }
 
 func (m *Manager) viewSubscriberLocked(s *Subscriber, includeDevices bool) SubscriberView {
+	role := s.BillingRole
+	if role == "" {
+		role = BillingRoleTrusted
+	}
 	v := SubscriberView{
 		ID: s.ID, Name: s.Name, AccessToken: s.AccessToken,
 		Notes: s.Notes, CreatedAt: s.CreatedAt,
+		BillingRole: role,
 	}
 	for _, c := range m.clients {
 		if c.SubscriberID == s.ID {
@@ -148,8 +182,8 @@ func (m *Manager) viewSubscriberLocked(s *Subscriber, includeDevices bool) Subsc
 	return v
 }
 
-// RenameSubscriber / SetNotes — light admin patches, no cascade needed.
-func (m *Manager) PatchSubscriber(id string, name, notes *string) (*Subscriber, error) {
+// RenameSubscriber / SetNotes / SetBillingRole — light admin patches, no cascade needed.
+func (m *Manager) PatchSubscriber(id string, name, notes, billingRole *string) (*Subscriber, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := m.subscribers[id]
@@ -166,11 +200,24 @@ func (m *Manager) PatchSubscriber(id string, name, notes *string) (*Subscriber, 
 	if notes != nil {
 		s.Notes = strings.TrimSpace(*notes)
 	}
+	if billingRole != nil {
+		role, err := normalizeBillingRole(*billingRole)
+		if err != nil {
+			return nil, err
+		}
+		s.BillingRole = role
+	}
+	if s.BillingRole == "" {
+		s.BillingRole = BillingRoleTrusted
+	}
 	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
 		return nil, err
 	}
 	m.fire("subscriber.patched", id, map[string]string{"name": s.Name})
 	cp := *s
+	if cp.BillingRole == "" {
+		cp.BillingRole = "trusted"
+	}
 	return &cp, nil
 }
 
@@ -235,6 +282,21 @@ func (m *Manager) DeleteSubscriber(id string) error {
 	return nil
 }
 
+// FindSubscriber looks up a subscriber by ID.
+func (m *Manager) FindSubscriber(id string) (*Subscriber, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.subscribers[id]
+	if !ok {
+		return nil, errSubscriberNotFound
+	}
+	cp := *s
+	if cp.BillingRole == "" {
+		cp.BillingRole = "trusted"
+	}
+	return &cp, nil
+}
+
 // FindSubscriberByToken is the public cabinet's auth lookup. Linear scan is
 // fine: subscriber count is small.
 func (m *Manager) FindSubscriberByToken(token string) (*Subscriber, error) {
@@ -243,6 +305,9 @@ func (m *Manager) FindSubscriberByToken(token string) (*Subscriber, error) {
 	for _, s := range m.subscribers {
 		if tokenEqual(s.AccessToken, token) {
 			cp := *s
+			if cp.BillingRole == "" {
+				cp.BillingRole = "trusted"
+			}
 			return &cp, nil
 		}
 	}
@@ -276,10 +341,6 @@ func (m *Manager) CabinetSnapshot(token string) (CabinetView, error) {
 			LatestHandshakeAt: c.LastHandshakeAt,
 		})
 	}
-	ifaces := make([]string, 0, len(m.profiles))
-	for _, ps := range m.profiles {
-		ifaces = append(ifaces, ps.profile.Iface)
-	}
 	m.mu.Unlock()
 
 	// Live handshake merge (outside lock — ShowDump shells out).
@@ -291,7 +352,7 @@ func (m *Manager) CabinetSnapshot(token string) (CabinetView, error) {
 		}
 	}
 	m.mu.Unlock()
-	status := mergedDump(m.cfg.AWGBin, ifaces)
+	status := mergedDump(m.cfg.AWGBin)
 	for i := range devices {
 		if pk := pubByDevID[devices[i].ID]; pk != "" {
 			if s, ok := status[pk]; ok && s.LatestHandshake != nil {

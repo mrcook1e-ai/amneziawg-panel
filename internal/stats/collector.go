@@ -24,7 +24,6 @@ import (
 
 	"github.com/mrcook1e/amneziawg-panel/internal/awg"
 	"github.com/mrcook1e/amneziawg-panel/internal/db"
-	"github.com/mrcook1e/amneziawg-panel/internal/events"
 )
 
 const (
@@ -40,9 +39,8 @@ const (
 
 // Collector is started once at boot and runs until ctx is cancelled.
 type Collector struct {
-	DB     *db.DB
-	Mgr    *awg.Manager
-	Events *events.Log
+	DB   *db.DB
+	Mgr  *awg.Manager
 	Tick time.Duration // typically 30s
 	Bin  string        // path to awg binary
 
@@ -90,15 +88,10 @@ func (c *Collector) Run(ctx context.Context) {
 }
 
 func (c *Collector) tickOnce(ctx context.Context) {
-	status := map[string]awg.PeerStatus{}
-	for _, iface := range c.Mgr.IfaceNames() {
-		st, err := awg.ShowDump(c.Bin, iface)
-		if err != nil {
-			continue
-		}
-		for k, v := range st {
-			status[k] = v
-		}
+	status, err := awg.ShowAllDump(ctx, c.Bin)
+	if err != nil {
+		log.Printf("stats: read interfaces: %v", err)
+		return
 	}
 	snap := c.Mgr.Snapshot()
 	now := time.Now().UTC()
@@ -130,6 +123,7 @@ func (c *Collector) tickOnce(ctx context.Context) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	updates := make([]awg.TrafficUpdate, 0, len(snap))
 
 	for pubKey, cl := range snap {
 		ps, present := status[pubKey]
@@ -155,15 +149,19 @@ func (c *Collector) tickOnce(ctx context.Context) {
 			continue
 		}
 
-		// Apply lifetime totals + last_handshake back onto the JSON store so
-		// the values survive restarts and show up in /api/wireguard/client.
-		c.Mgr.ApplyTraffic(cl.ID, rxDelta, txDelta, ps.LatestHandshake)
+		updates = append(updates, awg.TrafficUpdate{
+			ClientID: cl.ID, RxDelta: rxDelta, TxDelta: txDelta, Handshake: ps.LatestHandshake,
+		})
 	}
 
 	if err := tx.Commit(); err != nil {
 		return
 	}
 	committed = true
+
+	// Apply lifetime totals after the samples commit and save the complete JSON
+	// state once, rather than once per active peer.
+	c.Mgr.ApplyTrafficBatch(updates)
 
 	// Daily rollup: idempotent UPSERT keyed by (client_id, day).
 	day := dayBucket(now)
@@ -182,10 +180,7 @@ func (c *Collector) tickOnce(ctx context.Context) {
 }
 
 func (c *Collector) runExpiry(now time.Time) {
-	flipped := c.Mgr.DisableExpired(now)
-	for _, id := range flipped {
-		c.Events.Append(events.KindClientExpired, id, nil)
-	}
+	c.Mgr.DisableExpired(now)
 }
 
 // deltaOrReset returns curr-prev unless an interface restart cleared the

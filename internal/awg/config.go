@@ -11,17 +11,18 @@ import (
 // "устройство" (device). One Client = one Profile = one awgN interface,
 // because obfuscation params are bound to the interface, not the subscriber.
 type Client struct {
-	ID           string    `json:"id"`
-	SubscriberID string    `json:"subscriberId"`
-	ProfileID    string    `json:"profileId"`
-	Name         string    `json:"name"`
-	Address      string    `json:"address"`
-	PrivateKey   string    `json:"privateKey"`
-	PublicKey    string    `json:"publicKey"`
-	PreSharedKey string    `json:"preSharedKey"`
-	Enabled      bool      `json:"enabled"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID               string    `json:"id"`
+	SubscriberID     string    `json:"subscriberId"`
+	ProfileID        string    `json:"profileId"`
+	Name             string    `json:"name"`
+	Address          string    `json:"address"`
+	PrivateKey       string    `json:"privateKey"`
+	PublicKey        string    `json:"publicKey"`
+	PreSharedKey     string    `json:"preSharedKey"`
+	Enabled          bool      `json:"enabled"`
+	BillingSuspended bool      `json:"billingSuspended,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 
 	Notes     string     `json:"notes,omitempty"`
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`

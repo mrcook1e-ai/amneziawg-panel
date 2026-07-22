@@ -59,11 +59,11 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 	p := ps.profile
 	clientCopy := *c
 	profCopy := *p
-	host       := m.cfg.WGHost
-	dns        := m.cfg.DNS
+	host := m.cfg.WGHost
+	dns := m.cfg.DNS
 	allowedIPs := m.cfg.AllowedIPs
-	mtu        := m.cfg.MTU
-	keepalive  := m.cfg.PersistentKA
+	mtu := m.cfg.MTU
+	keepalive := m.cfg.PersistentKA
 	m.mu.Unlock()
 
 	switch {
@@ -105,17 +105,17 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 	}
 
 	last := map[string]any{
-		"H1": profCopy.H1,
-		"H2": profCopy.H2,
-		"H3": profCopy.H3,
-		"H4": profCopy.H4,
-		"S1": strconv.Itoa(profCopy.S1),
-		"S2": strconv.Itoa(profCopy.S2),
-		"S3": strconv.Itoa(profCopy.S3),
-		"S4": strconv.Itoa(profCopy.S4),
-		"Jc":   strconv.Itoa(profCopy.Jc),
-		"Jmin": strconv.Itoa(profCopy.Jmin),
-		"Jmax": strconv.Itoa(profCopy.Jmax),
+		"H1":                    profCopy.H1,
+		"H2":                    profCopy.H2,
+		"H3":                    profCopy.H3,
+		"H4":                    profCopy.H4,
+		"S1":                    strconv.Itoa(profCopy.S1),
+		"S2":                    strconv.Itoa(profCopy.S2),
+		"S3":                    strconv.Itoa(profCopy.S3),
+		"S4":                    strconv.Itoa(profCopy.S4),
+		"Jc":                    strconv.Itoa(profCopy.Jc),
+		"Jmin":                  strconv.Itoa(profCopy.Jmin),
+		"Jmax":                  strconv.Itoa(profCopy.Jmax),
 		"allowed_ips":           allowedIPsArr,
 		"clientId":              "",
 		"client_ip":             clientCopy.Address,
@@ -129,11 +129,21 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 		"psk_key":               clientCopy.PreSharedKey,
 		"server_pub_key":        profCopy.PublicKey,
 	}
-	if profCopy.I1 != "" { last["I1"] = profCopy.I1 }
-	if profCopy.I2 != "" { last["I2"] = profCopy.I2 }
-	if profCopy.I3 != "" { last["I3"] = profCopy.I3 }
-	if profCopy.I4 != "" { last["I4"] = profCopy.I4 }
-	if profCopy.I5 != "" { last["I5"] = profCopy.I5 }
+	if profCopy.I1 != "" {
+		last["I1"] = profCopy.I1
+	}
+	if profCopy.I2 != "" {
+		last["I2"] = profCopy.I2
+	}
+	if profCopy.I3 != "" {
+		last["I3"] = profCopy.I3
+	}
+	if profCopy.I4 != "" {
+		last["I4"] = profCopy.I4
+	}
+	if profCopy.I5 != "" {
+		last["I5"] = profCopy.I5
+	}
 
 	lastJSON, err := json.Marshal(last)
 	if err != nil {
@@ -144,17 +154,17 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 	// AWG params are also present at the awg{} top level (not just last_config)
 	// so Amnezia's configurator can read them without parsing last_config.
 	awgObj := map[string]any{
-		"H1": profCopy.H1,
-		"H2": profCopy.H2,
-		"H3": profCopy.H3,
-		"H4": profCopy.H4,
-		"S1": strconv.Itoa(profCopy.S1),
-		"S2": strconv.Itoa(profCopy.S2),
-		"S3": strconv.Itoa(profCopy.S3),
-		"S4": strconv.Itoa(profCopy.S4),
-		"Jc":   strconv.Itoa(profCopy.Jc),
-		"Jmin": strconv.Itoa(profCopy.Jmin),
-		"Jmax": strconv.Itoa(profCopy.Jmax),
+		"H1":                 profCopy.H1,
+		"H2":                 profCopy.H2,
+		"H3":                 profCopy.H3,
+		"H4":                 profCopy.H4,
+		"S1":                 strconv.Itoa(profCopy.S1),
+		"S2":                 strconv.Itoa(profCopy.S2),
+		"S3":                 strconv.Itoa(profCopy.S3),
+		"S4":                 strconv.Itoa(profCopy.S4),
+		"Jc":                 strconv.Itoa(profCopy.Jc),
+		"Jmin":               strconv.Itoa(profCopy.Jmin),
+		"Jmax":               strconv.Itoa(profCopy.Jmax),
 		"last_config":        string(lastJSON),
 		"port":               portStr,
 		"transport_proto":    "udp",

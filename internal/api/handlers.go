@@ -11,6 +11,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/mrcook1e/amneziawg-panel/internal/awg"
+	"github.com/mrcook1e/amneziawg-panel/internal/billing"
 )
 
 // writeQRChunks serialises a slice of PNG bytes as JSON {"chunks":["base64..."]}.
@@ -25,6 +26,7 @@ func writeQRChunks(w http.ResponseWriter, pngs [][]byte) {
 type Handlers struct {
 	Mgr      *awg.Manager
 	Auth     *Auth
+	Billing  *billing.Service
 	Lang     string
 	limiter  *bucketLimiter
 	cabLimit *bucketLimiter

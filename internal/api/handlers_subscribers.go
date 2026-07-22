@@ -12,8 +12,9 @@ import (
 // ---- admin: subscribers ----------------------------------------------------
 
 type subscriberCreateBody struct {
-	Name  string `json:"name"`
-	Notes string `json:"notes"`
+	Name        string `json:"name"`
+	Notes       string `json:"notes"`
+	BillingRole string `json:"billingRole"`
 }
 
 func (h *Handlers) subscriberCreate(w http.ResponseWriter, r *http.Request) {
@@ -22,7 +23,7 @@ func (h *Handlers) subscriberCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	s, err := h.Mgr.CreateSubscriber(in.Name, in.Notes)
+	s, err := h.Mgr.CreateSubscriber(in.Name, in.Notes, in.BillingRole)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -49,8 +50,9 @@ func (h *Handlers) subscriberGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type subscriberPatchBody struct {
-	Name  *string `json:"name"`
-	Notes *string `json:"notes"`
+	Name        *string `json:"name"`
+	Notes       *string `json:"notes"`
+	BillingRole *string `json:"billingRole"`
 }
 
 func (h *Handlers) subscriberPatch(w http.ResponseWriter, r *http.Request) {
@@ -59,10 +61,16 @@ func (h *Handlers) subscriberPatch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	s, err := h.Mgr.PatchSubscriber(chi.URLParam(r, "id"), in.Name, in.Notes)
+	s, err := h.Mgr.PatchSubscriber(chi.URLParam(r, "id"), in.Name, in.Notes, in.BillingRole)
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	if in.BillingRole != nil && s.BillingRole != awg.BillingRolePayer {
+		if err := h.Mgr.ResumeSubscriberClients(s.ID); err != nil {
+			writeErr(w, err)
+			return
+		}
 	}
 	writeJSON(w, 200, subscriberOut(r, s))
 }
@@ -87,6 +95,10 @@ func (h *Handlers) subscriberDelete(w http.ResponseWriter, r *http.Request) {
 // ---- response shaping helpers ---------------------------------------------
 
 func subscriberOut(r *http.Request, s *awg.Subscriber) map[string]any {
+	role := s.BillingRole
+	if role == "" {
+		role = "trusted"
+	}
 	return map[string]any{
 		"id":          s.ID,
 		"name":        s.Name,
@@ -94,10 +106,15 @@ func subscriberOut(r *http.Request, s *awg.Subscriber) map[string]any {
 		"url":         cabinetURL(r, s.AccessToken),
 		"notes":       s.Notes,
 		"createdAt":   s.CreatedAt,
+		"billingRole": role,
 	}
 }
 
 func subscriberViewOut(r *http.Request, v awg.SubscriberView) map[string]any {
+	role := v.BillingRole
+	if role == "" {
+		role = "trusted"
+	}
 	out := map[string]any{
 		"id":          v.ID,
 		"name":        v.Name,
@@ -106,6 +123,7 @@ func subscriberViewOut(r *http.Request, v awg.SubscriberView) map[string]any {
 		"notes":       v.Notes,
 		"createdAt":   v.CreatedAt,
 		"deviceCount": v.DeviceCount,
+		"billingRole": role,
 	}
 	if v.Devices != nil {
 		out["devices"] = v.Devices

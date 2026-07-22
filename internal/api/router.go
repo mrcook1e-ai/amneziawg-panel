@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/mrcook1e/amneziawg-panel/internal/awg"
+	"github.com/mrcook1e/amneziawg-panel/internal/billing"
 	"github.com/mrcook1e/amneziawg-panel/internal/db"
 	"github.com/mrcook1e/amneziawg-panel/internal/static"
 )
@@ -44,8 +45,8 @@ func spaHandler(fsys fs.FS) http.Handler {
 	})
 }
 
-func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broker, webFS http.FileSystem) http.Handler {
-	h := &Handlers{Mgr: mgr, Auth: auth}
+func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broker, billingSvc *billing.Service, webFS http.FileSystem) http.Handler {
+	h := &Handlers{Mgr: mgr, Auth: auth, Billing: billingSvc}
 	var adminDB *db.DB
 	if stats != nil {
 		adminDB = stats.DB
@@ -57,6 +58,11 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", h.healthz)
+
+	if billingSvc != nil {
+		bh := &HandlersBilling{Service: billingSvc}
+		bh.RegisterBillingRoutes(r, auth)
+	}
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/session", h.sessionGet)

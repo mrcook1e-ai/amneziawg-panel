@@ -107,6 +107,17 @@ func (h *Handlers) cabinetAddDevice(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "cabinet not found"})
 		return
 	}
+	if h.Billing != nil {
+		allowed, err := h.Billing.SubscriberAccessAllowed(r.Context(), sub.ID)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if !allowed {
+			writeJSON(w, http.StatusPaymentRequired, map[string]string{"error": "оплатите просроченный счёт перед добавлением устройства"})
+			return
+		}
+	}
 
 	c, conf, err := h.Mgr.AddDevice(sub.ID, in.DeviceName, spec)
 	if err != nil {

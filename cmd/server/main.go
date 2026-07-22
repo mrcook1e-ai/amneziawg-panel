@@ -13,6 +13,7 @@ import (
 
 	"github.com/mrcook1e/amneziawg-panel/internal/api"
 	"github.com/mrcook1e/amneziawg-panel/internal/awg"
+	"github.com/mrcook1e/amneziawg-panel/internal/billing"
 	"github.com/mrcook1e/amneziawg-panel/internal/config"
 	"github.com/mrcook1e/amneziawg-panel/internal/db"
 	"github.com/mrcook1e/amneziawg-panel/internal/events"
@@ -42,7 +43,7 @@ func main() {
 	mgr.SetEventSink(evLog.Append)
 
 	collector := &stats.Collector{
-		DB: d, Mgr: mgr, Events: evLog,
+		DB: d, Mgr: mgr,
 		Tick: 30 * time.Second,
 		Bin:  cfg.AWGBin,
 	}
@@ -51,6 +52,9 @@ func main() {
 
 	auth := api.NewAuth(cfg.Password)
 	sh := &api.StatsHandlers{Mgr: mgr, DB: d, Events: evLog}
+	billingSvc := billing.NewService(d, mgr, cfg)
+	billingSvc.StartBackgroundLoop()
+	defer billingSvc.StopBackgroundLoop()
 
 	// SSE-брокер: 1с-тик с живой скоростью + push событий из журнала.
 	broker := api.NewBroker(mgr, cfg.AWGBin)
@@ -58,7 +62,7 @@ func main() {
 	brokerCtx, stopBroker := context.WithCancel(context.Background())
 	go broker.Run(brokerCtx)
 
-	router := api.NewRouter(mgr, auth, sh, broker, nil)
+	router := api.NewRouter(mgr, auth, sh, broker, billingSvc, nil)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.HTTPPort),

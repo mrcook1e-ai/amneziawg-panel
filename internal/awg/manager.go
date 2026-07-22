@@ -1,6 +1,7 @@
 package awg
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -41,6 +42,10 @@ func (m *Manager) SetEventSink(fn func(kind, id string, payload any)) {
 	m.emit = fn
 }
 
+func (m *Manager) Config() config.Config {
+	return m.cfg
+}
+
 func (m *Manager) fire(kind, id string, payload any) {
 	if m.emit != nil {
 		m.emit(kind, id, payload)
@@ -57,11 +62,11 @@ func NewManager(cfg config.Config) (*Manager, error) {
 		return nil, err
 	}
 	return &Manager{
-		cfg:      cfg,
-		store:    NewStore(cfg.WGPath),
-		keys:     Keys{Bin: cfg.AWGBin},
-		ipam:     ipam,
-		portIPAM: pipam,
+		cfg:         cfg,
+		store:       NewStore(cfg.WGPath),
+		keys:        Keys{Bin: cfg.AWGBin},
+		ipam:        ipam,
+		portIPAM:    pipam,
 		profiles:    map[string]*profileState{},
 		clients:     map[string]*Client{},
 		subscribers: map[string]*Subscriber{},
@@ -460,19 +465,16 @@ func (m *Manager) ListClients() ([]ClientView, error) {
 	m.mu.Lock()
 	out := make([]ClientView, 0, len(m.clients))
 	for _, c := range m.clients {
-		v := ClientView{Client: c}
+		client := *c
+		v := ClientView{Client: &client}
 		if s, ok := m.subscribers[c.SubscriberID]; ok {
 			v.SubscriberName = s.Name
 		}
 		out = append(out, v)
 	}
-	ifaces := make([]string, 0, len(m.profiles))
-	for _, ps := range m.profiles {
-		ifaces = append(ifaces, ps.profile.Iface)
-	}
 	m.mu.Unlock()
 
-	status := mergedDump(m.cfg.AWGBin, ifaces)
+	status := mergedDump(m.cfg.AWGBin)
 	for i := range out {
 		if s, ok := status[out[i].PublicKey]; ok {
 			out[i].TransferRx = s.RxBytes
@@ -536,22 +538,36 @@ func (m *Manager) ListProfiles() []ProfileView {
 	return out
 }
 
-func (m *Manager) ApplyTraffic(id string, rxDelta, txDelta uint64, handshake *time.Time) {
-	if rxDelta == 0 && txDelta == 0 && handshake == nil {
-		return
-	}
+type TrafficUpdate struct {
+	ClientID  string
+	RxDelta   uint64
+	TxDelta   uint64
+	Handshake *time.Time
+}
+
+// ApplyTrafficBatch persists all collector updates with one state-file write.
+func (m *Manager) ApplyTrafficBatch(updates []TrafficUpdate) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	c, ok := m.clients[id]
-	if !ok {
-		return
+	dirty := false
+	for _, update := range updates {
+		if update.RxDelta == 0 && update.TxDelta == 0 && update.Handshake == nil {
+			continue
+		}
+		c, ok := m.clients[update.ClientID]
+		if !ok {
+			continue
+		}
+		c.TotalRx += update.RxDelta
+		c.TotalTx += update.TxDelta
+		if update.Handshake != nil && (c.LastHandshakeAt == nil || update.Handshake.After(*c.LastHandshakeAt)) {
+			c.LastHandshakeAt = update.Handshake
+		}
+		dirty = true
 	}
-	c.TotalRx += rxDelta
-	c.TotalTx += txDelta
-	if handshake != nil && (c.LastHandshakeAt == nil || handshake.After(*c.LastHandshakeAt)) {
-		c.LastHandshakeAt = handshake
+	if dirty {
+		_ = m.store.SaveState(m.dumpStateLocked())
 	}
-	_ = m.store.SaveState(m.dumpStateLocked())
 }
 
 type ClientPatch struct {
@@ -750,6 +766,95 @@ func (m *Manager) ClientConfig(id string) (*Client, []byte, error) {
 	return c, out, err
 }
 
+// ListPayerSubscriberIDs returns a deterministic list of subscriber IDs that are payers.
+func (m *Manager) ListPayerSubscriberIDs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var ids []string
+	for _, s := range m.subscribers {
+		role := s.BillingRole
+		if role == "" {
+			role = BillingRoleTrusted
+		}
+		if role == BillingRolePayer {
+			ids = append(ids, s.ID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// SuspendSubscriberClients suspends currently enabled clients of a subscriber by setting Enabled=false and BillingSuspended=true.
+func (m *Manager) SuspendSubscriberClients(subscriberID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sub, ok := m.subscribers[subscriberID]
+	if !ok {
+		return errSubscriberNotFound
+	}
+	if sub.BillingRole != BillingRolePayer {
+		return nil
+	}
+
+	dirtyProfiles := map[string]struct{}{}
+	anyChanged := false
+	for _, c := range m.clients {
+		if c.SubscriberID == subscriberID {
+			if c.Enabled {
+				c.Enabled = false
+				c.BillingSuspended = true
+				c.UpdatedAt = time.Now().UTC()
+				dirtyProfiles[c.ProfileID] = struct{}{}
+				anyChanged = true
+			}
+		}
+	}
+
+	if anyChanged {
+		if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+			return err
+		}
+		for pid := range dirtyProfiles {
+			if ps, ok := m.profiles[pid]; ok {
+				_ = m.syncProfileLocked(ps)
+			}
+		}
+	}
+	return nil
+}
+
+// ResumeSubscriberClients resumes ONLY BillingSuspended clients by clearing BillingSuspended and enabling them.
+func (m *Manager) ResumeSubscriberClients(subscriberID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	dirtyProfiles := map[string]struct{}{}
+	anyChanged := false
+	for _, c := range m.clients {
+		if c.SubscriberID == subscriberID {
+			if c.BillingSuspended {
+				c.Enabled = true
+				c.BillingSuspended = false
+				c.UpdatedAt = time.Now().UTC()
+				dirtyProfiles[c.ProfileID] = struct{}{}
+				anyChanged = true
+			}
+		}
+	}
+
+	if anyChanged {
+		if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+			return err
+		}
+		for pid := range dirtyProfiles {
+			if ps, ok := m.profiles[pid]; ok {
+				_ = m.syncProfileLocked(ps)
+			}
+		}
+	}
+	return nil
+}
+
 // ResetClients wipes every client from every profile.
 func (m *Manager) ResetClients() error {
 	m.mu.Lock()
@@ -799,19 +904,11 @@ func IsNotFound(err error) bool {
 	return errors.Is(err, errNotFound) || errors.Is(err, errProfileNotFound)
 }
 
-// mergedDump runs `awg show <iface> dump` for each interface and returns a
-// single map keyed by peer pubkey. Failures on a single interface are silently
-// skipped — happens during a profile restart.
-func mergedDump(bin string, ifaces []string) map[string]PeerStatus {
-	out := map[string]PeerStatus{}
-	for _, iface := range ifaces {
-		st, err := ShowDump(bin, iface)
-		if err != nil {
-			continue
-		}
-		for k, v := range st {
-			out[k] = v
-		}
+// mergedDump returns all live peers through one UAPI process.
+func mergedDump(bin string) map[string]PeerStatus {
+	out, err := ShowAllDump(context.Background(), bin)
+	if err != nil {
+		return map[string]PeerStatus{}
 	}
 	return out
 }

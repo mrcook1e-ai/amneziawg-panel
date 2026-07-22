@@ -92,6 +92,49 @@ func migrate(db *sql.DB) error {
 			payload   TEXT
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts)`,
+
+		`CREATE TABLE IF NOT EXISTS billing_cycles (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			title          TEXT NOT NULL,
+			period_start   INTEGER NOT NULL,
+			period_end     INTEGER NOT NULL,
+			payment_due_at INTEGER NOT NULL,
+			grace_ends_at  INTEGER NOT NULL,
+			total_amount   INTEGER NOT NULL,
+			status         TEXT NOT NULL CHECK(status IN ('draft', 'published', 'closed')),
+			payer_count    INTEGER NOT NULL DEFAULT 0,
+			created_at     INTEGER NOT NULL,
+			published_at   INTEGER
+		)`,
+
+		`CREATE TABLE IF NOT EXISTS invoices (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			cycle_id        INTEGER NOT NULL,
+			subscriber_id   TEXT NOT NULL,
+			subscriber_name TEXT NOT NULL,
+			amount          INTEGER NOT NULL CHECK(amount > 0),
+			public_token    TEXT NOT NULL UNIQUE,
+			status          TEXT NOT NULL CHECK(status IN ('pending', 'paid', 'canceled')),
+			paid_at         INTEGER,
+			FOREIGN KEY (cycle_id) REFERENCES billing_cycles(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_invoices_cycle_subscriber ON invoices(cycle_id, subscriber_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_cycle_subscriber_unique ON invoices(cycle_id, subscriber_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_invoices_subscriber ON invoices(subscriber_id)`,
+
+		`CREATE TABLE IF NOT EXISTS payments (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			invoice_id      INTEGER NOT NULL,
+			provider_id     TEXT UNIQUE,
+			idempotency_key TEXT NOT NULL UNIQUE,
+			email           TEXT,
+			status          TEXT NOT NULL,
+			confirmation_url TEXT,
+			created_at      INTEGER NOT NULL,
+			updated_at      INTEGER NOT NULL,
+			FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id)`,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -119,7 +162,7 @@ func (d *DB) Reset(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, t := range []string{"peer_samples", "peer_daily", "events"} {
+	for _, t := range []string{"peer_samples", "peer_daily", "events", "payments", "invoices", "billing_cycles"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return err
 		}

@@ -95,15 +95,9 @@ func (b *Broker) Run(ctx context.Context) {
 				continue
 			}
 
-			status := map[string]awg.PeerStatus{}
-			for _, iface := range b.mgr.IfaceNames() {
-				st, err := awg.ShowDump(b.cfg.Bin, iface)
-				if err != nil {
-					continue
-				}
-				for k, v := range st {
-					status[k] = v
-				}
+			status, err := awg.ShowAllDump(ctx, b.cfg.Bin)
+			if err != nil {
+				continue
 			}
 			dt := now.Sub(lastT).Seconds()
 			if lastT.IsZero() || dt <= 0 || dt > 5 {
@@ -150,11 +144,11 @@ func (b *Broker) Run(ctx context.Context) {
 			}
 
 			payload := map[string]any{
-				"ts":        now.Unix(),
-				"rxRate":    sumRx,
-				"txRate":    sumTx,
-				"online":    online,
-				"clients":   perClient,
+				"ts":      now.Unix(),
+				"rxRate":  sumRx,
+				"txRate":  sumTx,
+				"online":  online,
+				"clients": perClient,
 			}
 			body, _ := json.Marshal(payload)
 			b.send("tick", body)
@@ -201,6 +195,9 @@ func (b *Broker) stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // отключаем nginx-буфер
+	// The server-wide WriteTimeout is unsuitable for a deliberately long-lived
+	// response. Slow/dead clients are still removed when an actual write fails.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
 	ch := b.subscribe()
 	defer b.unsubscribe(ch)
