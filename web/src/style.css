@@ -6,7 +6,7 @@
   /*
     Two themes, one variable set.
     Light  = warm paper  (cream whites, warm grays).
-    Dark   = warm graphite (R-channel nudged +1..+2 so surfaces don't read blue).
+    Dark   = OLED pure black page + warm near-black elevated chrome.
     Components reference --ink-* / --surface-* and never know which theme is on.
   */
   :root {
@@ -36,27 +36,27 @@
   }
 
   .dark {
-    --ink-50:    12  11  10;
-    --ink-100:  30  28  26;
-    --ink-200:  46  44  42;
-    --ink-300:  62  60  58;
-    --ink-400:  98  96  94;
-    --ink-500: 132 130 128;
-    --ink-600: 167 165 162;
-    --ink-700: 198 196 192;
-    --ink-800: 225 222 216;
+    --ink-50:  0 0 0;
+    --ink-100: 22 20 18;
+    --ink-200: 36 33 30;
+    --ink-300: 64 60 55;
+    --ink-400: 140 134 124;
+    --ink-500: 176 168 156;
+    --ink-600: 196 188 176;
+    --ink-700: 220 214 204;
+    --ink-800: 232 226 216;
     --ink-900: 245 242 236;
-    --ink-950: 255 254 250;
+    --ink-950: 252 250 246;
 
-    --surface:        16 14 12;
-    --surface-raised: 28 26 23;
+    --surface:        10 9 8;
+    --surface-raised: 18 16 14;
 
-    --glass-bg:    22 20 18;
-    --glass-alpha: 0.72;
+    --hairline: rgb(var(--ink-900) / 0.10);
+
+    --glass-bg:    18 16 14;
+    --glass-alpha: 0.82;
     --scrim:       0 0 0;
-    --scrim-alpha: 0.55;
-
-    --hairline: rgb(var(--ink-900) / 0.14);
+    --scrim-alpha: 0.62;
 
     color-scheme: dark;
   }
@@ -93,6 +93,11 @@
       0 1px 2px rgb(var(--ink-900) / 0.04),
       0 12px 32px -20px rgb(var(--ink-900) / 0.10);
   }
+  .dark .card {
+    box-shadow:
+      inset 0 1px 0 rgb(var(--ink-900) / 0.06),
+      0 0 0 1px rgb(var(--ink-900) / 0.08);
+  }
 
   .glass {
     background-color: rgb(var(--glass-bg) / var(--glass-alpha));
@@ -101,6 +106,11 @@
     box-shadow:
       0 1px 0 rgb(var(--ink-950) / 0.04) inset,
       0 16px 36px -18px rgba(0, 0, 0, 0.32);
+  }
+  .dark .glass {
+    box-shadow:
+      inset 0 1px 0 rgb(var(--ink-900) / 0.08),
+      0 8px 24px -12px rgba(0,0,0,0.55);
   }
 
   .scrim {
@@ -176,6 +186,13 @@
   @keyframes skeleton-pulse {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.55; }
+  }
+  @keyframes skeleton-pulse-dark {
+    0%, 100% { opacity: 0.9; }
+    50% { opacity: 0.45; }
+  }
+  .dark .skeleton {
+    animation: skeleton-pulse-dark 1.4s ease-in-out infinite;
   }
 
   /* ── Dots ───────────────────────────────────────────────────────────
@@ -283,6 +300,17 @@
   }
 
   /* ── Sheet (bottom drawer) transitions ─────────────────────────── */
+
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot::before,
+    .amber-dot::before,
+    .skeleton,
+    .animate-ping,
+    .animate-ping-slow,
+    .animate-pulse {
+      animation: none !important;
+    }
+  }
 }
 
 @layer utilities {

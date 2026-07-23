@@ -12,8 +12,8 @@ const props = withDefaults(defineProps<{
 const cls = computed(() => {
   const tones: Record<Tone, string> = {
     neutral: 'bg-ink-100 text-ink-700',
-    success: 'bg-success-soft text-success',
-    warning: 'bg-warning-soft text-warning',
+    success: 'bg-success/10 text-success',
+    warning: 'bg-warning/10 text-warning',
     danger:  'bg-danger/10 text-danger',
   }
   const sizes: Record<Size, string> = {

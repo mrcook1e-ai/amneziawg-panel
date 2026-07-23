@@ -406,7 +406,7 @@ const qrDeviceName = computed(() =>
     <!-- Ambient glow — dark only -->
     <div
       class="pointer-events-none fixed inset-0 opacity-0 dark:opacity-100 transition-opacity duration-700"
-      style="background: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(232,160,65,0.08) 0%, transparent 65%)"
+      style="background: radial-gradient(ellipse 90% 45% at 50% -5%, rgba(232,160,65,0.05) 0%, transparent 65%)"
       aria-hidden="true"
     />
 
@@ -785,12 +785,12 @@ const qrDeviceName = computed(() =>
               <!-- Prev / Next (only when multiple chunks) -->
               <template v-if="qrChunks.length > 1">
                 <button
-                  class="absolute left-0 -translate-x-12 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                  class="absolute left-2 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
                   @click="qrPrev">
                   <ChevronLeft :size="18" />
                 </button>
                 <button
-                  class="absolute right-0 translate-x-12 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                  class="absolute right-2 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
                   @click="qrNext">
                   <ChevronRight :size="18" />
                 </button>

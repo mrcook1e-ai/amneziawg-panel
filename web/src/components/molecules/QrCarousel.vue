@@ -94,7 +94,7 @@ const vpnUrl = computed(() =>
 
 <template>
   <div class="inline-flex flex-col items-center gap-3">
-    <div class="relative" :style="sizeStyle">
+    <div class="relative" data-qa="qr-plate" :style="sizeStyle">
 
       <!-- Loading -->
       <div v-if="loading"
@@ -128,22 +128,27 @@ const vpnUrl = computed(() =>
             />
           </div>
         </Transition>
-
-        <template v-if="controls && chunks.length > 1">
-          <button
-            class="absolute left-0 -translate-x-10 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-full bg-ink-900/10 hover:bg-ink-900/20 text-ink-700 transition-colors"
-            aria-label="Предыдущая часть"
-            @click="prev">
-            <ChevronLeft :size="16" />
-          </button>
-          <button
-            class="absolute right-0 translate-x-10 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-full bg-ink-900/10 hover:bg-ink-900/20 text-ink-700 transition-colors"
-            aria-label="Следующая часть"
-            @click="next">
-            <ChevronRight :size="16" />
-          </button>
-        </template>
       </template>
+    </div>
+
+    <!-- Prev / Next controls below the QR plate -->
+    <div v-if="controls && chunks.length > 1" class="flex items-center justify-center gap-3 mt-3">
+      <button
+        type="button"
+        data-qa="qr-prev"
+        class="w-11 h-11 flex items-center justify-center rounded-full bg-ink-900/10 hover:bg-ink-900/20 text-ink-700 transition-colors"
+        aria-label="Предыдущая часть"
+        @click="prev">
+        <ChevronLeft :size="16" />
+      </button>
+      <button
+        type="button"
+        data-qa="qr-next"
+        class="w-11 h-11 flex items-center justify-center rounded-full bg-ink-900/10 hover:bg-ink-900/20 text-ink-700 transition-colors"
+        aria-label="Следующая часть"
+        @click="next">
+        <ChevronRight :size="16" />
+      </button>
     </div>
 
     <!-- Chunk counter + dots -->

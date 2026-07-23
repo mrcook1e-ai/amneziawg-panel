@@ -100,7 +100,7 @@ function onCfgToggle(e: Event) {
       leave-from-class="opacity-100 max-h-[480px]"
       leave-to-class="opacity-0 max-h-0">
       <div v-if="qrOpen" class="flex justify-center pt-1">
-        <QrCarousel :device-id="clientId" :device-name="clientName" :size="220" />
+        <QrCarousel :device-id="clientId" :device-name="clientName" :size="220" :controls="true" />
       </div>
     </Transition>
 

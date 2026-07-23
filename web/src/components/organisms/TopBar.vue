@@ -84,7 +84,7 @@ function toggleTheme() { theme.set(isDark.value ? 'light' : 'dark') }
   <!-- Ambient amber glow — dark only, matches cabinet visual language. -->
   <div
     class="pointer-events-none fixed inset-x-0 top-0 h-[280px] opacity-0 dark:opacity-100 transition-opacity duration-700 z-10"
-    style="background: radial-gradient(ellipse 70% 100% at 50% 0%, rgba(232,160,65,0.07) 0%, transparent 70%)"
+    style="background: radial-gradient(ellipse 70% 100% at 50% 0%, rgba(232,160,65,0.05) 0%, transparent 70%)"
     aria-hidden="true"
   />
 

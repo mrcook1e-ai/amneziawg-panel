@@ -27,3 +27,7 @@ Thumbs.db
 
 # Local dev push scripts (contain server IP)
 /scripts/
+
+# Local agent tooling (never commit)
+.omo/
+.codegraph

@@ -27,7 +27,7 @@ const iconColor = (kind: string): string => ({
 </script>
 
 <template>
-  <div class="fixed top-3 inset-x-0 z-[70] flex flex-col items-center gap-2 px-4 pointer-events-none">
+  <div class="fixed top-20 inset-x-0 z-[70] flex flex-col items-center gap-2 px-4 pointer-events-none">
     <transition-group
       tag="div" class="flex flex-col items-center gap-2 w-full"
       enter-active-class="transition duration-200 ease-out"

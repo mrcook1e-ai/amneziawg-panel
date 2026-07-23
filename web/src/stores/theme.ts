@@ -10,6 +10,10 @@ function systemDark(): boolean { return mql?.matches ?? false }
 function applyClass(mode: ThemeMode) {
   const dark = mode === 'dark' || (mode === 'auto' && systemDark())
   document.documentElement.classList.toggle('dark', dark)
+  const color = dark ? '#000000' : '#fffefb'
+  document.querySelectorAll('meta[name="theme-color"]').forEach((el) => {
+    el.setAttribute('content', color)
+  })
 }
 
 function read(): ThemeMode {
