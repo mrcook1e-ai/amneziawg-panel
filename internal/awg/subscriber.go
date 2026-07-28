@@ -392,78 +392,109 @@ func (m *Manager) AddDevice(subscriberID, deviceName string, spec ObfuscationSpe
 		return nil, nil, err
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	var (
+		runner     Runner
+		iface      string
+		subName    string
+		clientCopy Client
+		profID     string
+		renderArgs ClientRenderArgs
+	)
 
-	s, ok := m.subscribers[subscriberID]
-	if !ok {
-		return nil, nil, errSubscriberNotFound
+	if err := func() error {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		s, ok := m.subscribers[subscriberID]
+		if !ok {
+			return errSubscriberNotFound
+		}
+
+		profileID := fmt.Sprintf("dev-%s-%s", s.ID, uuid.NewString()[:6])
+		pname := fmt.Sprintf("%s · %s", s.Name, deviceName)
+		p, err := m.newProfile(profileID, pname, "Device of "+s.Name, spec)
+		if err != nil {
+			return fmt.Errorf("create profile: %w", err)
+		}
+
+		ps := &profileState{
+			profile: p,
+			runner:  Runner{AWGBin: m.cfg.AWGBin, AWGQuickBin: m.cfg.AWGQuickBin, Iface: p.Iface},
+		}
+		m.profiles[p.ID] = ps
+
+		used := map[string]struct{}{}
+		for _, pr := range m.profiles {
+			used[pr.profile.Address] = struct{}{}
+		}
+		for _, existing := range m.clients {
+			used[existing.Address] = struct{}{}
+		}
+		// Use the per-profile IPAM so each awgN gets its own /24 and kernel routes
+		// don't overlap (awg0→10.8.0.x, awg1→10.8.1.x, …).
+		addr, err := m.ipamForPort(p.Port).Next(used)
+		if err != nil {
+			delete(m.profiles, p.ID)
+			return fmt.Errorf("allocate address: %w", err)
+		}
+		now := time.Now().UTC()
+		c := &Client{
+			ID: uuid.NewString(), SubscriberID: s.ID, ProfileID: p.ID,
+			Name: deviceName, Address: addr,
+			PrivateKey: cliPriv, PublicKey: cliPub, PreSharedKey: cliPSK,
+			Enabled:   true,
+			CreatedAt: now, UpdatedAt: now,
+		}
+		m.clients[c.ID] = c
+
+		if err := m.persistAllLocked(); err != nil {
+			delete(m.clients, c.ID)
+			delete(m.profiles, p.ID)
+			return fmt.Errorf("persist: %w", err)
+		}
+
+		runner = ps.runner
+		iface = p.Iface
+		subName = s.Name
+		clientCopy = *c
+		profID = p.ID
+		renderArgs = m.renderArgs(p, c)
+		return nil
+	}(); err != nil {
+		return nil, nil, err
 	}
 
-	profileID := fmt.Sprintf("dev-%s-%s", s.ID, uuid.NewString()[:6])
-	pname := fmt.Sprintf("%s · %s", s.Name, deviceName)
-	p, err := m.newProfile(profileID, pname, "Device of "+s.Name, spec)
+	// awg-quick outside the lock — never block ListSubscribers on interface bring-up.
+	_ = runner.Down()
+	if err := runner.Up(); err != nil {
+		m.rollbackDevice(clientCopy.ID, profID, iface, true)
+		return nil, nil, fmt.Errorf("awg-quick up %s: %w", iface, err)
+	}
+
+	conf, err := RenderClient(renderArgs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create profile: %w", err)
-	}
-
-	ps := &profileState{
-		profile: p,
-		runner:  Runner{AWGBin: m.cfg.AWGBin, AWGQuickBin: m.cfg.AWGQuickBin, Iface: p.Iface},
-	}
-	m.profiles[p.ID] = ps
-
-	used := map[string]struct{}{}
-	for _, pr := range m.profiles {
-		used[pr.profile.Address] = struct{}{}
-	}
-	for _, c := range m.clients {
-		used[c.Address] = struct{}{}
-	}
-	// Use the per-profile IPAM so each awgN gets its own /24 and kernel routes
-	// don't overlap (awg0→10.8.0.x, awg1→10.8.1.x, …).
-	addr, err := m.ipamForPort(p.Port).Next(used)
-	if err != nil {
-		delete(m.profiles, p.ID)
-		return nil, nil, fmt.Errorf("allocate address: %w", err)
-	}
-	now := time.Now().UTC()
-	c := &Client{
-		ID: uuid.NewString(), SubscriberID: s.ID, ProfileID: p.ID,
-		Name: deviceName, Address: addr,
-		PrivateKey: cliPriv, PublicKey: cliPub, PreSharedKey: cliPSK,
-		Enabled:   true,
-		CreatedAt: now, UpdatedAt: now,
-	}
-	m.clients[c.ID] = c
-
-	if err := m.persistAllLocked(); err != nil {
-		delete(m.clients, c.ID)
-		delete(m.profiles, p.ID)
-		return nil, nil, fmt.Errorf("persist: %w", err)
-	}
-	_ = ps.runner.Down()
-	if err := ps.runner.Up(); err != nil {
-		delete(m.clients, c.ID)
-		delete(m.profiles, p.ID)
-		_ = m.persistAllLocked()
-		return nil, nil, fmt.Errorf("awg-quick up %s: %w", p.Iface, err)
-	}
-
-	conf, err := RenderClient(m.renderArgs(p, c))
-	if err != nil {
-		_ = ps.runner.Down()
-		_ = m.store.RemoveProfileConf(p.Iface)
-		delete(m.clients, c.ID)
-		delete(m.profiles, p.ID)
-		_ = m.persistAllLocked()
+		_ = runner.Down()
+		m.rollbackDevice(clientCopy.ID, profID, iface, true)
 		return nil, nil, fmt.Errorf("render client: %w", err)
 	}
 
-	m.fire("device.created", c.ID, map[string]string{
-		"name": c.Name, "subscriberId": s.ID, "subscriberName": s.Name, "address": c.Address,
+	m.mu.Lock()
+	m.fire("device.created", clientCopy.ID, map[string]string{
+		"name": clientCopy.Name, "subscriberId": clientCopy.SubscriberID, "subscriberName": subName, "address": clientCopy.Address,
 	})
-	return c, conf, nil
+	m.mu.Unlock()
+	return &clientCopy, conf, nil
+}
+
+func (m *Manager) rollbackDevice(clientID, profileID, iface string, removeConf bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.clients, clientID)
+	delete(m.profiles, profileID)
+	if removeConf {
+		_ = m.store.RemoveProfileConf(iface)
+	}
+	_ = m.persistAllLocked()
 }
 
 // DeleteDevice removes one device (Client + its dedicated Profile + iface)

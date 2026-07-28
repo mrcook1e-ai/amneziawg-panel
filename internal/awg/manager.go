@@ -76,52 +76,94 @@ func NewManager(cfg config.Config) (*Manager, error) {
 
 func (m *Manager) Start() error {
 	slog.Info("AWG manager starting", slog.String("component", "awg"))
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
-	if m.cfg.WGHost == "" {
-		return errors.New("WG_HOST is not set")
+	type bootIface struct {
+		iface  string
+		runner Runner
 	}
+	var (
+		boot         []bootIface
+		profileCount int
+	)
 
-	c, err := m.store.Load()
-	if err != nil {
-		slog.Error("AWG state load failed", slog.String("component", "awg"), slog.String("operation", "load_state"), slog.Any("error", err))
-		return err
-	}
-	if c == nil {
-		// Fresh install: no auto-bootstrap. Admin creates subscribers and
-		// hands out their /cabinet/<token> URLs; subscribers add devices.
-		c = &Config{
-			SchemaVersion: SchemaVersion,
-			Subscribers:   map[string]*Subscriber{},
-			Profiles:      map[string]*Profile{},
-			Clients:       map[string]*Client{},
+	// Phase 1: load state and render conf files under the manager lock.
+	if err := func() error {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		if m.cfg.WGHost == "" {
+			return errors.New("WG_HOST is not set")
 		}
-	}
-	if err := m.validatePersistedMappings(c); err != nil {
-		slog.Error("AWG persisted state validation failed", slog.String("component", "awg"), slog.String("operation", "validate_state"), slog.Any("error", err))
-		return err
-	}
-	m.hydrate(c)
 
-	for _, ps := range m.profiles {
-		if err := m.persistProfileLocked(ps); err != nil {
+		c, err := m.store.Load()
+		if err != nil {
+			slog.Error("AWG state load failed", slog.String("component", "awg"), slog.String("operation", "load_state"), slog.Any("error", err))
 			return err
 		}
-		if err := ps.runner.Down(); err != nil {
-			slog.Warn("AWG interface cleanup failed", slog.String("component", "awg"), slog.String("operation", "start_cleanup"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+		if c == nil {
+			// Fresh install: no auto-bootstrap. Admin creates subscribers and
+			// hands out their /cabinet/<token> URLs; subscribers add devices.
+			c = &Config{
+				SchemaVersion: SchemaVersion,
+				Subscribers:   map[string]*Subscriber{},
+				Profiles:      map[string]*Profile{},
+				Clients:       map[string]*Client{},
+			}
 		}
-		if err := ps.runner.Up(); err != nil {
-			return fmt.Errorf("awg-quick up %s: %w", ps.profile.Iface, err)
-		}
-		if err := ps.runner.SyncConf(); err != nil {
+		if err := m.validatePersistedMappings(c); err != nil {
+			slog.Error("AWG persisted state validation failed", slog.String("component", "awg"), slog.String("operation", "validate_state"), slog.Any("error", err))
 			return err
 		}
-	}
-	if err := m.saveStateLocked("save_start_state"); err != nil {
+		m.hydrate(c)
+
+		boot = make([]bootIface, 0, len(m.profiles))
+		for _, ps := range m.profiles {
+			if err := m.persistProfileLocked(ps); err != nil {
+				return err
+			}
+			boot = append(boot, bootIface{iface: ps.profile.Iface, runner: ps.runner})
+		}
+		if err := m.saveStateLocked("save_start_state"); err != nil {
+			return err
+		}
+		profileCount = len(m.profiles)
+		return nil
+	}(); err != nil {
 		return err
 	}
-	slog.Info("AWG manager started", slog.String("component", "awg"), slog.Int("profile_count", len(m.profiles)))
+
+	// Phase 2: bring interfaces up WITHOUT Manager.mu. awg-quick spawns
+	// long-lived amneziawg-go; holding the lock here freezes every API that
+	// lists subscribers/clients/profiles.
+	for _, b := range boot {
+		if err := b.runner.Down(); err != nil {
+			slog.Warn("AWG interface cleanup failed", slog.String("component", "awg"), slog.String("operation", "start_cleanup"), slog.String("interface", b.iface), slog.Any("error", err))
+		}
+		if err := b.runner.Up(); err != nil {
+			return fmt.Errorf("awg-quick up %s: %w", b.iface, err)
+		}
+		// Fresh Up already applied conf; SyncConf is belt-and-suspenders and
+		// can race the userspace UAPI socket. Retry briefly, then fail.
+		var syncErr error
+		for attempt := 1; attempt <= 3; attempt++ {
+			syncErr = b.runner.SyncConf()
+			if syncErr == nil {
+				break
+			}
+			slog.Warn("AWG post-up sync retrying",
+				slog.String("component", "awg"),
+				slog.String("operation", "start_sync"),
+				slog.String("interface", b.iface),
+				slog.Int("attempt", attempt),
+				slog.Any("error", syncErr),
+			)
+			time.Sleep(time.Duration(150*attempt) * time.Millisecond)
+		}
+		if syncErr != nil {
+			return syncErr
+		}
+	}
+	slog.Info("AWG manager started", slog.String("component", "awg"), slog.Int("profile_count", profileCount))
 	return nil
 }
 
