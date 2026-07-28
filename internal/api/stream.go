@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
@@ -62,7 +63,11 @@ func NewBroker(mgr *awg.Manager, bin string) *Broker {
 // в БД) остаётся, добавляется второй слушатель.
 func (b *Broker) AttachEventLog(log *events.Log) {
 	log.Subscribe(func(ev events.Event) {
-		body, _ := json.Marshal(ev)
+		body, err := json.Marshal(ev)
+		if err != nil {
+			slog.Warn("stream audit event encoding failed", slog.String("component", "stream"), slog.String("operation", "marshal_audit"), slog.Any("error", err))
+			return
+		}
 		b.send("audit", body)
 	})
 }
@@ -79,10 +84,13 @@ func (b *Broker) Run(ctx context.Context) {
 	}
 	last := map[string]prev{}
 	var lastT time.Time
+	var lastDumpError string
+	slog.Info("stream broker started", slog.String("component", "stream"), slog.Duration("tick", b.cfg.Tick))
 
 	for {
 		select {
 		case <-ctx.Done():
+			slog.Debug("stream broker stopped", slog.String("component", "stream"))
 			return
 		case now := <-t.C:
 			// Если никто не подписан — не дёргаем kernel зря.
@@ -97,8 +105,13 @@ func (b *Broker) Run(ctx context.Context) {
 
 			status, err := awg.ShowAllDump(ctx, b.cfg.Bin)
 			if err != nil {
+				if lastDumpError != err.Error() {
+					slog.Warn("stream interface read failed", slog.String("component", "stream"), slog.String("operation", "show_all_dump"), slog.Any("error", err))
+					lastDumpError = err.Error()
+				}
 				continue
 			}
+			lastDumpError = ""
 			dt := now.Sub(lastT).Seconds()
 			if lastT.IsZero() || dt <= 0 || dt > 5 {
 				dt = 0
@@ -150,7 +163,11 @@ func (b *Broker) Run(ctx context.Context) {
 				"online":  online,
 				"clients": perClient,
 			}
-			body, _ := json.Marshal(payload)
+			body, err := json.Marshal(payload)
+			if err != nil {
+				slog.Warn("stream tick encoding failed", slog.String("component", "stream"), slog.String("operation", "marshal_tick"), slog.Any("error", err))
+				continue
+			}
 			b.send("tick", body)
 		}
 	}

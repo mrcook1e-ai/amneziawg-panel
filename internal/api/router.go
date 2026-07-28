@@ -3,8 +3,10 @@ package api
 import (
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -54,7 +56,9 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 	admin := &AdminHandlers{Mgr: mgr, DB: adminDB}
 
 	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	r.Use(accessLogMiddleware)
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", h.healthz)
@@ -149,4 +153,46 @@ func NewRouter(mgr *awg.Manager, auth *Auth, stats *StatsHandlers, broker *Broke
 		r.Handle("/*", spaHandler(static.FS))
 	}
 	return r
+}
+
+func accessLogMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+
+		status := ww.Status()
+		if status == 0 {
+			status = http.StatusOK
+		}
+		route := "unmatched"
+		if routeContext := chi.RouteContext(r.Context()); routeContext != nil {
+			if pattern := routeContext.RoutePattern(); pattern != "" {
+				route = pattern
+			}
+		}
+
+		attrs := []any{
+			slog.String("method", r.Method),
+			slog.String("route", route),
+			slog.Int("status", status),
+			slog.Int("bytes", ww.BytesWritten()),
+			slog.Duration("duration", time.Since(started)),
+			slog.String("req_id", middleware.GetReqID(r.Context())),
+			slog.String("ip", r.RemoteAddr),
+			slog.String("user_agent", r.UserAgent()),
+		}
+
+		logger := slog.Default()
+		switch {
+		case route == "/healthz":
+			logger.Debug("http request", attrs...)
+		case status >= http.StatusInternalServerError:
+			logger.Error("http request", attrs...)
+		case status >= http.StatusBadRequest:
+			logger.Warn("http request", attrs...)
+		default:
+			logger.Info("http request", attrs...)
+		}
+	})
 }
