@@ -1,6 +1,6 @@
 services:
   panel:
-    image: ${PANEL_IMAGE:-ghcr.io/mrcook1e/amneziawg-panel:latest}
+    image: ${PANEL_IMAGE:-ghcr.io/mrcook1e-ai/amneziawg-panel:latest}
     pull_policy: always
     restart: unless-stopped
 
