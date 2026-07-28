@@ -110,15 +110,17 @@ func Test_AmneziaVPNURLWith_renders_configured_DNS_in_nested_config(t *testing.T
 				t.Fatalf("outer DNS = (%q, %q), want (%q, %q)", outer.DNS1, outer.DNS2, tt.wantDNS1, tt.wantDNS2)
 			}
 
-			lastConfig := outer.Containers[0].AWG.LastConfig
-			if !strings.HasPrefix(lastConfig, "[Interface]\n") {
-				t.Fatalf("last_config must be an INI configuration, got %q", lastConfig)
+			var last struct {
+				Config string `json:"config"`
 			}
-			if !strings.Contains(lastConfig, tt.wantDNSLine) {
-				t.Fatalf("nested config does not contain %q:\n%s", tt.wantDNSLine, lastConfig)
+			if err := json.Unmarshal([]byte(outer.Containers[0].AWG.LastConfig), &last); err != nil {
+				t.Fatalf("decode nested last_config: %v", err)
 			}
-			if strings.Contains(lastConfig, "$PRIMARY_DNS") || strings.Contains(lastConfig, "$SECONDARY_DNS") {
-				t.Fatalf("nested config contains DNS placeholders:\n%s", lastConfig)
+			if !strings.Contains(last.Config, tt.wantDNSLine) {
+				t.Fatalf("nested config does not contain %q:\n%s", tt.wantDNSLine, last.Config)
+			}
+			if strings.Contains(last.Config, "$PRIMARY_DNS") || strings.Contains(last.Config, "$SECONDARY_DNS") {
+				t.Fatalf("nested config contains DNS placeholders:\n%s", last.Config)
 			}
 		})
 	}
