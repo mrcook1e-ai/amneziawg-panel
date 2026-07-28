@@ -1,5 +1,4 @@
 # Dokploy-ready compose файл.
-#
 # В Dokploy: New Service → Compose → repo URL → Deploy. Все капы, девайсы,
 # тома и порты декларативны — UI-галочки не нужны.
 #
@@ -8,13 +7,15 @@
 #   docker compose up -d
 services:
   panel:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    # Образ публикуется параллельно — Dokploy может тянуть готовый вместо сборки.
-    # image: ghcr.io/mrcook1e-ai/amneziawg-panel:latest
-    container_name: amnezia-panel
+    image: ${PANEL_IMAGE:-ghcr.io/mrcook1e/amneziawg-panel:latest}
+    pull_policy: always
     restart: unless-stopped
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
     # NET_ADMIN нужен awg-quick для поднятия интерфейса и iptables-правил.
     cap_add:
@@ -44,7 +45,6 @@ services:
 
       # Сеть (значения по умолчанию совпадают с дефолтами кода — переопределять
       # только если знаешь зачем).
-      WG_PORT: ${WG_PORT:-51820}
       WG_PORT_RANGE_START: ${WG_PORT_RANGE_START:-51820}
       WG_PORT_RANGE_END: ${WG_PORT_RANGE_END:-51859}
       WG_INTERFACE: ${WG_INTERFACE:-awg0}
@@ -61,6 +61,8 @@ services:
       # and clients got "handshake works but no internet". If you really
       # need to pin the interface, set WG_EGRESS_IFACE in your deploy env.
       WG_EGRESS_IFACE: ${WG_EGRESS_IFACE:-}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
 
       # HTTP-сервер панели
       PORT: ${PORT:-51821}
