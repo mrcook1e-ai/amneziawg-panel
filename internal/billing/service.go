@@ -137,11 +137,23 @@ func (s *Service) StartBackgroundLoop() {
 	go func() {
 		defer s.wg.Done()
 		defer slog.Debug("billing reconciliation loop stopped", slog.String("component", "billing"))
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		if err := s.ReconcileSuspensions(ctx); err != nil {
-			slog.Error("billing reconciliation failed", slog.String("component", "billing"), slog.String("operation", "reconcile_suspensions"), slog.Any("error", err))
+		var lastReconcileError string
+		reconcile := func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if err := s.ReconcileSuspensions(ctx); err != nil {
+				if lastReconcileError != err.Error() {
+					slog.Error("billing reconciliation failed", slog.String("component", "billing"), slog.String("operation", "reconcile_suspensions"), slog.Any("error", err))
+					lastReconcileError = err.Error()
+				}
+				return
+			}
+			if lastReconcileError != "" {
+				slog.Info("billing reconciliation recovered", slog.String("component", "billing"), slog.String("operation", "reconcile_suspensions"))
+				lastReconcileError = ""
+			}
 		}
-		cancel()
+		reconcile()
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 		for {
@@ -149,11 +161,7 @@ func (s *Service) StartBackgroundLoop() {
 			case <-s.stopLoop:
 				return
 			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				if err := s.ReconcileSuspensions(ctx); err != nil {
-					slog.Error("billing reconciliation failed", slog.String("component", "billing"), slog.String("operation", "reconcile_suspensions"), slog.Any("error", err))
-				}
-				cancel()
+				reconcile()
 			}
 		}
 	}()

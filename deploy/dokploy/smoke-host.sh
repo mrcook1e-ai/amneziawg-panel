@@ -63,6 +63,7 @@ template="$repo_root/deploy/dokploy/docker-compose.yml"
 stamp_lc=$(echo "$stamp" | tr '[:upper:]' '[:lower:]')
 happy_project="amneziawg-panel-qa-$stamp_lc"
 invalid_project="amneziawg-panel-invalid-qa-$stamp_lc"
+qa_network="amneziawg-qa-net-$stamp_lc"
 if [[ $mode == happy ]]; then
   project=$happy_project
 else
@@ -106,6 +107,10 @@ services:
 volumes:
   amnezia-state:
     name: $volume
+networks:
+  dokploy-network:
+    external: true
+    name: $qa_network
 EOF
 if [[ $mode == invalid ]]; then
   cat >"$stage_project/compose.qa.yml" <<EOF
@@ -117,6 +122,10 @@ services:
 volumes:
   amnezia-state:
     name: $volume
+networks:
+  dokploy-network:
+    external: true
+    name: $qa_network
 EOF
 fi
 
@@ -125,8 +134,8 @@ cat >"$stage_project/.env" <<EOF
 PANEL_IMAGE=$image
 WG_HOST=144.31.136.132
 PASSWORD=$password
-WG_PORT_RANGE_START=51820
-WG_PORT_RANGE_END=51859
+WG_PORT_RANGE_START=51860
+WG_PORT_RANGE_END=51899
 WG_INTERFACE=awg0
 WG_PATH=/etc/amnezia/amneziawg
 WG_DEFAULT_ADDRESS=10.8.0.x
@@ -158,6 +167,7 @@ evidence="$dir/evidence"
 stamp_lc=$(echo "$stamp" | tr '[:upper:]' '[:lower:]')
 happy_project="amneziawg-panel-qa-$stamp_lc"
 happy_dir="$base/happy"
+qa_network="amneziawg-qa-net-$stamp_lc"
 
 fail() {
   printf 'remote smoke %s: %s\n' "$mode" "$*" >&2
@@ -192,14 +202,20 @@ capture_prerequisites() {
 }
 
 range_ports() {
-  awk '{ for (i = 1; i <= NF; i++) { p = $i; sub(/^.*:/, "", p); if (p ~ /^[0-9]+$/ && p >= 51820 && p <= 51859) print p } }' \
+  local start end
+  start=$(awk -F= '$1 == "WG_PORT_RANGE_START" { print $2; exit }' "$dir/.env")
+  end=$(awk -F= '$1 == "WG_PORT_RANGE_END" { print $2; exit }' "$dir/.env")
+  awk -v s="$start" -v e="$end" '{ for (i = 1; i <= NF; i++) { p = $i; sub(/^.*:/, "", p); if (p ~ /^[0-9]+$/ && p >= s && p <= e) print p } }' \
     "$evidence/ss-hlun.txt" | sort -nu
 }
 
 assert_udp_range_available() {
+  local start end
+  start=$(awk -F= '$1 == "WG_PORT_RANGE_START" { print $2; exit }' "$dir/.env")
+  end=$(awk -F= '$1 == "WG_PORT_RANGE_END" { print $2; exit }' "$dir/.env")
   mapfile -t occupied < <(range_ports)
   if [[ $mode == happy ]]; then
-    ((${#occupied[@]} == 0)) || fail "UDP port range 51820-51859 is occupied"
+    ((${#occupied[@]} == 0)) || fail "UDP port range $start-$end is occupied"
     return
   fi
 
@@ -215,9 +231,9 @@ assert_udp_range_available() {
 }
 
 ensure_network() {
-  if ! docker network inspect dokploy-network >/dev/null 2>&1; then
-    docker network create dokploy-network >/dev/null
-  fi
+	if ! docker network inspect "$qa_network" >/dev/null 2>&1; then
+		docker network create "$qa_network" >/dev/null
+	fi
 }
 
 wait_for_health() {

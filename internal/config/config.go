@@ -19,7 +19,7 @@ type EnvironmentError struct {
 }
 
 func (e *EnvironmentError) Error() string {
-	return fmt.Sprintf("%s=%q violates %s", e.Field, e.Value, e.Rule)
+	return fmt.Sprintf("%s violates %s", e.Field, e.Rule)
 }
 
 func (e *EnvironmentError) Is(target error) bool {

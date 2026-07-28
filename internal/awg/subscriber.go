@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -263,8 +264,12 @@ func (m *Manager) DeleteSubscriber(id string) error {
 		droppedDevices = append(droppedDevices, cid)
 		pid := c.ProfileID
 		if ps, ok := m.profiles[pid]; ok {
-			_ = ps.runner.Down()
-			_ = m.store.RemoveProfileConf(ps.profile.Iface)
+			if err := ps.runner.Down(); err != nil {
+				slog.Warn("AWG subscriber deletion interface cleanup failed", slog.String("component", "awg"), slog.String("operation", "delete_subscriber_down"), slog.String("subscriber_id", id), slog.String("profile_id", pid), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+			}
+			if err := m.store.RemoveProfileConf(ps.profile.Iface); err != nil {
+				slog.Warn("AWG subscriber deletion config cleanup failed", slog.String("component", "awg"), slog.String("operation", "delete_subscriber_remove_config"), slog.String("subscriber_id", id), slog.String("profile_id", pid), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+			}
 			delete(m.profiles, pid)
 			droppedProfiles = append(droppedProfiles, pid)
 		}
@@ -480,8 +485,12 @@ func (m *Manager) DeleteDevice(deviceID, actorSubID string) error {
 	name := c.Name
 	delete(m.clients, deviceID)
 	if ps, ok := m.profiles[pid]; ok {
-		_ = ps.runner.Down()
-		_ = m.store.RemoveProfileConf(ps.profile.Iface)
+		if err := ps.runner.Down(); err != nil {
+			slog.Warn("AWG device deletion interface cleanup failed", slog.String("component", "awg"), slog.String("operation", "delete_device_down"), slog.String("device_id", deviceID), slog.String("profile_id", pid), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+		}
+		if err := m.store.RemoveProfileConf(ps.profile.Iface); err != nil {
+			slog.Warn("AWG device deletion config cleanup failed", slog.String("component", "awg"), slog.String("operation", "delete_device_remove_config"), slog.String("device_id", deviceID), slog.String("profile_id", pid), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+		}
 		delete(m.profiles, pid)
 	}
 	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {

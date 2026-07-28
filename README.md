@@ -83,7 +83,7 @@ docker run -d \
   --cap-add=NET_ADMIN --device=/dev/net/tun \
   --sysctl net.ipv4.ip_forward=1 \
   -e WG_HOST=vpn.example.com -e PASSWORD=secret \
-  -p 51820:51820/udp -p 51821:51821/tcp \
+  -p 51820-51859:51820-51859/udp -p 51821:51821/tcp \
   -v amnezia-state:/etc/amnezia/amneziawg \
   amnezia-panel
 ```

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/mail"
 	"strconv"
@@ -316,7 +316,7 @@ func (h *HandlersBilling) yookassaWebhook(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.Service.HandleYookassaWebhook(r.Context(), body); err != nil {
-		log.Printf("webhook error: %v", err)
+		slog.Warn("billing webhook rejected", slog.String("component", "billing"), slog.String("operation", "webhook"))
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

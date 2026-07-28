@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -83,6 +84,24 @@ func TestLoad_trims_valid_network_host(t *testing.T) {
 	}
 	if cfg.WGHost != "vpn.example.com" {
 		t.Fatalf("WGHost = %q, want %q", cfg.WGHost, "vpn.example.com")
+	}
+}
+
+func TestLoad_redacts_invalid_WG_HOST_value_from_error(t *testing.T) {
+	// Given
+	const secret = "password-sentinel"
+	setValidNetworkEnv(t)
+	t.Setenv("WG_HOST", "https://user:"+secret+"@bad.invalid")
+
+	// When
+	_, err := Load()
+
+	// Then
+	if err == nil {
+		t.Fatal("Load() error = nil, want invalid network environment error")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("Load() error exposed secret: %q", err)
 	}
 }
 

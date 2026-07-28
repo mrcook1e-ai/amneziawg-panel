@@ -168,6 +168,18 @@ func main() {
 }
 
 func exitStartup(component, message string, err error) {
-	slog.Error(message, slog.String("component", component), slog.Any("error", err))
+	slog.LogAttrs(context.Background(), slog.LevelError, message, startupErrorAttrs(component, err)...)
 	os.Exit(1)
+}
+
+func startupErrorAttrs(component string, err error) []slog.Attr {
+	attrs := []slog.Attr{slog.String("component", component)}
+	var environmentError *config.EnvironmentError
+	if errors.As(err, &environmentError) {
+		return append(attrs,
+			slog.String("field", environmentError.Field),
+			slog.String("rule", environmentError.Rule),
+		)
+	}
+	return append(attrs, slog.Any("error", err))
 }

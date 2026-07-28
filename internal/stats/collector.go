@@ -46,6 +46,8 @@ type Collector struct {
 
 	mu   sync.Mutex
 	prev map[string]peerCounters // keyed by public key, populated lazily
+
+	lastDumpError string
 }
 
 type peerCounters struct {
@@ -92,8 +94,15 @@ func (c *Collector) Run(ctx context.Context) {
 func (c *Collector) tickOnce(ctx context.Context) {
 	status, err := awg.ShowAllDump(ctx, c.Bin)
 	if err != nil {
-		slog.Warn("stats interface read failed", slog.String("component", "stats"), slog.String("operation", "show_all_dump"), slog.Any("error", err))
+		if c.lastDumpError != err.Error() {
+			slog.Warn("stats interface read failed", slog.String("component", "stats"), slog.String("operation", "show_all_dump"), slog.Any("error", err))
+			c.lastDumpError = err.Error()
+		}
 		return
+	}
+	if c.lastDumpError != "" {
+		slog.Info("stats interface read recovered", slog.String("component", "stats"), slog.String("operation", "show_all_dump"))
+		c.lastDumpError = ""
 	}
 	snap := c.Mgr.Snapshot()
 	now := time.Now().UTC()
