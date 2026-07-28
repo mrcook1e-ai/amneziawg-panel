@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -63,15 +64,22 @@ func (l *Log) Append(kind, clientID string, payload any) {
 	}
 	var raw []byte
 	if payload != nil {
-		raw, _ = json.Marshal(payload)
+		var err error
+		raw, err = json.Marshal(payload)
+		if err != nil {
+			slog.Warn("event payload encoding failed", slog.String("component", "events"), slog.String("operation", "marshal"), slog.Any("error", err))
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	now := time.Now()
-	res, _ := l.db.ExecContext(ctx,
+	res, err := l.db.ExecContext(ctx,
 		`INSERT INTO events(ts, kind, client_id, payload) VALUES(?, ?, ?, ?)`,
 		now.Unix(), kind, nullStr(clientID), nullBytes(raw),
 	)
+	if err != nil {
+		slog.Error("event append failed", slog.String("component", "events"), slog.String("operation", "append"), slog.Any("error", err))
+	}
 	// Broadcast подписчикам (SSE). Не блокируем при ошибке записи в БД —
 	// audit-сообщение всё равно ценно для UI.
 	l.mu.RLock()
@@ -82,7 +90,10 @@ func (l *Log) Append(kind, clientID string, payload any) {
 	}
 	var id int64
 	if res != nil {
-		id, _ = res.LastInsertId()
+		id, err = res.LastInsertId()
+		if err != nil {
+			slog.Warn("event identifier unavailable", slog.String("component", "events"), slog.String("operation", "last_insert_id"), slog.Any("error", err))
+		}
 	}
 	ev := Event{ID: id, Ts: now.UTC(), Kind: kind, ClientID: clientID, Payload: raw}
 	for _, fn := range subs {

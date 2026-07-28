@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -43,16 +43,16 @@ const (
 // Cycle represents a billing cycle.
 type Cycle struct {
 	ID           int64      `json:"id"`
-	Title        string `json:"title"`
-	PeriodStart  int64  `json:"periodStart"`
-	PeriodEnd    int64  `json:"periodEnd"`
-	PaymentDueAt int64  `json:"paymentDueAt"`
-	GraceEndsAt  int64  `json:"graceEndsAt"`
-	TotalAmount  int64  `json:"totalAmount"` // in kopecks
-	Status       string `json:"status"`      // draft, published, closed
-	SplitMode    string `json:"splitMode"`   // equal, traffic
-	PayerCount   int64  `json:"payerCount"`
-	CreatedAt    int64  `json:"createdAt"`
+	Title        string     `json:"title"`
+	PeriodStart  int64      `json:"periodStart"`
+	PeriodEnd    int64      `json:"periodEnd"`
+	PaymentDueAt int64      `json:"paymentDueAt"`
+	GraceEndsAt  int64      `json:"graceEndsAt"`
+	TotalAmount  int64      `json:"totalAmount"` // in kopecks
+	Status       string     `json:"status"`      // draft, published, closed
+	SplitMode    string     `json:"splitMode"`   // equal, traffic
+	PayerCount   int64      `json:"payerCount"`
+	CreatedAt    int64      `json:"createdAt"`
 	PublishedAt  *int64     `json:"publishedAt,omitempty"`
 	Invoices     []*Invoice `json:"invoices,omitempty"`
 }
@@ -89,22 +89,22 @@ type Summary struct {
 
 // PublicCabinetSummary represents public client cabinet billing summary.
 type PublicCabinetSummary struct {
-	BillingRole     string         `json:"billingRole"`
-	DerivedStatus   string         `json:"derivedStatus,omitempty"` // exempt, pending, grace, overdue, paid
-	CheckoutEnabled bool           `json:"checkoutEnabled"`
-	PaymentContact  string         `json:"paymentContact,omitempty"`
-	LatestInvoice   *Invoice       `json:"latestInvoice,omitempty"`
-	LatestCycle     *Cycle         `json:"latestCycle,omitempty"`
-	History         []HistoryItem  `json:"history,omitempty"`
+	BillingRole     string        `json:"billingRole"`
+	DerivedStatus   string        `json:"derivedStatus,omitempty"` // exempt, pending, grace, overdue, paid
+	CheckoutEnabled bool          `json:"checkoutEnabled"`
+	PaymentContact  string        `json:"paymentContact,omitempty"`
+	LatestInvoice   *Invoice      `json:"latestInvoice,omitempty"`
+	LatestCycle     *Cycle        `json:"latestCycle,omitempty"`
+	History         []HistoryItem `json:"history,omitempty"`
 }
 
 // HistoryItem — одна строка истории оплат плательщика в кабинете.
 type HistoryItem struct {
-	CycleTitle string  `json:"cycleTitle"`
-	Amount     int64   `json:"amount"`
-	Status     string  `json:"status"`
-	PeriodEnd  int64   `json:"periodEnd"`
-	PaidAt     *int64  `json:"paidAt,omitempty"`
+	CycleTitle string `json:"cycleTitle"`
+	Amount     int64  `json:"amount"`
+	Status     string `json:"status"`
+	PeriodEnd  int64  `json:"periodEnd"`
+	PaidAt     *int64 `json:"paidAt,omitempty"`
 }
 
 // Service handles billing operations, communicating with the db and awg.Manager.
@@ -132,12 +132,14 @@ func NewService(dbStore *db.DB, mgr *awg.Manager, cfg config.Config) *Service {
 
 // StartBackgroundLoop runs the background reconciliation loop every minute.
 func (s *Service) StartBackgroundLoop() {
+	slog.Info("billing reconciliation loop started", slog.String("component", "billing"))
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		defer slog.Debug("billing reconciliation loop stopped", slog.String("component", "billing"))
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		if err := s.ReconcileSuspensions(ctx); err != nil {
-			log.Printf("billing initial reconciliation error: %v", err)
+			slog.Error("billing reconciliation failed", slog.String("component", "billing"), slog.String("operation", "reconcile_suspensions"), slog.Any("error", err))
 		}
 		cancel()
 		ticker := time.NewTicker(1 * time.Minute)
@@ -149,7 +151,7 @@ func (s *Service) StartBackgroundLoop() {
 			case <-ticker.C:
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				if err := s.ReconcileSuspensions(ctx); err != nil {
-					log.Printf("billing background reconciliation error: %v", err)
+					slog.Error("billing reconciliation failed", slog.String("component", "billing"), slog.String("operation", "reconcile_suspensions"), slog.Any("error", err))
 				}
 				cancel()
 			}
@@ -186,6 +188,9 @@ func (s *Service) ReconcileSuspensions(ctx context.Context) error {
 		}
 		overdueSubscribers = append(overdueSubscribers, subID)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate overdue subscribers: %w", err)
+	}
 
 	// We also want to find active/payer subscriber IDs that DO NOT have overdue pending invoices,
 	// so we can make sure we resume them if they were previously suspended.
@@ -195,11 +200,15 @@ func (s *Service) ReconcileSuspensions(ctx context.Context) error {
 	// Let's implement SuspendSubscriberClients on the Manager. It only does something if there's any Enabled client.
 	for _, subID := range overdueSubscribers {
 		sub, err := s.Mgr.FindSubscriber(subID)
-		if err != nil || sub.BillingRole != awg.BillingRolePayer {
+		if err != nil {
+			slog.Warn("billing subscriber lookup failed", slog.String("component", "billing"), slog.String("operation", "find_subscriber"), slog.Any("error", err))
+			continue
+		}
+		if sub.BillingRole != awg.BillingRolePayer {
 			continue
 		}
 		if err := s.Mgr.SuspendSubscriberClients(subID); err != nil {
-			log.Printf("failed to suspend clients for subscriber %s: %v", subID, err)
+			slog.Error("billing suspension failed", slog.String("component", "billing"), slog.String("operation", "suspend_subscriber"), slog.Any("error", err))
 		}
 	}
 
@@ -654,6 +663,7 @@ func (s *Service) loadSubscriberHistory(ctx context.Context, subscriberID string
 		LIMIT 12
 	`, subscriberID)
 	if err != nil {
+		slog.Warn("billing history query failed", slog.String("component", "billing"), slog.String("operation", "load_subscriber_history"), slog.Any("error", err))
 		return nil
 	}
 	defer rows.Close()
@@ -662,12 +672,17 @@ func (s *Service) loadSubscriberHistory(ctx context.Context, subscriberID string
 		var h HistoryItem
 		var paidAt sql.NullInt64
 		if err := rows.Scan(&h.CycleTitle, &h.PeriodEnd, &h.Amount, &h.Status, &paidAt); err != nil {
+			slog.Warn("billing history scan failed", slog.String("component", "billing"), slog.String("operation", "load_subscriber_history"), slog.Any("error", err))
 			return nil
 		}
 		if paidAt.Valid {
 			h.PaidAt = &paidAt.Int64
 		}
 		items = append(items, h)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("billing history iteration failed", slog.String("component", "billing"), slog.String("operation", "load_subscriber_history"), slog.Any("error", err))
+		return nil
 	}
 	return items
 }
@@ -1004,6 +1019,9 @@ func (s *Service) ReconcilePaymentByPublicToken(ctx context.Context, publicToken
 	if err == nil {
 		err = s.applyVerifiedPayment(ctx, payment)
 	}
+	if err != nil {
+		slog.Warn("billing payment reconciliation failed", slog.String("component", "billing"), slog.String("operation", "reconcile_payment"), slog.Any("error", err))
+	}
 	if err == nil && payment.Status == "succeeded" {
 		return sub.AccessToken, "success", nil
 	}
@@ -1167,7 +1185,9 @@ func (s *Service) subscribersTraffic(ctx context.Context, subscriberIDs []string
 			strings.Join(placeholders, ","),
 		)
 		var total uint64
-		_ = s.DB.QueryRowContext(ctx, query, args...).Scan(&total)
+		if err := s.DB.QueryRowContext(ctx, query, args...).Scan(&total); err != nil {
+			slog.Warn("billing traffic query failed", slog.String("component", "billing"), slog.String("operation", "subscriber_traffic"), slog.Any("error", err))
+		}
 		out[subID] = total
 	}
 	return out

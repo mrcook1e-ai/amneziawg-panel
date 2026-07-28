@@ -18,7 +18,7 @@ package stats
 import (
 	"context"
 	"database/sql"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -57,6 +57,7 @@ func (c *Collector) Run(ctx context.Context) {
 		c.Tick = 30 * time.Second
 	}
 	c.prev = make(map[string]peerCounters)
+	slog.Info("stats collector started", slog.String("component", "stats"), slog.Duration("tick", c.Tick))
 
 	// One immediate tick so the dashboard isn't empty on first paint.
 	c.tickOnce(ctx)
@@ -74,6 +75,7 @@ func (c *Collector) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			slog.Debug("stats collector stopped", slog.String("component", "stats"))
 			return
 		case <-t.C:
 			c.tickOnce(ctx)
@@ -81,7 +83,7 @@ func (c *Collector) Run(ctx context.Context) {
 			c.runExpiry(now)
 		case now := <-pruneT.C:
 			if err := c.DB.Prune(ctx, now); err != nil {
-				log.Printf("stats: prune: %v", err)
+				slog.Warn("stats pruning failed", slog.String("component", "stats"), slog.String("operation", "prune"), slog.Any("error", err))
 			}
 		}
 	}
@@ -90,7 +92,7 @@ func (c *Collector) Run(ctx context.Context) {
 func (c *Collector) tickOnce(ctx context.Context) {
 	status, err := awg.ShowAllDump(ctx, c.Bin)
 	if err != nil {
-		log.Printf("stats: read interfaces: %v", err)
+		slog.Warn("stats interface read failed", slog.String("component", "stats"), slog.String("operation", "show_all_dump"), slog.Any("error", err))
 		return
 	}
 	snap := c.Mgr.Snapshot()
@@ -99,12 +101,15 @@ func (c *Collector) tickOnce(ctx context.Context) {
 
 	tx, err := c.DB.BeginTx(ctx, nil)
 	if err != nil {
+		slog.Error("stats transaction setup failed", slog.String("component", "stats"), slog.String("operation", "begin_transaction"), slog.Any("error", err))
 		return
 	}
 	committed := false
 	defer func() {
 		if !committed {
-			tx.Rollback()
+			if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+				slog.Warn("stats transaction rollback failed", slog.String("component", "stats"), slog.String("operation", "rollback"), slog.Any("error", err))
+			}
 		}
 	}()
 
@@ -117,6 +122,7 @@ func (c *Collector) tickOnce(ctx context.Context) {
 			handshake = COALESCE(excluded.handshake, peer_samples.handshake)
 	`)
 	if err != nil {
+		slog.Error("stats statement setup failed", slog.String("component", "stats"), slog.String("operation", "prepare_sample"), slog.Any("error", err))
 		return
 	}
 	defer upsert.Close()
@@ -145,7 +151,7 @@ func (c *Collector) tickOnce(ctx context.Context) {
 		}
 
 		if _, err := upsert.ExecContext(ctx, cl.ID, bucket, rxDelta, txDelta, hs); err != nil {
-			log.Printf("stats: upsert sample: %v", err)
+			slog.Warn("stats sample write failed", slog.String("component", "stats"), slog.String("operation", "upsert_sample"), slog.Any("error", err))
 			continue
 		}
 
@@ -155,6 +161,7 @@ func (c *Collector) tickOnce(ctx context.Context) {
 	}
 
 	if err := tx.Commit(); err != nil {
+		slog.Error("stats transaction commit failed", slog.String("component", "stats"), slog.String("operation", "commit_transaction"), slog.Any("error", err))
 		return
 	}
 	committed = true
@@ -165,7 +172,7 @@ func (c *Collector) tickOnce(ctx context.Context) {
 
 	// Daily rollup: idempotent UPSERT keyed by (client_id, day).
 	day := dayBucket(now)
-	_, _ = c.DB.ExecContext(ctx, `
+	if _, err := c.DB.ExecContext(ctx, `
 		INSERT INTO peer_daily(client_id, day, rx, tx, online_seconds)
 		SELECT client_id, ?, COALESCE(SUM(rx_delta),0), COALESCE(SUM(tx_delta),0),
 			   COUNT(*) * ?
@@ -176,7 +183,9 @@ func (c *Collector) tickOnce(ctx context.Context) {
 			rx = excluded.rx,
 			tx = excluded.tx,
 			online_seconds = excluded.online_seconds
-	`, day, BucketSeconds, day, day+86400)
+	`, day, BucketSeconds, day, day+86400); err != nil {
+		slog.Warn("stats daily rollup failed", slog.String("component", "stats"), slog.String("operation", "daily_rollup"), slog.Any("error", err))
+	}
 }
 
 func (c *Collector) runExpiry(now time.Time) {
