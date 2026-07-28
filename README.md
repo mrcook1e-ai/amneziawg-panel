@@ -36,21 +36,44 @@ cd web && npm install && npm run build
 
 ## Запуск
 
-### Docker Compose (рекомендуется)
+### Dokploy (основной способ)
+
+Быстрый запуск в Dokploy с автоматической генерацией домена и пароля через Base64 import:
+
+1. **Создание сервиса**: В панели Dokploy выберите **New Service → Compose**.
+2. **Импорт конфигурации**: Откройте вкладку **Advanced**, скопируйте содержимое файла `deploy/dokploy/import.base64` из репозитория, вставьте в поле импорта и нажмите **Import**.
+3. **Запуск**: Нажмите **Deploy**.
+4. **Доступ**: Dokploy автоматически сгенерирует домен в интерфейсе **Domains** и пароль в переменных **Environment** (переменная `PASSWORD`). Откройте сгенерированный URL и авторизуйтесь.
+
+#### Требования к хосту и сети
+* Dokploy должен работать в режиме **Docker Compose**.
+* В файрволе провайдера/хоста должен быть открыт диапазон UDP-портов `51820-51859` для VPN-подключений клиентов.
+* На хосте должно присутствовать устройство `/dev/net/tun`.
+* Для сохранения состояния используется один именованный том `amnezia-state`.
+
+#### Просмотр логов
+Настройка формата и уровня логирования через переменные окружения:
+* `LOG_FORMAT` (`json` или `text`, по умолчанию `json`)
+* `LOG_LEVEL` (`debug`, `info`, `warn`, `error`, по умолчанию `info`)
+
+Логи контейнера доступны во вкладке **Logs** сервиса в Dokploy или через CLI:
+```sh
+docker compose logs -f panel
+```
+
+#### Дополнительные настройки (Post-Install)
+После первого запуска вы можете опционально настроить кастомный HTTPS-домен в UI Dokploy, а также при необходимости заполнить `PUBLIC_URL` и ключи ЮKassa (`YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY`) для приёма онлайн-оплаты.
+
+---
+
+### Docker Compose CLI (вторичный способ)
+
+Для локального запуска или ручного развёртывания через Docker CLI с помощью корневого `docker-compose.yml`:
 
 ```sh
 cp .env.example .env  # выставить WG_HOST и PASSWORD
 docker compose up -d
 ```
-
-### Dokploy
-
-1. **New Service → Compose**, repo URL = этот репозиторий.
-2. Скопировать `.env.example` в раздел **Environment** и заполнить `WG_HOST` + `PASSWORD`.
-3. Deploy. `cap_add`, `devices`, sysctls, тома и порты уже описаны в `compose.yaml`.
-4. На вкладке **Domains** повесить домен на `HTTP_PORT` (51821). UDP-порт `51820` остаётся прямым, мимо Traefik.
-
-Healthcheck (`GET /healthz`) Dokploy подхватит автоматически — статус сервиса станет зелёным сразу после готовности.
 
 ### Голый docker run
 
@@ -70,7 +93,6 @@ docker run -d \
 | Переменная | По умолчанию | Описание |
 |---|---|---|
 | `WG_HOST` | — | **обязательно** — внешний адрес сервера |
-| `WG_PORT` | `51820` | UDP-порт AmneziaWG |
 | `WG_INTERFACE` | `awg0` | имя сетевого интерфейса |
 | `WG_PATH` | `/etc/amnezia/amneziawg` | каталог состояния (JSON + `.conf` + `panel.db`) |
 | `WG_DEFAULT_ADDRESS` | `10.8.0.x` | подсеть (символ `x` подставляется для каждого клиента) |
@@ -80,6 +102,8 @@ docker run -d \
 | `WG_PERSISTENT_KEEPALIVE` | `0` | секунд (0 = выкл) |
 | `PORT` | `51821` | HTTP-порт панели |
 | `WEBUI_HOST` | `0.0.0.0` | bind-адрес HTTP |
+| `LOG_FORMAT` | `json` | формат логов (`json` или `text`) |
+| `LOG_LEVEL` | `info` | уровень логирования (`debug`, `info`, `warn`, `error`) |
 | `PASSWORD` | пусто | без пароля = без auth |
 | `AWG_BIN` | `awg` | путь к `awg` |
 | `AWG_QUICK_BIN` | `awg-quick` | путь к `awg-quick` |
