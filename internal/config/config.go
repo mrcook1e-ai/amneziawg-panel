@@ -96,9 +96,11 @@ func Load() (Config, error) {
 		MTU:                envInt("WG_MTU", 0),
 		DNS:                env("WG_DEFAULT_DNS", "1.1.1.1"),
 		Subnet:             env("WG_DEFAULT_ADDRESS", "10.8.0.x"),
-		// IPv4-only by default. Advertising ::/0 without real IPv6 egress on the
-		// host blackholes dual-stack sites (browser tries AAAA first → hung tabs).
-		AllowedIPs:         env("WG_ALLOWED_IPS", "0.0.0.0/0"),
+		// AmneziaVPN client unlocks its split-tunnel UI only when AllowedIPs is
+		// full-tunnel: both 0.0.0.0/0 and ::/0 (space after comma matters for
+		// older clients that split on ", "). Keep that default. IPv6 blackholes
+		// are mitigated with MTU headroom / host v6 — not by stripping ::/0.
+		AllowedIPs:         env("WG_ALLOWED_IPS", "0.0.0.0/0, ::/0"),
 		PersistentKA:       envInt("WG_PERSISTENT_KEEPALIVE", 0),
 		Password:           env("PASSWORD", ""),
 		EgressIface:        env("WG_EGRESS_IFACE", detectEgressIface()),
