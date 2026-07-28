@@ -96,7 +96,9 @@ func Load() (Config, error) {
 		MTU:                envInt("WG_MTU", 0),
 		DNS:                env("WG_DEFAULT_DNS", "1.1.1.1"),
 		Subnet:             env("WG_DEFAULT_ADDRESS", "10.8.0.x"),
-		AllowedIPs:         env("WG_ALLOWED_IPS", "0.0.0.0/0, ::/0"),
+		// IPv4-only by default. Advertising ::/0 without real IPv6 egress on the
+		// host blackholes dual-stack sites (browser tries AAAA first → hung tabs).
+		AllowedIPs:         env("WG_ALLOWED_IPS", "0.0.0.0/0"),
 		PersistentKA:       envInt("WG_PERSISTENT_KEEPALIVE", 0),
 		Password:           env("PASSWORD", ""),
 		EgressIface:        env("WG_EGRESS_IFACE", detectEgressIface()),
