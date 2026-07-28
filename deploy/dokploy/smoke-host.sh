@@ -60,8 +60,9 @@ repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 template="$repo_root/deploy/dokploy/docker-compose.yml"
 [[ -f $template ]] || die "Dokploy template not found: $template"
 
-happy_project="amneziawg-panel-qa-$stamp"
-invalid_project="amneziawg-panel-invalid-qa-$stamp"
+stamp_lc=$(echo "$stamp" | tr '[:upper:]' '[:lower:]')
+happy_project="amneziawg-panel-qa-$stamp_lc"
+invalid_project="amneziawg-panel-invalid-qa-$stamp_lc"
 if [[ $mode == happy ]]; then
   project=$happy_project
 else
@@ -90,6 +91,7 @@ save_image() {
 
 if ! ssh "$remote" "docker image inspect '$image' >/dev/null 2>&1"; then
   save_image | ssh "$remote" 'docker load'
+  ssh "$remote" "docker tag 'localhost/$image' '$image' 2>/dev/null || true"
 fi
 
 stage_project="$local_stage/$mode"
@@ -153,7 +155,8 @@ volume=$4
 stamp=$5
 dir="$base/$mode"
 evidence="$dir/evidence"
-happy_project="amneziawg-panel-qa-$stamp"
+stamp_lc=$(echo "$stamp" | tr '[:upper:]' '[:lower:]')
+happy_project="amneziawg-panel-qa-$stamp_lc"
 happy_dir="$base/happy"
 
 fail() {
