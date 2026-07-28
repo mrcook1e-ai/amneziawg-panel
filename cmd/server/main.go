@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,27 +17,59 @@ import (
 	"github.com/mrcook1e/amneziawg-panel/internal/config"
 	"github.com/mrcook1e/amneziawg-panel/internal/db"
 	"github.com/mrcook1e/amneziawg-panel/internal/events"
+	"github.com/mrcook1e/amneziawg-panel/internal/logging"
 	"github.com/mrcook1e/amneziawg-panel/internal/stats"
 )
 
 func main() {
-	cfg := config.Load()
+	logger, err := logging.New(os.Stdout, logging.Config{
+		Format: os.Getenv("LOG_FORMAT"),
+		Level:  os.Getenv("LOG_LEVEL"),
+	})
+	if err != nil {
+		slog.New(slog.NewJSONHandler(os.Stdout, nil)).Error("logging configuration invalid",
+			slog.String("component", "logging"),
+			slog.Any("error", err),
+		)
+		os.Exit(1)
+	}
+	slog.SetDefault(logger)
+
+	cfg, err := config.Load()
+	if err != nil {
+		exitStartup("config", "network configuration invalid", err)
+	}
+	slog.Info("config loaded",
+		slog.String("component", "config"),
+		slog.String("wg_host", cfg.WGHost),
+		slog.Int("port_range_start", cfg.PortRangeStart),
+		slog.Int("port_range_end", cfg.PortRangeEnd),
+		slog.String("state_path", cfg.WGPath),
+	)
+	slog.Info("egress resolved",
+		slog.String("component", "network"),
+		slog.String("egress", cfg.EgressIface),
+	)
 
 	mgr, err := awg.NewManager(cfg)
 	if err != nil {
-		log.Fatalf("manager init: %v", err)
+		exitStartup("manager", "manager initialization failed", err)
 	}
 	if err := mgr.Start(); err != nil {
-		log.Fatalf("manager start: %v", err)
+		exitStartup("manager", "manager startup failed", err)
 	}
+	slog.Info("manager ready", slog.String("component", "manager"))
 
 	// Metrics + events store. Lives next to the wg config so it gets backed
 	// up by the same volume mount the rest of the state uses.
 	d, err := db.Open(cfg.WGPath)
 	if err != nil {
-		log.Fatalf("db open: %v", err)
+		exitStartup("database", "database open failed", err)
 	}
-	defer d.Close()
+	slog.Info("database ready",
+		slog.String("component", "database"),
+		slog.String("state_path", cfg.WGPath),
+	)
 
 	evLog := events.New(d)
 	mgr.SetEventSink(evLog.Append)
@@ -54,13 +86,13 @@ func main() {
 	sh := &api.StatsHandlers{Mgr: mgr, DB: d, Events: evLog}
 	billingSvc := billing.NewService(d, mgr, cfg)
 	billingSvc.StartBackgroundLoop()
-	defer billingSvc.StopBackgroundLoop()
 
 	// SSE-брокер: 1с-тик с живой скоростью + push событий из журнала.
 	broker := api.NewBroker(mgr, cfg.AWGBin)
 	broker.AttachEventLog(evLog)
 	brokerCtx, stopBroker := context.WithCancel(context.Background())
 	go broker.Run(brokerCtx)
+	slog.Info("background services ready", slog.String("component", "background"))
 
 	router := api.NewRouter(mgr, auth, sh, broker, billingSvc, nil)
 
@@ -71,22 +103,71 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 	}
 
+	serverErr := make(chan error, 1)
+	slog.Info("HTTP listen",
+		slog.String("component", "http"),
+		slog.String("listen_address", srv.Addr),
+	)
 	go func() {
-		log.Printf("listening on %s", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("http: %v", err)
+			serverErr <- err
 		}
 	}()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
+	defer signal.Stop(stop)
+
+	serverFailed := false
+	select {
+	case received := <-stop:
+		slog.Info("signal received",
+			slog.String("component", "lifecycle"),
+			slog.String("signal", received.String()),
+		)
+	case err := <-serverErr:
+		slog.Error("HTTP server failed",
+			slog.String("component", "http"),
+			slog.Any("error", err),
+		)
+		serverFailed = true
+	}
 
 	stopCollector()
 	stopBroker()
+	billingSvc.StopBackgroundLoop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
-	_ = mgr.Shutdown()
+	shutdownFailed := false
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("HTTP shutdown failed",
+			slog.String("component", "http"),
+			slog.Any("error", err),
+		)
+		shutdownFailed = true
+	}
+	if err := mgr.Shutdown(); err != nil {
+		slog.Error("manager shutdown failed",
+			slog.String("component", "manager"),
+			slog.Any("error", err),
+		)
+		shutdownFailed = true
+	}
+	if err := d.Close(); err != nil {
+		slog.Error("database shutdown failed",
+			slog.String("component", "database"),
+			slog.Any("error", err),
+		)
+		shutdownFailed = true
+	}
+	if serverFailed || shutdownFailed {
+		os.Exit(1)
+	}
+	slog.Info("service stopped", slog.String("component", "lifecycle"))
+}
+
+func exitStartup(component, message string, err error) {
+	slog.Error(message, slog.String("component", component), slog.Any("error", err))
+	os.Exit(1)
 }
