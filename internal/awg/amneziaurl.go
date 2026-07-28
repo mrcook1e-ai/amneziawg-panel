@@ -24,9 +24,9 @@ import (
 // is what Qt decompresses correctly.
 //
 // JSON structure mirrors the working awg-converter implementation:
-//   - dns1 / dns2 at root level (Amnezia substitutes $PRIMARY_DNS placeholders)
+//   - dns1 / dns2 at root level
 //   - AWG params both at awg{} top level and inside last_config
-//   - last_config.config uses $PRIMARY_DNS / $SECONDARY_DNS placeholders
+//   - last_config.config uses the effective DNS configuration
 //   - isThirdPartyConfig: true (skips server-side SSH/Docker on import)
 func (m *Manager) AmneziaVPNURL(deviceID string) (string, error) {
 	return m.AmneziaVPNURLWith(deviceID, "")
@@ -78,12 +78,11 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 	// ── DNS: split "1.1.1.1, 8.8.8.8" into dns1 / dns2 ────────────────
 	dns1, dns2 := splitDNS(dns)
 
-	// ── Render config with DNS placeholders for Amnezia substitution ────
-	// The app reads dns1/dns2 from the outer JSON and substitutes at connect time.
+	// ── Render config with the effective DNS configuration ──────────────
 	confAmnezia, err := RenderClient(ClientRenderArgs{
 		Profile:    &profCopy,
 		Client:     &clientCopy,
-		DNS:        "$PRIMARY_DNS, $SECONDARY_DNS",
+		DNS:        dns,
 		MTU:        mtu,
 		AllowedIPs: allowedIPs,
 		Endpoint:   fmt.Sprintf("%s:%d", host, profCopy.Port),
