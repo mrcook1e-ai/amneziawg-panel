@@ -1,11 +1,30 @@
 package config
 
 import (
+	"errors"
+	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 )
+
+var ErrInvalidNetworkConfig = errors.New("invalid network configuration")
+
+type EnvironmentError struct {
+	Field string
+	Value string
+	Rule  string
+}
+
+func (e *EnvironmentError) Error() string {
+	return fmt.Sprintf("%s=%q violates %s", e.Field, e.Value, e.Rule)
+}
+
+func (e *EnvironmentError) Is(target error) bool {
+	return target == ErrInvalidNetworkConfig
+}
 
 type Config struct {
 	BindAddr string
@@ -14,7 +33,6 @@ type Config struct {
 	Interface      string
 	WGPath         string
 	WGHost         string
-	WGPort         int
 	PortRangeStart int
 	PortRangeEnd   int
 	MTU            int
@@ -44,16 +62,37 @@ type Config struct {
 	BillingMinSharePct int
 }
 
-func Load() Config {
+func Load() (Config, error) {
+	httpPort, err := networkPort("PORT", 51821)
+	if err != nil {
+		return Config{}, err
+	}
+	portRangeStart, err := networkPort("WG_PORT_RANGE_START", 51820)
+	if err != nil {
+		return Config{}, err
+	}
+	portRangeEnd, err := networkPort("WG_PORT_RANGE_END", 51859)
+	if err != nil {
+		return Config{}, err
+	}
+	if portRangeStart > portRangeEnd {
+		return Config{}, &EnvironmentError{Field: "WG_PORT_RANGE", Value: fmt.Sprintf("%d..%d", portRangeStart, portRangeEnd), Rule: "start_not_after_end"}
+	}
+	if portRangeEnd-portRangeStart+1 > 256 {
+		return Config{}, &EnvironmentError{Field: "WG_PORT_RANGE", Value: fmt.Sprintf("%d..%d", portRangeStart, portRangeEnd), Rule: "capacity"}
+	}
+	wgHost, err := networkHost("WG_HOST")
+	if err != nil {
+		return Config{}, err
+	}
 	return Config{
 		BindAddr:           env("WEBUI_HOST", "0.0.0.0"),
-		HTTPPort:           envInt("PORT", 51821),
+		HTTPPort:           httpPort,
 		Interface:          env("WG_INTERFACE", "awg0"),
 		WGPath:             env("WG_PATH", "/etc/amnezia/amneziawg"),
-		WGHost:             env("WG_HOST", ""),
-		WGPort:             envInt("WG_PORT", 51820),
-		PortRangeStart:     envInt("WG_PORT_RANGE_START", 51820),
-		PortRangeEnd:       envInt("WG_PORT_RANGE_END", 51859),
+		WGHost:             wgHost,
+		PortRangeStart:     portRangeStart,
+		PortRangeEnd:       portRangeEnd,
 		MTU:                envInt("WG_MTU", 0),
 		DNS:                env("WG_DEFAULT_DNS", "1.1.1.1"),
 		Subnet:             env("WG_DEFAULT_ADDRESS", "10.8.0.x"),
@@ -69,7 +108,7 @@ func Load() Config {
 		PublicURL:          env("PUBLIC_URL", ""),
 		PaymentContact:     strings.TrimSpace(env("PAYMENT_CONTACT", "")),
 		BillingMinSharePct: envIntClamp("BILLING_MIN_SHARE_PCT", 25, 0, 100),
-	}
+	}, nil
 }
 
 func env(k, def string) string {
@@ -108,6 +147,50 @@ func envInt(k string, def int) int {
 		}
 	}
 	return def
+}
+
+func networkPort(field string, def int) (int, error) {
+	raw, ok := os.LookupEnv(field)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return def, nil
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, &EnvironmentError{Field: field, Value: raw, Rule: "integer"}
+	}
+	if port < 1 || port > 65535 {
+		return 0, &EnvironmentError{Field: field, Value: raw, Rule: "port_range"}
+	}
+	return port, nil
+}
+
+func networkHost(field string) (string, error) {
+	raw := env(field, "")
+	host := strings.TrimSpace(raw)
+	if addr, err := netip.ParseAddr(host); err == nil && addr.Is4() {
+		return host, nil
+	}
+	if validHostname(host) {
+		return host, nil
+	}
+	return "", &EnvironmentError{Field: field, Value: raw, Rule: "hostname_or_ipv4"}
+}
+
+func validHostname(host string) bool {
+	if host == "" || len(host) > 253 || strings.ContainsAny(host, ":/") {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, char := range label {
+			if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // envIntClamp returns envInt(k) bounded to [min, max]; falls back to def when

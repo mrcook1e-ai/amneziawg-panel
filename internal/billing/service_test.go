@@ -45,8 +45,8 @@ func setupTestManager(t *testing.T) (*awg.Manager, string) {
 			"p1": {
 				"id": "p1",
 				"name": "p1",
-				"iface": "wg0",
-				"address": "10.0.0.1/24",
+				"iface": "awg0",
+				"address": "10.8.0.1",
 				"port": 51820,
 				"privateKey": "privkey",
 				"publicKey": "pubkey",
@@ -65,10 +65,9 @@ func setupTestManager(t *testing.T) (*awg.Manager, string) {
 		AWGBin:         "echo",
 		AWGQuickBin:    "echo",
 		WGHost:         "1.1.1.1",
-		WGPort:         51820,
 		Subnet:         "10.8.0.x",
-		PortRangeStart: 50000,
-		PortRangeEnd:   60000,
+		PortRangeStart: 51820,
+		PortRangeEnd:   51820,
 	}
 
 	mgr, err := awg.NewManager(cfg)

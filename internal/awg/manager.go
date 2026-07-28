@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strconv"
@@ -74,6 +75,7 @@ func NewManager(cfg config.Config) (*Manager, error) {
 }
 
 func (m *Manager) Start() error {
+	slog.Info("AWG manager starting", slog.String("component", "awg"))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -83,6 +85,7 @@ func (m *Manager) Start() error {
 
 	c, err := m.store.Load()
 	if err != nil {
+		slog.Error("AWG state load failed", slog.String("component", "awg"), slog.String("operation", "load_state"), slog.Any("error", err))
 		return err
 	}
 	if c == nil {
@@ -95,13 +98,19 @@ func (m *Manager) Start() error {
 			Clients:       map[string]*Client{},
 		}
 	}
+	if err := m.validatePersistedMappings(c); err != nil {
+		slog.Error("AWG persisted state validation failed", slog.String("component", "awg"), slog.String("operation", "validate_state"), slog.Any("error", err))
+		return err
+	}
 	m.hydrate(c)
 
 	for _, ps := range m.profiles {
 		if err := m.persistProfileLocked(ps); err != nil {
 			return err
 		}
-		_ = ps.runner.Down()
+		if err := ps.runner.Down(); err != nil {
+			slog.Warn("AWG interface cleanup failed", slog.String("component", "awg"), slog.String("operation", "start_cleanup"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+		}
 		if err := ps.runner.Up(); err != nil {
 			return fmt.Errorf("awg-quick up %s: %w", ps.profile.Iface, err)
 		}
@@ -109,15 +118,23 @@ func (m *Manager) Start() error {
 			return err
 		}
 	}
-	return m.store.SaveState(m.dumpStateLocked())
+	if err := m.saveStateLocked("save_start_state"); err != nil {
+		return err
+	}
+	slog.Info("AWG manager started", slog.String("component", "awg"), slog.Int("profile_count", len(m.profiles)))
+	return nil
 }
 
 func (m *Manager) Shutdown() error {
+	slog.Info("AWG manager stopping", slog.String("component", "awg"))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, ps := range m.profiles {
-		_ = ps.runner.Down()
+		if err := ps.runner.Down(); err != nil {
+			slog.Warn("AWG shutdown failed", slog.String("component", "awg"), slog.String("operation", "shutdown"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+		}
 	}
+	slog.Debug("AWG manager stopped", slog.String("component", "awg"))
 	return nil
 }
 
@@ -139,13 +156,16 @@ func (m *Manager) Reload() error {
 	defer m.mu.Unlock()
 	c, err := m.store.Load()
 	if err != nil {
+		slog.Error("AWG state reload failed", slog.String("component", "awg"), slog.String("operation", "reload_state"), slog.Any("error", err))
 		return err
 	}
 	if c == nil {
 		return errors.New("state file missing after reload")
 	}
 	for _, ps := range m.profiles {
-		_ = ps.runner.Down()
+		if err := ps.runner.Down(); err != nil {
+			slog.Warn("AWG reload shutdown failed", slog.String("component", "awg"), slog.String("operation", "reload_shutdown"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+		}
 	}
 	m.profiles = map[string]*profileState{}
 	m.clients = map[string]*Client{}
@@ -154,7 +174,9 @@ func (m *Manager) Reload() error {
 		if err := m.persistProfileLocked(ps); err != nil {
 			return err
 		}
-		_ = ps.runner.Down()
+		if err := ps.runner.Down(); err != nil {
+			slog.Warn("AWG interface cleanup failed", slog.String("component", "awg"), slog.String("operation", "reload_cleanup"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+		}
 		if err := ps.runner.Up(); err != nil {
 			return fmt.Errorf("awg-quick up %s: %w", ps.profile.Iface, err)
 		}
@@ -319,19 +341,32 @@ func (m *Manager) persistProfileLocked(ps *profileState) error {
 		Egress:     m.cfg.EgressIface,
 	})
 	if err != nil {
+		slog.Error("AWG profile render failed", slog.String("component", "awg"), slog.String("operation", "render_profile"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
 		return err
 	}
-	return m.store.SaveProfileConf(ps.profile.Iface, conf)
+	if err := m.store.SaveProfileConf(ps.profile.Iface, conf); err != nil {
+		slog.Error("AWG profile save failed", slog.String("component", "awg"), slog.String("operation", "save_profile"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) persistAllLocked() error {
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+	if err := m.saveStateLocked("save_all_state"); err != nil {
 		return err
 	}
 	for _, ps := range m.profiles {
 		if err := m.persistProfileLocked(ps); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (m *Manager) saveStateLocked(operation string) error {
+	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		slog.Error("AWG state save failed", slog.String("component", "awg"), slog.String("operation", operation), slog.Any("error", err))
+		return err
 	}
 	return nil
 }
@@ -440,7 +475,7 @@ func (m *Manager) ImportClient(in ImportArgs) (*Client, error) {
 		Enabled:      true, CreatedAt: now, UpdatedAt: now,
 	}
 	m.clients[c.ID] = c
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+	if err := m.saveStateLocked("save_import_state"); err != nil {
 		delete(m.clients, c.ID)
 		return nil, err
 	}
@@ -566,7 +601,9 @@ func (m *Manager) ApplyTrafficBatch(updates []TrafficUpdate) {
 		dirty = true
 	}
 	if dirty {
-		_ = m.store.SaveState(m.dumpStateLocked())
+		if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+			slog.Error("AWG traffic state save failed", slog.String("component", "awg"), slog.String("operation", "save_traffic_state"), slog.Any("error", err))
+		}
 	}
 }
 
@@ -615,7 +652,7 @@ func (m *Manager) PatchClient(id string, p ClientPatch) (*Client, error) {
 		c.ItimeOverride = &v
 	}
 	c.UpdatedAt = time.Now().UTC()
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+	if err := m.saveStateLocked("save_patch_state"); err != nil {
 		return nil, err
 	}
 	m.fire("client.patched", id, map[string]string{"name": c.Name})
@@ -637,10 +674,14 @@ func (m *Manager) DisableExpired(now time.Time) []string {
 		}
 	}
 	if len(flipped) > 0 {
-		_ = m.store.SaveState(m.dumpStateLocked())
+		if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+			slog.Error("AWG expiry state save failed", slog.String("component", "awg"), slog.String("operation", "save_expiry_state"), slog.Any("error", err))
+		}
 		for pid := range dirtyProfiles {
 			if ps, ok := m.profiles[pid]; ok {
-				_ = m.syncProfileLocked(ps)
+				if err := m.syncProfileLocked(ps); err != nil {
+					slog.Error("AWG expiry configuration sync failed", slog.String("component", "awg"), slog.String("operation", "sync_expiry_profile"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+				}
 			}
 		}
 		for _, id := range flipped {
@@ -663,7 +704,7 @@ func (m *Manager) SetEnabled(id string, enabled bool) error {
 	}
 	c.Enabled = enabled
 	c.UpdatedAt = time.Now().UTC()
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+	if err := m.saveStateLocked("save_enabled_state"); err != nil {
 		return err
 	}
 	if ps, ok := m.profiles[c.ProfileID]; ok {
@@ -692,7 +733,7 @@ func (m *Manager) Rename(id, name string) error {
 	prev := c.Name
 	c.Name = name
 	c.UpdatedAt = time.Now().UTC()
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+	if err := m.saveStateLocked("save_rename_state"); err != nil {
 		return err
 	}
 	if ps, ok := m.profiles[c.ProfileID]; ok {
@@ -726,7 +767,7 @@ func (m *Manager) SetAddress(id, addr string) error {
 	}
 	c.Address = addr
 	c.UpdatedAt = time.Now().UTC()
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+	if err := m.saveStateLocked("save_address_state"); err != nil {
 		return err
 	}
 	if ps, ok := m.profiles[c.ProfileID]; ok {
@@ -825,12 +866,14 @@ func (m *Manager) SuspendSubscriberClients(subscriberID string) error {
 	}
 
 	if anyChanged {
-		if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		if err := m.saveStateLocked("save_billing_suspension_state"); err != nil {
 			return err
 		}
 		for pid := range dirtyProfiles {
 			if ps, ok := m.profiles[pid]; ok {
-				_ = m.syncProfileLocked(ps)
+				if err := m.syncProfileLocked(ps); err != nil {
+					slog.Error("AWG suspended profile sync failed", slog.String("component", "awg"), slog.String("operation", "sync_suspended_profile"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+				}
 			}
 		}
 	}
@@ -857,12 +900,14 @@ func (m *Manager) ResumeSubscriberClients(subscriberID string) error {
 	}
 
 	if anyChanged {
-		if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+		if err := m.saveStateLocked("save_billing_resume_state"); err != nil {
 			return err
 		}
 		for pid := range dirtyProfiles {
 			if ps, ok := m.profiles[pid]; ok {
-				_ = m.syncProfileLocked(ps)
+				if err := m.syncProfileLocked(ps); err != nil {
+					slog.Error("AWG resumed profile sync failed", slog.String("component", "awg"), slog.String("operation", "sync_resumed_profile"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+				}
 			}
 		}
 	}
@@ -875,7 +920,7 @@ func (m *Manager) ResetClients() error {
 	defer m.mu.Unlock()
 	n := len(m.clients)
 	m.clients = map[string]*Client{}
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+	if err := m.saveStateLocked("save_reset_state"); err != nil {
 		return err
 	}
 	for _, ps := range m.profiles {
@@ -895,14 +940,18 @@ func (m *Manager) FactoryReset() error {
 	defer m.mu.Unlock()
 
 	for _, ps := range m.profiles {
-		_ = ps.runner.Down()
-		_ = m.store.RemoveProfileConf(ps.profile.Iface)
+		if err := ps.runner.Down(); err != nil {
+			slog.Warn("AWG reset shutdown failed", slog.String("component", "awg"), slog.String("operation", "factory_reset_shutdown"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+		}
+		if err := m.store.RemoveProfileConf(ps.profile.Iface); err != nil {
+			slog.Warn("AWG profile removal failed", slog.String("component", "awg"), slog.String("operation", "remove_profile_config"), slog.String("interface", ps.profile.Iface), slog.Any("error", err))
+		}
 	}
 	m.profiles = map[string]*profileState{}
 	m.clients = map[string]*Client{}
 	m.subscribers = map[string]*Subscriber{}
 
-	if err := m.store.SaveState(m.dumpStateLocked()); err != nil {
+	if err := m.saveStateLocked("save_factory_reset_state"); err != nil {
 		return err
 	}
 	m.fire("server.factory_reset", "", nil)
@@ -922,6 +971,7 @@ func IsNotFound(err error) bool {
 func mergedDump(bin string) map[string]PeerStatus {
 	out, err := ShowAllDump(context.Background(), bin)
 	if err != nil {
+		slog.Warn("AWG interface read failed", slog.String("component", "awg"), slog.String("operation", "show_all_dump"), slog.Any("error", err))
 		return map[string]PeerStatus{}
 	}
 	return out
