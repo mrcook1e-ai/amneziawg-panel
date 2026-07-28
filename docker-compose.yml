@@ -34,8 +34,8 @@ services:
     ports:
       # Диапазон UDP-портов: один на каждый профиль (awg0=51820, awg1=51821, …).
       # По умолчанию 40 портов (51820-51859) — достаточно для 40 профилей.
-      - "${WG_PORT_RANGE_START:-51820}-${WG_PORT_RANGE_END:-51859}:51820-51859/udp"
-      - "${HTTP_PORT:-51821}:51821/tcp" # Веб-морда панели
+      - "${WG_PORT_RANGE_START:-51820}-${WG_PORT_RANGE_END:-51859}:${WG_PORT_RANGE_START:-51820}-${WG_PORT_RANGE_END:-51859}/udp"
+      - "${PORT:-51821}:${PORT:-51821}/tcp" # Веб-морда панели
 
     environment:
       # Обязательные
@@ -63,7 +63,7 @@ services:
       WG_EGRESS_IFACE: ${WG_EGRESS_IFACE:-}
 
       # HTTP-сервер панели
-      PORT: ${HTTP_PORT:-51821}
+      PORT: ${PORT:-51821}
       WEBUI_HOST: 0.0.0.0
 
       # Billing/YooKassa
@@ -80,7 +80,7 @@ services:
       - amnezia-state:/etc/amnezia/amneziawg
 
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:51821/healthz"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$${PORT}/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
