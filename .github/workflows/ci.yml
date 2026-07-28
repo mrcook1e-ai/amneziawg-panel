@@ -42,3 +42,80 @@ jobs:
           name: web-dist
           path: web/dist
           retention-days: 7
+
+  dokploy:
+    name: Dokploy blueprint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node deploy/dokploy/generate.mjs --check
+      - run: node --test deploy/dokploy/generate.test.mjs
+      - name: Render the imported Compose blueprint
+        env:
+          PANEL_IMAGE: example.invalid/amneziawg-panel:qa
+          WG_HOST: vpn.test.invalid
+          PASSWORD: fixture
+        run: |
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          node --input-type=module - "$TMP/import.json" "$TMP/compose.yml" <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+
+          const [importPath, composePath] = process.argv.slice(2);
+          const artifact = readFileSync("deploy/dokploy/import.base64", "utf8").trim();
+          const payload = JSON.parse(Buffer.from(artifact, "base64").toString("utf8"));
+          if (Object.keys(payload).join(",") !== "compose,config") {
+            throw new Error("import payload fields are invalid");
+          }
+          if (
+            payload.compose !== readFileSync("deploy/dokploy/docker-compose.yml", "utf8") ||
+            payload.config !== readFileSync("deploy/dokploy/template.toml", "utf8")
+          ) {
+            throw new Error("import payload does not match canonical inputs");
+          }
+          writeFileSync(importPath, JSON.stringify(payload), "utf8");
+          writeFileSync(composePath, payload.compose, "utf8");
+          NODE
+          docker compose -f "$TMP/compose.yml" config --quiet
+          docker compose -f "$TMP/compose.yml" config --format json > "$TMP/rendered.json"
+          node --input-type=module - "$TMP/rendered.json" <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const [renderedPath] = process.argv.slice(2);
+          const rendered = JSON.parse(readFileSync(renderedPath, "utf8"));
+          const panel = rendered.services.panel;
+          const rangeStart = 51820;
+          const rangeEnd = 51859;
+          const range = `${rangeStart}-${rangeEnd}`;
+          const ports = panel.ports;
+
+          if (rendered.networks["dokploy-network"].external !== true) {
+            throw new Error("dokploy-network must be external");
+          }
+          if (panel.container_name !== undefined || ports.some((port) => port.protocol !== "udp")) {
+            throw new Error("only direct UDP publishing is allowed");
+          }
+          if (!panel.expose.includes("51821")) {
+            throw new Error("panel HTTP port must be exposed internally");
+          }
+          if (ports.length === 1) {
+            const [port] = ports;
+            if (`${port.published}` !== range || `${port.target}` !== range) {
+              throw new Error("UDP port range is not aligned");
+            }
+          } else if (
+            ports.length !== rangeEnd - rangeStart + 1 ||
+            ports.some((port, index) =>
+              Number(port.published) !== rangeStart + index ||
+              Number(port.target) !== rangeStart + index,
+            )
+          ) {
+            throw new Error("every UDP endpoint must match the application range");
+          }
+          if (/\$\{[^}]+\}/.test(JSON.stringify(rendered))) {
+            throw new Error("rendered Compose contains an unexpanded variable");
+          }
+          NODE
