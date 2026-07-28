@@ -1,9 +1,10 @@
 package awg
 
 import (
-	"bytes"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -55,16 +56,29 @@ func (r Runner) Down() error { return run(r.AWGQuickBin, "down", r.Iface) }
 // SyncConf is equivalent to: awg syncconf <iface> <(awg-quick strip <iface>)
 // without invoking a shell.
 func (r Runner) SyncConf() error {
-	strip := exec.Command(r.AWGQuickBin, "strip", r.Iface)
-	stripped, err := strip.Output()
+	stripped, err := commandOutput(r.AWGQuickBin, "strip", r.Iface)
 	if err != nil {
 		err = fmt.Errorf("awg-quick strip: %w", err)
 		slog.Error("AWG configuration strip failed", slog.String("component", "awg"), slog.String("operation", "strip_config"), slog.String("interface", r.Iface), slog.Any("error", err))
 		return err
 	}
-	sync := exec.Command(r.AWGBin, "syncconf", r.Iface, "/dev/stdin")
-	sync.Stdin = bytes.NewReader(stripped)
-	if out, err := sync.CombinedOutput(); err != nil {
+	// Write stripped conf to a real temp file. Passing /dev/stdin works on
+	// some hosts but is fragile under non-TTY exec and over-triggers our
+	// error redaction ("stdin" substring).
+	tmp, err := os.CreateTemp("", "awg-syncconf-*.conf")
+	if err != nil {
+		return fmt.Errorf("awg syncconf temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(stripped); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("awg syncconf temp write: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("awg syncconf temp close: %w", err)
+	}
+	if out, err := commandCombinedOutput(r.AWGBin, "syncconf", r.Iface, tmpName); err != nil {
 		err = commandError(r.AWGBin, []string{"syncconf", r.Iface}, err, out)
 		slog.Error("AWG configuration sync failed", slog.String("component", "awg"), slog.String("operation", "sync_config"), slog.String("interface", r.Iface), slog.Any("error", err))
 		return err
@@ -73,11 +87,53 @@ func (r Runner) SyncConf() error {
 }
 
 func run(bin string, args ...string) error {
-	out, err := exec.Command(bin, args...).CombinedOutput()
+	out, err := commandCombinedOutput(bin, args...)
 	if err != nil {
 		return commandError(bin, args, err, out)
 	}
 	return nil
+}
+
+// commandCombinedOutput runs bin and captures stdout+stderr.
+//
+// CRITICAL: do NOT use exec.Cmd.CombinedOutput()/pipes here for awg-quick.
+// awg-quick spawns long-lived amneziawg-go which inherits the pipe write ends.
+// Go's Wait then blocks forever draining pipes that never see EOF — the panel
+// never finishes Start(), holds Manager.mu, and every /api/subscribers call
+// hangs. Writing to real *os.File descriptors avoids that: Wait returns when
+// the direct child exits even if grandchildren still hold the same file.
+func commandCombinedOutput(bin string, args ...string) ([]byte, error) {
+	f, err := os.CreateTemp("", "awg-cmd-*.log")
+	if err != nil {
+		return nil, err
+	}
+	path := f.Name()
+	defer func() { _ = os.Remove(path) }()
+
+	cmd := exec.Command(bin, args...)
+	cmd.Stdout = f
+	cmd.Stderr = f
+	runErr := cmd.Run()
+	// Rewind and read whatever the child wrote before we close/remove.
+	if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
+		_ = f.Close()
+		if runErr != nil {
+			return nil, runErr
+		}
+		return nil, seekErr
+	}
+	out, readErr := io.ReadAll(f)
+	_ = f.Close()
+	if runErr != nil {
+		return out, runErr
+	}
+	return out, readErr
+}
+
+func commandOutput(bin string, args ...string) ([]byte, error) {
+	// strip is short-lived and does not spawn daemons; file-backed capture is
+	// still safer and keeps one code path for redaction.
+	return commandCombinedOutput(bin, args...)
 }
 
 func commandError(bin string, args []string, err error, out []byte) error {
@@ -118,5 +174,31 @@ func sanitizeCommandArgs(args []string) []string {
 
 func containsSensitiveCommandData(value string) bool {
 	lower := strings.ToLower(value)
-	return strings.Contains(lower, "key") || strings.Contains(lower, "token") || strings.Contains(lower, "password") || strings.Contains(lower, "secret") || strings.Contains(lower, "authorization") || strings.Contains(lower, "config") || strings.Contains(lower, "stdin")
+	// Match credential-bearing tokens only. Broad substrings like "config" or
+	// "stdin" used to wipe every awg-quick/syncconf failure message in logs
+	// ("Unable to modify interface", path names, usage text).
+	sensitiveMarkers := []string{
+		"privatekey",
+		"private_key",
+		"presharedkey",
+		"preshared_key",
+		"publickey",
+		"public_key",
+		"password",
+		"secret",
+		"token=",
+		"authorization",
+		"begin private",
+		"begin openssh",
+	}
+	for _, marker := range sensitiveMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	// Standalone "key =" wireguard conf lines.
+	if strings.Contains(lower, "key =") || strings.Contains(lower, "key=") {
+		return true
+	}
+	return false
 }
