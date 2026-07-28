@@ -240,6 +240,7 @@ wait_for_health() {
   local address='' attempt
   for attempt in $(seq 1 30); do
     address=$(compose port panel 51821 2>/dev/null | awk 'NR == 1 { print; exit }')
+    address=$(echo "$address" | sed 's/^0\.0\.0\.0:/127.0.0.1:/; s/^:::/127.0.0.1:/')
     if [[ -n $address ]] && curl --fail-with-body --silent --show-error "http://$address/healthz" >"$evidence/healthz.txt" 2>/dev/null; then
       printf '%s' "$address"
       return
@@ -275,29 +276,39 @@ run_happy() {
   compose config --quiet
   compose up -d
   address=$(wait_for_health)
+  echo "DEBUG address=$address"
   api="http://$address"
   cookie="$dir/cookies.txt"
   response="$dir/response.json"
 
-  curl --fail-with-body --silent --show-error --cookie-jar "$cookie" \
+  echo "DEBUG calling session"
+  curl --fail-with-body --show-error --cookie-jar "$cookie" \
     --header 'Content-Type: application/json' \
     --data "$(jq -cn --arg password "$password" '{password: $password}')" \
     "$api/api/session" >"$response"
+  echo "DEBUG session response:"
+  cat "$response"
   jq -e '.success == true' "$response" >/dev/null
 
-  curl --fail-with-body --silent --show-error --cookie "$cookie" \
+  echo "DEBUG calling subscribers"
+  curl --fail-with-body --show-error --cookie "$cookie" \
     --header 'Content-Type: application/json' \
     --data "$(jq -cn --arg name "qa-subscriber-$stamp" '{name: $name, billingRole: "trusted"}')" \
     "$api/api/subscribers/" >"$response"
+  echo "DEBUG subscribers response:"
+  cat "$response"
   subscriber_id=$(jq -er '.id' "$response")
   cabinet_url=$(jq -er '.url' "$response")
   token=${cabinet_url##*/cabinet/}
   [[ -n $token && $token != "$cabinet_url" ]] || fail 'subscriber response did not include a cabinet token'
 
-  curl --fail-with-body --silent --show-error \
+  echo "DEBUG calling devices token=$token"
+  curl --fail-with-body --show-error \
     --header 'Content-Type: application/json' \
     --data "$(jq -n --rawfile snippet "$dir/default-obfuscation.conf" --arg device "qa-device-$stamp" '{snippet: $snippet, deviceName: $device}')" \
     "$api/api/cabinet/$token/devices" >"$response"
+  echo "DEBUG devices response:"
+  cat "$response"
   device_id=$(jq -er '.deviceId' "$response")
   jq -er '.conf' "$response" >"$evidence/client.conf"
   chmod 600 "$evidence/client.conf"
@@ -393,14 +404,15 @@ if [[ $mode == invalid ]]; then
   ssh "$remote" "set -e; docker compose --project-name '$happy_project' --env-file '$remote_base/happy/.env' --file '$remote_base/happy/compose.yml' --file '$remote_base/happy/compose.qa.yml' stop; docker compose --project-name '$happy_project' --env-file '$remote_base/happy/.env' --file '$remote_base/happy/compose.yml' --file '$remote_base/happy/compose.qa.yml' logs --no-color --no-log-prefix > '$remote_base/happy/evidence/happy-final.jsonl'"
   ssh "$remote" "tar -C '$remote_base/happy/evidence' -czf - happy-final.jsonl" | tar -xzf - -C "$evidence_dir"
   # Stop only the two explicitly named QA projects and remove only their
-  # explicitly named state volumes after their evidence was copied.
-  ssh "$remote" "set +e; docker compose --project-name '$invalid_project' --env-file '$remote_base/invalid/.env' --file '$remote_base/invalid/compose.yml' --file '$remote_base/invalid/compose.qa.yml' down --volumes --remove-orphans; docker compose --project-name '$happy_project' --env-file '$remote_base/happy/.env' --file '$remote_base/happy/compose.yml' --file '$remote_base/happy/compose.qa.yml' down --volumes --remove-orphans; docker volume rm -f '$volume' '${happy_project}-state'; rm -rf '$remote_base'; exit 0"
+  # explicitly named state volumes and timestamped QA network after evidence copy.
+  # External networks are not removed by `compose down`; delete qa_network explicitly.
+  ssh "$remote" "set +e; docker compose --project-name '$invalid_project' --env-file '$remote_base/invalid/.env' --file '$remote_base/invalid/compose.yml' --file '$remote_base/invalid/compose.qa.yml' down --volumes --remove-orphans; docker compose --project-name '$happy_project' --env-file '$remote_base/happy/.env' --file '$remote_base/happy/compose.yml' --file '$remote_base/happy/compose.qa.yml' down --volumes --remove-orphans; docker volume rm -f '$volume' '${happy_project}-state'; docker network rm -f 'amneziawg-qa-net-$stamp_lc' 2>/dev/null; rm -rf '$remote_base'; exit 0"
   jq -e 'select(.component == "lifecycle" and .msg == "signal received")' "$evidence_dir/happy-final.jsonl" >/dev/null
   jq -e 'select(.component == "lifecycle" and .msg == "service stopped")' "$evidence_dir/happy-final.jsonl" >/dev/null
 fi
 
 if [[ $remote_status -ne 0 && $mode == happy ]]; then
-  ssh "$remote" "set +e; docker compose --project-name '$happy_project' --env-file '$remote_base/happy/.env' --file '$remote_base/happy/compose.yml' --file '$remote_base/happy/compose.qa.yml' down --volumes --remove-orphans; docker volume rm -f '${happy_project}-state'; rm -rf '$remote_base'; exit 0"
+  ssh "$remote" "set +e; docker compose --project-name '$happy_project' --env-file '$remote_base/happy/.env' --file '$remote_base/happy/compose.yml' --file '$remote_base/happy/compose.qa.yml' down --volumes --remove-orphans; docker volume rm -f '${happy_project}-state'; docker network rm -f 'amneziawg-qa-net-$stamp_lc' 2>/dev/null; rm -rf '$remote_base'; exit 0"
 fi
 
 [[ $remote_status -eq 0 ]] || die "remote $mode QA failed; redacted evidence was copied before cleanup"
