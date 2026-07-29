@@ -11,12 +11,16 @@ import (
 // MUST prioritise WAN handshake reliability over aggressive DPI mimicry.
 //
 // Ranges stay tighter than the web Architect generator. Specs are AWG 2.0:
-// H ranges and S1–S4. I1–I5 are preserved when manually configured, but are
-// not randomised because CPS signatures must be proven on a target network.
+// H ranges, S1–S4, and Amnezia's official default I1 CPS. I2–I5 remain empty;
+// arbitrary CPS signatures must be manually proven on a target network.
 const (
 	PresetAuto    = "auto"
 	PresetStealth = "stealth"
 	PresetFast    = "fast"
+
+	// defaultI1CPS is Amnezia's AWG 2.0 defaultSpecialJunk1. It is a compact
+	// DNS-like initiation packet; the official defaults leave I2–I5 empty.
+	defaultI1CPS = "<r 2><b 0x858000010001000000000669636c6f756403636f6d0000010001c00c000100010000105a00044d583737>"
 )
 
 // GenerateObfuscation builds a validated ObfuscationSpec for a cabinet preset.
@@ -98,6 +102,7 @@ func genObfuscation(b obfBand) (ObfuscationSpec, error) {
 		Jc: jc, Jmin: jmin, Jmax: jmax,
 		S1: s1, S2: s2, S3: s3, S4: s4,
 		H1: h1, H2: h2, H3: h3, H4: h4,
+		I1: defaultI1CPS,
 	}
 	if err := spec.Validate(); err != nil {
 		return ObfuscationSpec{}, fmt.Errorf("generated invalid obfuscation: %w", err)

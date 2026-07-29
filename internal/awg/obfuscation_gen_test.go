@@ -12,10 +12,12 @@ func TestGenerateObfuscation_Presets(t *testing.T) {
 				if err != nil {
 					t.Fatalf("iter %d: %v", i, err)
 				}
-				// Auto presets never randomize CPS signatures. I1–I5 must be
-				// explicitly proven for a target network before being configured.
-				if spec.I1 != "" || spec.I2 != "" || spec.I3 != "" || spec.I4 != "" || spec.I5 != "" {
-					t.Fatalf("I1–I5 must be empty: %+v", spec)
+				// Official AWG 2.0 default: stable I1 only; no random I2–I5.
+				if spec.I1 != defaultI1CPS {
+					t.Fatalf("I1 = %q, want official default %q", spec.I1, defaultI1CPS)
+				}
+				if spec.I2 != "" || spec.I3 != "" || spec.I4 != "" || spec.I5 != "" {
+					t.Fatalf("I2–I5 must be empty: %+v", spec)
 				}
 				if spec.Jc < 3 || spec.Jc > 8 {
 					t.Fatalf("Jc out of band: %d", spec.Jc)
