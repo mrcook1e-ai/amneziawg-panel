@@ -3,6 +3,7 @@ package awg
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 )
@@ -10,9 +11,8 @@ import (
 // Cabinet obfuscation presets. "auto" is what almost every user picks — it
 // MUST prioritise WAN handshake reliability over aggressive DPI mimicry.
 //
-// Ranges are intentionally tighter than the web Architect generator and
-// match profiles that handshook successfully on CGNAT paths against
-// pinned amneziawg-go v0.2.18 (H/S/Jc only, no I1–I5).
+// Ranges stay tighter than the web Architect generator. Specs are AWG 2.0:
+// H ranges, S1–S4, and initiator-side I1–I5 CPS (responder ignores I*).
 const (
 	PresetAuto    = "auto"
 	PresetStealth = "stealth"
@@ -94,16 +94,87 @@ func genObfuscation(b obfBand) (ObfuscationSpec, error) {
 		return ObfuscationSpec{}, err
 	}
 
+	i1, i2, i3, i4, i5, err := genInitiatorCPS()
+	if err != nil {
+		return ObfuscationSpec{}, err
+	}
+
 	spec := ObfuscationSpec{
 		Jc: jc, Jmin: jmin, Jmax: jmax,
 		S1: s1, S2: s2, S3: s3, S4: s4,
 		H1: h1, H2: h2, H3: h3, H4: h4,
-		// I1–I5 intentionally empty — initiator CPS broke WAN handshakes.
+		I1: i1, I2: i2, I3: i3, I4: i4, I5: i5,
 	}
 	if err := spec.Validate(); err != nil {
 		return ObfuscationSpec{}, fmt.Errorf("generated invalid obfuscation: %w", err)
 	}
 	return spec, nil
+}
+
+// genInitiatorCPS builds modest AWG 2.0 I1–I5 chains (initiator-only).
+// Sizes stay well under maxCPSPacketBytes so WAN paths do not fragment.
+// Shape matches working phone confs: I1 = header+pad, I2–I5 = light entropy.
+func genInitiatorCPS() (i1, i2, i3, i4, i5 string, err error) {
+	// QUIC long-header lookalike prefix (type 0xc1, version 1) + random DCID-ish body.
+	body, err := randBytes(12)
+	if err != nil {
+		return "", "", "", "", "", err
+	}
+	hdr := make([]byte, 0, 5+len(body))
+	hdr = append(hdr, 0xc1, 0x00, 0x00, 0x00, 0x01)
+	hdr = append(hdr, body...)
+
+	rc1, err := randInt(8, 28)
+	if err != nil {
+		return "", "", "", "", "", err
+	}
+	r1, err := randInt(12, 40)
+	if err != nil {
+		return "", "", "", "", "", err
+	}
+	i1 = fmt.Sprintf("<b 0x%s><rc %d><t><r %d>", hex.EncodeToString(hdr), rc1, r1)
+
+	i2, err = genEntropyCPS(12, 48)
+	if err != nil {
+		return "", "", "", "", "", err
+	}
+	i3, err = genEntropyCPS(64, 200)
+	if err != nil {
+		return "", "", "", "", "", err
+	}
+	i4, err = genEntropyCPS(64, 200)
+	if err != nil {
+		return "", "", "", "", "", err
+	}
+	i5, err = genEntropyCPS(64, 200)
+	if err != nil {
+		return "", "", "", "", "", err
+	}
+	return i1, i2, i3, i4, i5, nil
+}
+
+func genEntropyCPS(rLo, rHi int) (string, error) {
+	r, err := randInt(rLo, rHi)
+	if err != nil {
+		return "", err
+	}
+	rc, err := randInt(4, 16)
+	if err != nil {
+		return "", err
+	}
+	rd, err := randInt(4, 12)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("<t><r %d><rc %d><rd %d>", r, rc, rd), nil
+}
+
+func randBytes(n int) ([]byte, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 func randS(sMax, s4Max int) (s1, s2, s3, s4 int, err error) {

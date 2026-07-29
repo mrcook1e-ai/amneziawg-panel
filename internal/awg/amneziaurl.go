@@ -98,6 +98,8 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 		mtuStr = strconv.Itoa(mtu)
 	}
 
+	// I1–I5 always present in last_config (empty string when unused), matching
+	// official Amnezia third-party AWG 2.0 exports.
 	last := map[string]any{
 		"H1":                    profCopy.H1,
 		"H2":                    profCopy.H2,
@@ -110,6 +112,11 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 		"Jc":                    strconv.Itoa(profCopy.Jc),
 		"Jmin":                  strconv.Itoa(profCopy.Jmin),
 		"Jmax":                  strconv.Itoa(profCopy.Jmax),
+		"I1":                    profCopy.I1,
+		"I2":                    profCopy.I2,
+		"I3":                    profCopy.I3,
+		"I4":                    profCopy.I4,
+		"I5":                    profCopy.I5,
 		"allowed_ips":           allowedIPsArr,
 		"clientId":              "",
 		"client_ip":             clientCopy.Address,
@@ -123,21 +130,6 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 		"psk_key":               clientCopy.PreSharedKey,
 		"server_pub_key":        profCopy.PublicKey,
 	}
-	if profCopy.I1 != "" {
-		last["I1"] = profCopy.I1
-	}
-	if profCopy.I2 != "" {
-		last["I2"] = profCopy.I2
-	}
-	if profCopy.I3 != "" {
-		last["I3"] = profCopy.I3
-	}
-	if profCopy.I4 != "" {
-		last["I4"] = profCopy.I4
-	}
-	if profCopy.I5 != "" {
-		last["I5"] = profCopy.I5
-	}
 
 	lastJSON, err := json.Marshal(last)
 	if err != nil {
@@ -147,6 +139,7 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 	// ── Outer JSON ───────────────────────────────────────────────────────
 	// AWG params are also present at the awg{} top level (not just last_config)
 	// so Amnezia's configurator can read them without parsing last_config.
+	// protocol_version "2" marks AWG 2.0 (H ranges, S3/S4, I1–I5).
 	awgObj := map[string]any{
 		"H1":                 profCopy.H1,
 		"H2":                 profCopy.H2,
@@ -163,6 +156,7 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 		"port":               portStr,
 		"transport_proto":    "udp",
 		"isThirdPartyConfig": true,
+		"protocol_version":   "2",
 	}
 
 	server := map[string]any{
