@@ -58,9 +58,9 @@ function toggleTheme() {
 }
 
 // ── Add-device wizard ──────────────────────────────────────────────────
-// Two-stage flow: pick (type + name) → config (protection profile) →
-// creating → done. The config step is opt-out-friendly: 'Авто' is
-// pre-selected, the user can just tap "Создать ключ" without thinking.
+// Flow: pick (device + name) → config (network situation) → split →
+// creating → done. Config is opt-out-friendly: «Обычная сеть» (auto)
+// is pre-selected; most users never change it.
 type WizardStep = 'pick' | 'config' | 'split' | 'creating' | 'done'
 const wizardOpen     = ref(false)
 const wizardStep     = ref<WizardStep>('pick')
@@ -71,36 +71,82 @@ type DeviceTemplate = 'phone' | 'laptop' | 'desktop' | 'other'
 const pickedTemplate = ref<DeviceTemplate>('phone')
 const customName     = ref('')
 
-  /*
-    Protection presets are resolved SERVER-SIDE (awg.GenerateObfuscation).
-    The cabinet only sends the preset key — never a client-built snippet —
-    so "Авто" (what everyone clicks) always gets WAN-safe H/S/Jc bounds.
-  */
-  type PresetKey = 'auto' | 'stealth' | 'fast'
-  
-  interface PresetDef {
-    v: PresetKey
-    label: string
-    hint: string
-    icon: any
-  }
-  
-  const PRESETS: PresetDef[] = [
-    {
-      v: 'auto', label: 'Авто', icon: Shield,
-      hint: 'Стабильный коннект — рекомендуется',
-    },
-    {
-      v: 'stealth', label: 'Тихий', icon: EyeOff,
-      hint: 'Сильнее обход DPI (чуть больше overhead)',
-    },
-    {
-      v: 'fast', label: 'Быстрый', icon: Gauge,
-      hint: 'Минимум обфускации, ниже задержка',
-    },
-  ]
-  
-  const pickedPreset = ref<PresetKey>('auto')
+/*
+  Network-situation presets (not OS/device). Resolved SERVER-SIDE via
+  awg.GenerateObfuscation. Device type only names the key + soft tips —
+  the same AWG 2.0 conf can fail on an old Windows Amnezia build and
+  work on phone (client bug), so we never map "laptop → stealth".
+*/
+type PresetKey = 'auto' | 'stealth' | 'fast'
+
+interface PresetDef {
+  v: PresetKey
+  label: string
+  hint: string
+  icon: any
+  recommended?: boolean
+}
+
+const PRESETS: PresetDef[] = [
+  {
+    v: 'auto',
+    label: 'Обычная сеть',
+    icon: Shield,
+    recommended: true,
+    hint: 'Дом, Wi‑Fi, большинство операторов — стабильный старт',
+  },
+  {
+    v: 'fast',
+    label: 'Слабые блокировки',
+    icon: Gauge,
+    hint: 'Меньше обфускации и задержка — если DPI почти нет',
+  },
+  {
+    v: 'stealth',
+    label: 'Сильные блокировки',
+    icon: EyeOff,
+    hint: 'Жёсткий DPI. На LTE берите только если «Обычная» не проходит',
+  },
+]
+
+const pickedPreset = ref<PresetKey>('auto')
+
+/** Soft default when entering the config step — always safe WAN profile. */
+function suggestedPreset(_device: DeviceTemplate): PresetKey {
+  return 'auto'
+}
+
+/** Short tip under device type / config step. */
+const DEVICE_NETWORK_TIP: Record<DeviceTemplate, string> = {
+  phone:
+    'На телефоне начните с «Обычная сеть». Крупный junk на LTE часто хуже, чем на Wi‑Fi.',
+  laptop:
+    'На ноутбуке важнее версия Amnezia (AWG 2.0), чем «особый» профиль. Конфиг не привязан к ОС.',
+  desktop:
+    'На ПК нужна актуальная AmneziaVPN с AWG 2.0. Старые Windows-сборки иногда зависают на connect.',
+  other:
+    'Один ключ — одно устройство. Не используйте один conf на телефон и компьютер сразу.',
+}
+
+/** Post-create checklist lines by device. */
+const DEVICE_DONE_TIPS: Record<DeviceTemplate, string[]> = {
+  phone: [
+    'Импорт: AmneziaVPN (Android / iOS) → «+» → вставить или .vpn.',
+    'Нет коннекта на LTE — пересоздайте ключ с «Обычная сеть», не «Сильные блокировки».',
+  ],
+  laptop: [
+    'Импорт: AmneziaVPN для Windows / macOS / Linux (желательно свежая, AWG 2.0).',
+    'Телефон с тем же сервером ок, а ноут крутит connect — обновите приложение; это не «другой conf для ПК».',
+  ],
+  desktop: [
+    'Импорт: актуальная AmneziaVPN (AWG 2.0). На Windows 4.8.x бывают зависания с AWG 2.0.',
+    'Альтернатива на Linux: клиент с актуальными awg-tools (не старый 2021-й).',
+  ],
+  other: [
+    'Импорт в AmneziaVPN или совместимый AWG 2.0 клиент.',
+    'Не шарьте один ключ между устройствами — добавьте отдельный ключ на каждое.',
+  ],
+}
 
 interface Template { key: DeviceTemplate; icon: any; label: string }
 const templates: Template[] = [
@@ -238,7 +284,7 @@ function openWizard(tpl: DeviceTemplate = 'phone') {
 	}
   pickedTemplate.value = tpl
   customName.value     = ''
-  pickedPreset.value   = 'auto'
+  pickedPreset.value   = suggestedPreset(tpl)
   wizardErr.value      = ''
   justAdded.value      = null
   wizardStep.value     = 'pick'
@@ -246,8 +292,18 @@ function openWizard(tpl: DeviceTemplate = 'phone') {
 }
 function closeWizard() { wizardOpen.value = false; justAdded.value = null }
 
+function selectDeviceTemplate(key: DeviceTemplate) {
+  pickedTemplate.value = key
+  // Soft-reset network preset when device changes on the pick step only.
+  if (wizardStep.value === 'pick') {
+    pickedPreset.value = suggestedPreset(key)
+  }
+}
+
 function goToConfig() {
-  // Name is optional; defaults to the template name. No validation gate here.
+  // Name is optional; defaults to the template name. Soft-suggest network
+  // profile from device (currently always "auto" — safe default).
+  pickedPreset.value = suggestedPreset(pickedTemplate.value)
   wizardStep.value = 'config'
 }
 
@@ -820,11 +876,12 @@ const qrDeviceName = computed(() =>
                 <div class="grid grid-cols-4 gap-2">
                   <button
                     v-for="t in templates" :key="t.key"
+                    type="button"
                     class="flex flex-col items-center gap-2.5 py-3.5 px-1 rounded-2xl transition-colors duration-150 active:translate-y-px"
                     :class="pickedTemplate === t.key
                       ? 'bg-amber-400/15 dark:bg-amber-400/15 shadow-[inset_0_0_0_2px_theme(colors.amber.400)]'
                       : 'bg-ink-100 hover:bg-ink-200'"
-                    @click="pickedTemplate = t.key">
+                    @click="selectDeviceTemplate(t.key)">
                     <component
                       :is="t.icon"
                       :size="22"
@@ -832,6 +889,9 @@ const qrDeviceName = computed(() =>
                     <span class="text-[10.5px] font-semibold text-ink-600 dark:text-ink-500 leading-tight">{{ t.label }}</span>
                   </button>
                 </div>
+                <p class="text-[11.5px] text-ink-500 leading-snug mt-3 px-0.5">
+                  {{ DEVICE_NETWORK_TIP[pickedTemplate] }}
+                </p>
               </div>
 
               <div class="space-y-2">
@@ -860,24 +920,18 @@ const qrDeviceName = computed(() =>
               </div>
             </div>
 
-            <!-- ── Step: Config — protection profile ── -->
+            <!-- ── Step: Config — network situation (not OS) ── -->
             <div v-else-if="wizardStep === 'config'" class="p-6 space-y-5">
               <div class="flex items-start justify-between gap-3">
                 <div>
-                  <h3 class="text-[19px] font-semibold">Профиль защиты</h3>
-                  <p class="text-[12.5px] text-ink-500 mt-0.5">Подбираем под вашу сеть</p>
+                  <h3 class="text-[19px] font-semibold">Ситуация сети</h3>
+                  <p class="text-[12.5px] text-ink-500 mt-0.5">Не тип устройства — насколько жёсткий DPI / оператор</p>
                 </div>
                 <IconButton size="sm" title="Закрыть" @click="closeWizard">
                   <X :size="16" />
                 </IconButton>
               </div>
 
-              <!--
-                3 preset cards — full-width rows. Each card is a real
-                situation phrased in user-language, not a generator-config
-                combo. Avg user keeps "Авто"; power users flip to "Тихий"
-                for strict networks or "Быстрый" for low-latency.
-              -->
               <div class="space-y-2">
                 <button
                   v-for="p in PRESETS" :key="p.v"
@@ -897,11 +951,21 @@ const qrDeviceName = computed(() =>
                       :size="16"
                       :class="pickedPreset === p.v ? 'text-amber-600' : 'text-ink-500'" />
                   </span>
-                  <span class="min-w-0 flex-1">
-                    <span
-                      class="block text-[13.5px] font-semibold leading-tight"
-                      :class="pickedPreset === p.v ? 'text-amber-700 dark:text-amber-400' : 'text-ink-900'">
-                      {{ p.label }}
+                  <span class="min-w-0 flex-1 pr-6">
+                    <span class="flex items-center gap-2 flex-wrap">
+                      <span
+                        class="block text-[13.5px] font-semibold leading-tight"
+                        :class="pickedPreset === p.v ? 'text-amber-700 dark:text-amber-400' : 'text-ink-900'">
+                        {{ p.label }}
+                      </span>
+                      <span
+                        v-if="p.recommended"
+                        class="text-[9.5px] uppercase tracking-[0.08em] font-semibold px-1.5 py-0.5 rounded-md"
+                        :class="pickedPreset === p.v
+                          ? 'bg-amber-400/30 text-amber-800 dark:text-amber-300'
+                          : 'bg-ink-200/80 text-ink-500 dark:bg-ink-100/50'">
+                        Рекомендуем
+                      </span>
                     </span>
                     <span class="block text-[11.5px] text-ink-500 leading-snug mt-0.5">{{ p.hint }}</span>
                   </span>
@@ -913,6 +977,10 @@ const qrDeviceName = computed(() =>
                   />
                 </button>
               </div>
+
+              <p class="text-[11.5px] text-ink-500 leading-snug px-0.5">
+                {{ DEVICE_NETWORK_TIP[pickedTemplate] }}
+              </p>
 
               <p v-if="wizardErr" class="text-[12.5px] text-danger bg-danger/10 rounded-xl px-4 py-3">{{ wizardErr }}</p>
 
@@ -1030,14 +1098,22 @@ const qrDeviceName = computed(() =>
                 </IconButton>
               </div>
 
-              <!-- How-to card -->
-              <div class="rounded-2xl bg-ink-100/70 dark:bg-ink-200/30 p-4 space-y-1.5">
-                <p class="text-[12px] font-semibold text-ink-700 dark:text-ink-500 uppercase tracking-[0.10em]">Как подключиться</p>
-                <ol class="space-y-1 text-[12.5px] text-ink-600 dark:text-ink-500 list-decimal list-inside marker:text-ink-400 leading-relaxed">
-                  <li>Нажмите <strong class="text-ink-800 dark:text-ink-400">«Скопировать ключ»</strong> ниже.</li>
-                  <li>Откройте <strong class="text-ink-800 dark:text-ink-400">AmneziaVPN</strong> → «+» → «Вставить конфигурацию».</li>
-                  <li>Или скачайте <span class="mono font-semibold">.vpn</span> и откройте через приложение.</li>
-                </ol>
+              <!-- How-to + device-specific tips -->
+              <div class="rounded-2xl bg-ink-100/70 dark:bg-ink-200/30 p-4 space-y-3">
+                <div class="space-y-1.5">
+                  <p class="text-[12px] font-semibold text-ink-700 dark:text-ink-500 uppercase tracking-[0.10em]">Как подключиться</p>
+                  <ol class="space-y-1 text-[12.5px] text-ink-600 dark:text-ink-500 list-decimal list-inside marker:text-ink-400 leading-relaxed">
+                    <li>Нажмите <strong class="text-ink-800 dark:text-ink-400">«Скопировать ключ»</strong> ниже.</li>
+                    <li>Откройте <strong class="text-ink-800 dark:text-ink-400">AmneziaVPN</strong> → «+» → «Вставить конфигурацию».</li>
+                    <li>Или скачайте <span class="mono font-semibold">.vpn</span> и откройте через приложение.</li>
+                  </ol>
+                </div>
+                <div class="pt-2 border-t border-ink-200/80 dark:border-ink-300/30 space-y-1.5">
+                  <p class="text-[12px] font-semibold text-ink-700 dark:text-ink-500 uppercase tracking-[0.10em]">Для этого устройства</p>
+                  <ul class="space-y-1 text-[12.5px] text-ink-600 dark:text-ink-500 list-disc list-inside marker:text-ink-400 leading-relaxed">
+                    <li v-for="(tip, i) in DEVICE_DONE_TIPS[pickedTemplate]" :key="i">{{ tip }}</li>
+                  </ul>
+                </div>
               </div>
 
               <!-- Primary: Copy — large amber button -->

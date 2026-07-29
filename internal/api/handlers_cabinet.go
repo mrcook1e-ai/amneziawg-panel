@@ -70,8 +70,8 @@ func (h *Handlers) cabinetGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type cabinetAddDeviceBody struct {
-	// Preset selects server-side safe obfuscation (auto|stealth|fast).
-	// Default auto — what almost every user picks; must handshake on WAN.
+	// Preset = network situation (auto|stealth|fast), not OS/device.
+	// Default auto («обычная сеть») — WAN-safe; cabinet UI labels map 1:1.
 	Preset string `json:"preset"`
 	// Snippet is legacy: only used when Preset is empty. New cabinet UI
 	// never sends it; server generation is the source of truth.
