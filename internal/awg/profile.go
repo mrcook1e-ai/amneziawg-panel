@@ -6,14 +6,17 @@ import "time"
 // its own server keypair and obfuscation params. Clients are attached to
 // exactly one profile and inherit endpoint/server-pubkey/obfuscation from it.
 //
-// Obfuscation parameters MUST match between server and every client of the
-// profile, otherwise handshake fails. The panel is the single source of truth:
-// it generates J/S/H/Itime and renders both the server awgN.conf and each
-// client .conf from the same Profile record.
+// Handshake-affecting obfuscation (S1–S4, H1–H4) MUST match on server and
+// every client of the profile, otherwise handshake fails. Junk train (Jc/
+// Jmin/Jmax) and CPS signature packets (I1–I5) are initiator-only per
+// amneziawg-go — they need not match on the responder; official guidance is
+// client-side only. The panel still stores one Profile record as source of
+// truth and renders server vs client confs accordingly (server omits I*).
 //
 // I1..I5 and J1..J3 are opaque CPS strings — pasted by the admin from an
-// external generator (e.g. AmneziaWG-Architect). Empty means no CPS for that
-// slot. Itime = 0 disables the CPS chain entirely.
+// external generator (e.g. AmneziaWG-Architect) or produced by the cabinet
+// generator. Empty means no CPS for that slot. Itime = 0 disables CPS timing
+// (Itime itself is not emitted to conf until tools support it).
 type Profile struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`

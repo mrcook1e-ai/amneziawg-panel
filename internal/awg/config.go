@@ -62,6 +62,12 @@ type Config struct {
 // emit them to the rendered .conf — neither server nor client side, since
 // any peer running the same userspace tools would fail identically.
 // Re-enable both template blocks once amneziawg-tools ships support.
+//
+// NOTE on I1–I5: amneziawg-go sends signature packets only when initiating a
+// handshake. Official docs mark them client-side only (need not match on the
+// responder). We still store them on the Profile (source of truth for client
+// exports) but do NOT emit them on the server profile template — the server
+// is almost always the responder. Client configs keep I* when set.
 
 var profileTmpl = template.Must(template.New("profile").Parse(`# Managed by amneziawg-panel. Do not edit by hand.
 
@@ -82,12 +88,7 @@ H1 = {{.Profile.H1}}
 H2 = {{.Profile.H2}}
 H3 = {{.Profile.H3}}
 H4 = {{.Profile.H4}}
-{{if .Profile.I1}}I1 = {{.Profile.I1}}
-{{end}}{{if .Profile.I2}}I2 = {{.Profile.I2}}
-{{end}}{{if .Profile.I3}}I3 = {{.Profile.I3}}
-{{end}}{{if .Profile.I4}}I4 = {{.Profile.I4}}
-{{end}}{{if .Profile.I5}}I5 = {{.Profile.I5}}
-{{end}}{{range .Peers}}
+{{range .Peers}}
 # {{.Name}} ({{.ID}})
 [Peer]
 PublicKey = {{.PublicKey}}
