@@ -69,6 +69,16 @@ export interface GeneratorInput {
 
   /** Использовать экстремальные максимумы для параметров near ceiling */
   useExtremeMax: boolean;
+
+  /**
+   * Emit I1–I5 CPS signature packets. Default false.
+   *
+   * Official amneziawg-go treats I* as initiator-only junk (no need to match
+   * on the responder). Large / QUIC-mimic chains have been observed to break
+   * WAN handshakes (LAN/loopback still OK) on common CGNAT paths — keep off
+   * unless you have a path-proven signature under SAFE_LIMITS.maxCPSBytes.
+   */
+  emitCPS?: boolean;
 }
 
 /** Итоговая конфигурация AWG */
@@ -111,6 +121,45 @@ export interface AWGConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 // Константы
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Hard limits aligned with pinned amneziawg-go v0.2.18 / amneziawg-tools
+ * v1.0.20260223 and WAN path-MTU reality (see Dockerfile AWG_*_REF).
+ *
+ * Tags supported by device/obf.go builders: b, t, r, rc, rd, d, ds, dz.
+ * Tag <c> is NOT registered in v0.2.18 — never emit it.
+ */
+export const SAFE_LIMITS = {
+  /** Official recommended Jc band (tools accept up to uint16). */
+  jcMin: 3,
+  jcMax: 12,
+  /** Keep junk under typical path MTU to avoid UDP fragmentation drops. */
+  jSizeMin: 64,
+  jSizeMax: 1024,
+  /** S1–S3 padding; tools use uint16, protocol docs recommend modest values. */
+  s123Max: 64,
+  /** S4 transport padding — recommended ceiling across AWG docs. */
+  s4Max: 32,
+  /**
+   * Max estimated UDP payload for any single I1–I5 chain.
+   * Above ~1200 bytes risks fragmentation on 1280-byte paths.
+   */
+  maxCPSBytes: 512,
+  /** Max size argument for a single <r>/<rc>/<rd> tag (amneziawg-go). */
+  maxTagBytes: 1000,
+} as const;
+
+/** CPS tags accepted by amneziawg-go v0.2.18 newObfChain. */
+export const SUPPORTED_CPS_TAGS = [
+  "b",
+  "t",
+  "r",
+  "rc",
+  "rd",
+  "d",
+  "ds",
+  "dz",
+] as const;
 
 export const YANDEX_UNSTABLE_PROFILES: BrowserProfile[] = [
   "yandex_desktop",
@@ -1305,10 +1354,8 @@ export function tagOverhead(useC: boolean, useT: boolean): number {
  * @param iv       — intensity value [1..3+] (используется если range=null)
  * @param mtu      — MTU интерфейса (ограничивает максимум)
  *
- * Если range задан: добивает occupied до min, с jitter до max, но ≤ MTU.
- * Если range null: энтропийный размер (20–80 * iv, но ≤ 500 и ≤ MTU).
- *
- * Возвращаемое значение может превышать 1000 — используй splitPad() при рендере.
+ * Ceiling is min(mtu, SAFE_LIMITS.maxCPSBytes) so CPS chains stay
+ * path-MTU-safe even when the UI advertises a large interface MTU.
  */
 export function calcPadding(
   headerB: number,
@@ -1317,16 +1364,17 @@ export function calcPadding(
   iv: number,
   mtu: number,
 ): number {
-  const maxPad = Math.max(0, mtu - headerB - extraB);
+  const ceiling = Math.min(mtu, SAFE_LIMITS.maxCPSBytes);
+  const maxPad = Math.max(0, ceiling - headerB - extraB);
 
   if (!range) {
-    return Math.min(rnd(20, 80) * iv, 500, maxPad);
+    return Math.min(rnd(20, 80) * iv, 200, maxPad);
   }
 
   const occupied = headerB + extraB;
   const [min, max] = range;
-  const clampedMin = Math.min(min, mtu);
-  const clampedMax = Math.min(max, mtu);
+  const clampedMin = Math.min(min, ceiling);
+  const clampedMax = Math.min(max, ceiling);
   const needed = Math.max(0, clampedMin - occupied);
   const jitter = Math.max(
     0,
@@ -1334,6 +1382,77 @@ export function calcPadding(
   );
   const pad = needed + (jitter > 0 ? rnd(0, jitter) : 0);
   return Math.min(pad, maxPad);
+}
+
+/**
+ * estimateCPSSize — upper-bound byte length of a CPS chain after expansion.
+ * Random tags use their declared size; <t> is 4 bytes. Unknown tags → 0.
+ */
+export function estimateCPSSize(spec: string): number {
+  if (!spec) return 0;
+  let n = 0;
+  const re =
+    /<\s*(b)\s+0x([0-9a-fA-F]+)\s*>|<\s*(r|rc|rd)\s+(\d+)\s*>|<\s*(t)\s*>|<\s*(c)\s*>|<\s*(d|ds|dz)\b[^>]*>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(spec))) {
+    if (m[1] === "b" && m[2]) n += m[2].length / 2;
+    else if (m[3] && m[4]) n += Math.min(Number(m[4]), SAFE_LIMITS.maxTagBytes);
+    else if (m[5] === "t" || m[6] === "c") n += 4;
+    // d/ds/dz wrap payload; I-packets pass nil src → 0 contribution
+  }
+  return Math.floor(n);
+}
+
+/** True if every tag in the CPS string is supported by amneziawg-go v0.2.18. */
+export function cpsTagsSupported(spec: string): boolean {
+  if (!spec) return true;
+  const re = /<\s*([a-zA-Z]+)\b/g;
+  let m: RegExpExecArray | null;
+  const allowed = new Set<string>(SUPPORTED_CPS_TAGS);
+  while ((m = re.exec(spec))) {
+    if (!allowed.has(m[1])) return false;
+  }
+  return true;
+}
+
+/**
+ * snippetFromCfg — render an [Interface] obfuscation block for cabinet/admin.
+ * I1–I5 are omitted unless includeI is true AND each chain is size-safe.
+ */
+export function snippetFromCfg(
+  cfg: AWGConfig,
+  opts: { includeI?: boolean } = {},
+): string {
+  const lines = [
+    "[Interface]",
+    `H1 = ${cfg.h1}`,
+    `H2 = ${cfg.h2}`,
+    `H3 = ${cfg.h3}`,
+    `H4 = ${cfg.h4}`,
+    `S1 = ${cfg.s1}`,
+    `S2 = ${cfg.s2}`,
+    `S3 = ${cfg.s3}`,
+    `S4 = ${cfg.s4}`,
+    `Jc = ${cfg.jc}`,
+    `Jmin = ${cfg.jmin}`,
+    `Jmax = ${cfg.jmax}`,
+  ];
+  if (opts.includeI) {
+    const slots: [string, string][] = [
+      ["I1", cfg.i1],
+      ["I2", cfg.i2],
+      ["I3", cfg.i3],
+      ["I4", cfg.i4],
+      ["I5", cfg.i5],
+    ];
+    for (const [key, val] of slots) {
+      if (!val) continue;
+      if (!cpsTagsSupported(val)) continue;
+      if (estimateCPSSize(val) > SAFE_LIMITS.maxCPSBytes) continue;
+      lines.push(`${key} = ${val}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -1787,15 +1906,16 @@ function mkDNS(input: GeneratorInput, iv: number): string {
  * Если все теги выключены — гарантируется минимальный шум `<r 10>`.
  */
 function mkEntropy(input: GeneratorInput, idx: number, iv: number): string {
-  const mtu = input.mtu;
+  const ceiling = Math.min(input.mtu || SAFE_LIMITS.maxCPSBytes, SAFE_LIMITS.maxCPSBytes);
 
-  // Бимодальное распределение: 60% маленькие (ACK-like), 40% большие (DATA-like)
+  // Бимодальное распределение: 60% маленькие (ACK-like), 40% mid-size.
+  // Cap well under maxCPSBytes so scrub() does not drop the whole chain.
   const isBig = rnd(1, 10) > 6;
-  const baseLen = isBig ? rnd(200, 500) : rnd(4, 20);
+  const baseLen = isBig ? rnd(64, 200) : rnd(4, 20);
   const rLen = Math.min(
     baseLen * iv,
-    isBig ? 500 : 60,
-    Math.max(0, mtu - 20 - tagOverhead(input.useTagC, input.useTagT)),
+    isBig ? 200 : 60,
+    Math.max(0, ceiling - 20 - tagOverhead(input.useTagC, input.useTagT)),
   );
 
   const rcLen = rnd(4, 12);
@@ -1910,108 +2030,81 @@ export function genCfg(input: GeneratorInput): AWGConfig {
   const h4s = 3_600_000_000 + rnd(0, h4Spread);
 
   // ── S1–S4: рандомизация длин пакетов ──────────────────────────────────────
-  // Длина пакетов в классическом WireGuard фиксирована — DPI легко их идентифицирует.
-  // AmneziaWG добавляет случайный префикс 0..S1 байт к каждому типу пакета.
+  // AmneziaWG adds random prefix bytes per message type. Both ends MUST match.
   //
-  // Обновлённые диапазоны (Q1 2026) — с учётом лимитов ядра AmneziaWG:
-  //   S1: 1-150 (Handshake Initiation Padding)
-  //   S2: 1-150 (Handshake Response Padding)
-  //   S3: 1-1132 (Cookie Reply Padding, лимит MTU 1280 - 148)
-  //   S4: 1-128 (Transport Data Padding, рекомендовано 0-32)
+  // Safe ranges (pinned go v0.2.18 + docs.amnezia.org recommendations):
+  //   S1–S3: 1..SAFE_LIMITS.s123Max (64)
+  //   S4:    1..SAFE_LIMITS.s4Max   (32)  — never exceed; extreme mode stays ≤32
   //
-  // Важно: S1-S4 должны быть >= 1, иначе сервер считает что параметр отключён.
-  //
-  // Правила уникальности (как в официальном клиенте):
-  //   S1 + 56 ≠ S2  (size(init) ≠ size(resp))
-  //   S1 + 56 ≠ S3  (size(init) ≠ size(cookie))
-  //   S2 + 92 ≠ S3  (size(resp) ≠ size(cookie))
-  let s1 = rnd(1, 150);
-  let s2 = rnd(1, 150);
+  // Uniqueness (same as official client):
+  //   S1 + 56 ≠ S2, S1 + 56 ≠ S3, S2 + 92 ≠ S3
+  const sMax = SAFE_LIMITS.s123Max;
+  let s1 = rnd(1, sMax);
+  let s2 = rnd(1, sMax);
 
-  // Гарантируем S1 + 56 ≠ S2 (Init ≠ Response по размеру)
   while (s2 === s1 + 56) {
-    s2 = rnd(1, 150);
+    s2 = rnd(1, sMax);
   }
 
-  // Гарантируем S1 + 56 ≠ S3 и S2 + 92 ≠ S3
-  let s3 = rnd(1, 64); // Cookie Reply: базовый режим
+  let s3 = rnd(1, sMax);
   let s3Attempts = 0;
-  while ((s3 === s1 + 56 || s3 === s2 + 92) && s3Attempts < 10) {
-    s3 = rnd(1, 64);
+  while ((s3 === s1 + 56 || s3 === s2 + 92) && s3Attempts < 20) {
+    s3 = rnd(1, sMax);
     s3Attempts++;
   }
 
-  let s4 = rnd(1, 32); // Data: 1-32 (рекомендованный лимит)
-
-  // S3/S4 extreme mode: расширяем диапазоны при включённой опции
-  if (useExtremeMax) {
-    s3 = rnd(65, 256); // Расширенный S3
-    s4 = rnd(33, 128); // Расширенный S4 (максимум по протоколу)
-    // Повторяем проверку уникальности для расширенных значений
-    s3Attempts = 0;
-    while ((s3 === s1 + 56 || s3 === s2 + 92) && s3Attempts < 10) {
-      s3 = rnd(65, 256);
-      s3Attempts++;
-    }
-  }
+  // S4 always within recommended ceiling — extreme only pushes toward the top.
+  let s4 = useExtremeMax
+    ? rnd(Math.max(1, SAFE_LIMITS.s4Max - 8), SAFE_LIMITS.s4Max)
+    : rnd(1, SAFE_LIMITS.s4Max);
 
   // ── Junk Train ────────────────────────────────────────────────────────────
-  // Серия Jc случайных UDP-пакетов перед хендшейком.
-  // Размывает временной и размерный профиль старта сессии.
-  // Для AWG 1.0: Jc ≥ 4 и Jmax > 81 — требования официального клиента.
-  //
-  // Лимиты AmneziaWG kernel module:
-  //   Jc: 0-128 (максимум протокола), рекомендовано 4-12
-  //   Jmin: 0-1280 (лимит MTU)
-  //   Jmax: 0-1280 (лимит MTU)
-  //
-  // Динамичная генерация с широкими диапазонами для уникальности каждой конфигурации.
-  const minJc = version === "1.0" ? 4 : 3;
-  const maxJc = useExtremeMax ? 128 : 15;
+  // Jc random UDP packets before handshake (initiator-only). Cap to the
+  // documented 4–12 band and keep Jmax under path-MTU to avoid fragmentation.
+  const minJc = version === "1.0" ? 4 : SAFE_LIMITS.jcMin;
+  const maxJc = SAFE_LIMITS.jcMax;
 
-  // Jc: используем junkLevel как основу с минимальной вариацией ±1 для естественности
-  // Для AWG 1.0: гарантируем минимум 4 (требование протокола)
   let jcv = junkLevel;
   if (version === "1.0") {
     jcv = Math.max(4, jcv);
-  } else {
-    // Для AWG 2.0: минимальная вариация ±1 от пользовательского значения
-    if (jcv > 0) {
-      const variance = rnd(-1, 1);
-      jcv = Math.max(1, Math.min(maxJc, jcv + variance));
-    }
+  } else if (jcv > 0) {
+    const variance = rnd(-1, 1);
+    jcv = Math.max(SAFE_LIMITS.jcMin, Math.min(maxJc, jcv + variance));
   }
+  jcv = Math.min(maxJc, Math.max(jcv, version === "1.0" ? 4 : 0));
 
-  // Extreme mode: если junkLevel=0 но включён extreme, даём небольшой диапазон
   if (useExtremeMax && junkLevel === 0 && version !== "1.0") {
-    jcv = rnd(1, 8);
+    jcv = rnd(SAFE_LIMITS.jcMin, Math.min(8, maxJc));
   }
 
-  // Jmin: широкие диапазоны в зависимости от интенсивности
+  const jCeiling = Math.min(
+    SAFE_LIMITS.jSizeMax,
+    Math.max(SAFE_LIMITS.jSizeMin + 64, (input.mtu || 1280) - 80),
+  );
   const jminRanges: Record<Intensity, [number, number]> = {
-    low: [64, 256],
-    medium: [128, 512],
-    high: [256, 768],
+    low: [SAFE_LIMITS.jSizeMin, 128],
+    medium: [SAFE_LIMITS.jSizeMin, 256],
+    high: [128, 384],
   };
   let jmin = rnd(jminRanges[intensity][0], jminRanges[intensity][1]);
+  jmin = Math.min(jmin, jCeiling - 64);
 
-  // Jmax: широкие диапазоны + гарантия что Jmax > Jmin + 64
   const jmaxRanges: Record<Intensity, [number, number]> = {
     low: [256, 512],
-    medium: [512, 1024],
-    high: [768, 1280],
+    medium: [384, 768],
+    high: [512, jCeiling],
   };
   let jmax = rnd(jmaxRanges[intensity][0], jmaxRanges[intensity][1]);
-
-  // Гарантируем Jmax > Jmin + 64
-  const minJmax = jmin + 64;
-  if (jmax < minJmax) {
-    jmax = minJmax + rnd(64, 256);
+  if (jmax <= jmin) {
+    jmax = Math.min(jCeiling, jmin + 64 + rnd(0, 128));
+  }
+  jmax = Math.min(jmax, jCeiling);
+  if (jmax <= jmin) {
+    jmin = Math.max(SAFE_LIMITS.jSizeMin, jmax - 64);
   }
 
-  // Для AWG 1.0: Jmax > 81 (требование протокола)
   if (version === "1.0" && jmax <= 81) {
-    jmax = 82 + rnd(50, 200);
+    jmax = Math.min(jCeiling, 82 + rnd(50, 120));
   }
 
   // ── Router Low-Power Mode ─────────────────────────────────────────────────
@@ -2028,8 +2121,12 @@ export function genCfg(input: GeneratorInput): AWGConfig {
   }
 
   // ── CPS Signature Chain (I1–I5) ───────────────────────────────────────────
-  // Не генерируем I1–I5 для AWG 1.0 — там эти параметры не поддерживаются.
-  const hasCPS = version !== "1.0";
+  // AWG 1.0 has no CPS. For 1.5/2.0, emit only when input.emitCPS === true.
+  // Default off: H/S/Jc is enough for stable WAN; I* is initiator-only and
+  // oversized/mimic chains have broken real-world handshakes.
+  // Force useTagC off — <c> is not in amneziawg-go v0.2.18 obfBuilders.
+  const cpsInput: GeneratorInput = { ...input, useTagC: false };
+  const hasCPS = version !== "1.0" && input.emitCPS === true;
   const isComposite = profile === "tls_to_quic" || profile === "quic_burst";
   const isDns = profile === "dns_query";
 
@@ -2039,39 +2136,45 @@ export function genCfg(input: GeneratorInput): AWGConfig {
     i4 = "",
     i5 = "";
 
-  if (!hasCPS) {
-    // AWG 1.0 — без CPS
-  } else if (isComposite && profile === "tls_to_quic") {
-    // TLS ClientHello → QUIC Initial → Entropy
-    i1 = mkTLS(input, iv);
-    i2 = mkQUICi(input, iv);
-    i3 = mkEntropy(input, 2, iv);
-    i4 = mkEntropy(input, 3, iv);
-    i5 = mkEntropy(input, 4, iv);
-  } else if (isComposite && profile === "quic_burst") {
-    // QUIC Initial → QUIC 0-RTT → HTTP/3 → Entropy
-    i1 = mkQUICi(input, iv);
-    i2 = mkQUIC0(input, iv);
-    i3 = mkHTTP3(input, iv);
-    i4 = mkEntropy(input, 3, iv);
-    i5 = mkEntropy(input, 4, iv);
-  } else if (isDns) {
-    // DNS Query мимикрия: I1 = DNS запрос, I2-I5 = дополнительные DNS или энтропия
-    i1 = mkDNS(input, iv);
-    i2 = input.mimicAll ? mkDNS(input, iv + 1) : mkEntropy(input, 1, iv);
-    i3 = input.mimicAll ? mkDNS(input, iv + 2) : mkEntropy(input, 2, iv);
-    i4 = input.mimicAll ? mkDNS(input, iv + 3) : mkEntropy(input, 3, iv);
-    i5 = input.mimicAll ? mkDNS(input, iv + 4) : mkEntropy(input, 4, iv);
-  } else {
-    // Стандартная логика
-    i1 = genI1(input, profile, iv);
-    i2 = input.mimicAll ? genI1(input, profile, iv) : mkEntropy(input, 1, iv);
-    i3 = input.mimicAll ? genI1(input, profile, iv) : mkEntropy(input, 2, iv);
-    i4 = input.mimicAll ? genI1(input, profile, iv) : mkEntropy(input, 3, iv);
-    i5 = input.mimicAll ? genI1(input, profile, iv) : mkEntropy(input, 4, iv);
+  if (hasCPS && isComposite && profile === "tls_to_quic") {
+    i1 = mkTLS(cpsInput, iv);
+    i2 = mkQUICi(cpsInput, iv);
+    i3 = mkEntropy(cpsInput, 2, iv);
+    i4 = mkEntropy(cpsInput, 3, iv);
+    i5 = mkEntropy(cpsInput, 4, iv);
+  } else if (hasCPS && isComposite && profile === "quic_burst") {
+    i1 = mkQUICi(cpsInput, iv);
+    i2 = mkQUIC0(cpsInput, iv);
+    i3 = mkHTTP3(cpsInput, iv);
+    i4 = mkEntropy(cpsInput, 3, iv);
+    i5 = mkEntropy(cpsInput, 4, iv);
+  } else if (hasCPS && isDns) {
+    i1 = mkDNS(cpsInput, iv);
+    i2 = cpsInput.mimicAll ? mkDNS(cpsInput, iv + 1) : mkEntropy(cpsInput, 1, iv);
+    i3 = cpsInput.mimicAll ? mkDNS(cpsInput, iv + 2) : mkEntropy(cpsInput, 2, iv);
+    i4 = cpsInput.mimicAll ? mkDNS(cpsInput, iv + 3) : mkEntropy(cpsInput, 3, iv);
+    i5 = cpsInput.mimicAll ? mkDNS(cpsInput, iv + 4) : mkEntropy(cpsInput, 4, iv);
+  } else if (hasCPS) {
+    i1 = genI1(cpsInput, profile, iv);
+    i2 = cpsInput.mimicAll ? genI1(cpsInput, profile, iv) : mkEntropy(cpsInput, 1, iv);
+    i3 = cpsInput.mimicAll ? genI1(cpsInput, profile, iv) : mkEntropy(cpsInput, 2, iv);
+    i4 = cpsInput.mimicAll ? genI1(cpsInput, profile, iv) : mkEntropy(cpsInput, 3, iv);
+    i5 = cpsInput.mimicAll ? genI1(cpsInput, profile, iv) : mkEntropy(cpsInput, 4, iv);
   }
 
-  // Router mode: отключить I2–I5 для снижения нагрузки
+  // Drop any chain that exceeds the safe UDP payload budget or uses bad tags.
+  const scrub = (s: string): string => {
+    if (!s) return "";
+    if (!cpsTagsSupported(s)) return "";
+    if (estimateCPSSize(s) > SAFE_LIMITS.maxCPSBytes) return "";
+    return s;
+  };
+  i1 = scrub(i1);
+  i2 = scrub(i2);
+  i3 = scrub(i3);
+  i4 = scrub(i4);
+  i5 = scrub(i5);
+
   if (input.routerMode && hasCPS) {
     i2 = "";
     i3 = "";

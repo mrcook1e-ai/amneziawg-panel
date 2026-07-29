@@ -13,7 +13,7 @@ import { api } from '@/lib/api'
 import { useThemeStore } from '@/stores/theme'
 import { useToastStore } from '@/stores/toasts'
 import type { CabinetView, CabinetDevice, AddDeviceResult, CabinetBillingSummary } from '@/types'
-import { genCfg } from '@/utils/generator'
+  import { genCfg, snippetFromCfg } from '@/utils/generator'
 import Button from '@/components/atoms/Button.vue'
 import Badge from '@/components/atoms/Badge.vue'
 import IconButton from '@/components/atoms/IconButton.vue'
@@ -100,12 +100,13 @@ const PRESETS: PresetDef[] = [
   {
     v: 'auto', label: 'Авто', icon: Shield,
     hint: 'Баланс скорости и обхода — рекомендуется',
-    params: { intensity: 'medium', profile: 'quic_initial', mtu: 1500, extreme: false },
+    // mtu 1280 matches typical WG_MTU and keeps junk under path MTU
+    params: { intensity: 'medium', profile: 'quic_initial', mtu: 1280, extreme: false },
   },
   {
     v: 'stealth', label: 'Тихий', icon: EyeOff,
-    hint: 'Максимальная маскировка для строгих сетей',
-    params: { intensity: 'high', profile: 'tls_client_hello', mtu: 1500, extreme: true },
+    hint: 'Сильнее H/S/Jc (без I1–I5 — стабильнее на WAN)',
+    params: { intensity: 'high', profile: 'tls_client_hello', mtu: 1280, extreme: true },
   },
   {
     v: 'fast', label: 'Быстрый', icon: Gauge,
@@ -280,6 +281,9 @@ async function createDevice() {
   wizardStep.value = 'creating'
 
   const p = presetParams()
+  // emitCPS: false — I1–I5 are initiator-only junk; large/mimic chains have
+  // broken WAN handshakes on CGNAT paths while LAN still worked. H/S/Jc is
+  // the stable default against pinned amneziawg-go v0.2.18.
   const cfg = genCfg({
     version: '2.0',
     intensity: p.intensity,
@@ -290,14 +294,9 @@ async function createDevice() {
     mtu: p.mtu,
     junkLevel: 5, iterCount: 0, routerMode: false,
     useExtremeMax: p.extreme,
+    emitCPS: false,
   })
-  const snippet = [
-    '[Interface]',
-    `H1 = ${cfg.h1}`, `H2 = ${cfg.h2}`, `H3 = ${cfg.h3}`, `H4 = ${cfg.h4}`,
-    `S1 = ${cfg.s1}`, `S2 = ${cfg.s2}`, `S3 = ${cfg.s3}`, `S4 = ${cfg.s4}`,
-    `Jc = ${cfg.jc}`, `Jmin = ${cfg.jmin}`, `Jmax = ${cfg.jmax}`,
-    `I1 = ${cfg.i1}`, `I2 = ${cfg.i2}`, `I3 = ${cfg.i3}`, `I4 = ${cfg.i4}`, `I5 = ${cfg.i5}`,
-  ].join('\n')
+  const snippet = snippetFromCfg(cfg, { includeI: false })
 
   try {
     justAdded.value  = await api.cabinetAddDevice(token.value, { snippet, deviceName: name })
