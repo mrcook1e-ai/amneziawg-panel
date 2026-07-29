@@ -4,13 +4,40 @@ import (
 	"bufio"
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
-// ObfuscationSpec is the parsed result of an admin-pasted AWG 2.0 [Interface]
-// snippet. The panel never generates these values — they come from an external
-// tool (e.g. AmneziaWG-Architect) and are applied verbatim to the profile.
+// Limits aligned with pinned amneziawg-go v0.2.18 (Dockerfile AWG_GO_REF) and
+// WAN path-MTU safety. See device/obf.go builders and docs.amnezia.org.
+const (
+	// maxS4Padding is the recommended transport-padding ceiling across AWG docs.
+	maxS4Padding = 32
+	// maxCPSPacketBytes rejects I* chains likely to fragment on ≤1280 paths.
+	maxCPSPacketBytes = 1200
+	// maxCPSTagBytes is the per-tag random-size cap in amneziawg-go.
+	maxCPSTagBytes = 1000
+)
+
+// cpsTagSupported lists tags registered in amneziawg-go v0.2.18 newObfChain.
+// Notably missing: "c" (counter) — Architect may emit it; we reject it so
+// awg setconf does not fail with "unknown tag".
+var cpsTagSupported = map[string]bool{
+	"b": true, "t": true, "r": true, "rc": true, "rd": true,
+	"d": true, "ds": true, "dz": true,
+}
+
+var (
+	cpsTagRe  = regexp.MustCompile(`<\s*([a-zA-Z]+)`)
+	cpsBytesRe = regexp.MustCompile(`(?i)<\s*b\s+0x([0-9a-f]+)\s*>`)
+	cpsRandRe  = regexp.MustCompile(`<\s*(?:r|rc|rd)\s+(\d+)\s*>`)
+	cpsFixedRe = regexp.MustCompile(`<\s*(?:t|c)\s*>`)
+)
+
+// ObfuscationSpec is the parsed result of an admin-pasted or cabinet-generated
+// AWG 2.0 [Interface] snippet.
 type ObfuscationSpec struct {
 	Jc, Jmin, Jmax     int
 	S1, S2, S3, S4     int
@@ -98,7 +125,8 @@ func applyField(s *ObfuscationSpec, keyU, val string) error {
 	case "S3":
 		return parseIntField(&s.S3, val, 0, 1280)
 	case "S4":
-		return parseIntField(&s.S4, val, 0, 1280)
+		// Hard-cap at recommended 32 so transport frames stay MTU-friendly.
+		return parseIntField(&s.S4, val, 0, maxS4Padding)
 	case "H1":
 		return parseRangeField(&s.H1, val)
 	case "H2":
@@ -171,14 +199,6 @@ func parseRangeField(dst *string, val string) error {
 
 // Validate enforces the AWG 2.0 invariants. Run after parsing.
 func (s ObfuscationSpec) Validate() error {
-	required := []struct {
-		name string
-		zero bool
-	}{
-		{"Jc", s.Jc == 0 && s.Jmin == 0 && s.Jmax == 0}, // all-zero junk train is allowed only as explicit choice — flagged below
-	}
-	_ = required
-
 	if s.Jmax > 0 && s.Jmax <= s.Jmin {
 		return fmt.Errorf("Jmax (%d) must be greater than Jmin (%d)", s.Jmax, s.Jmin)
 	}
@@ -213,7 +233,63 @@ func (s ObfuscationSpec) Validate() error {
 			}
 		}
 	}
+
+	for _, slot := range []struct {
+		name, val string
+	}{
+		{"I1", s.I1}, {"I2", s.I2}, {"I3", s.I3}, {"I4", s.I4}, {"I5", s.I5},
+	} {
+		if err := validateCPSChain(slot.name, slot.val); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// validateCPSChain checks tag vocabulary and estimated expanded size against
+// the pinned amneziawg-go parser. Empty chains are fine (slot unused).
+func validateCPSChain(name, spec string) error {
+	if strings.TrimSpace(spec) == "" {
+		return nil
+	}
+	for _, r := range spec {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune("\"'`$;\\", r) {
+			return fmt.Errorf("%s contains an unsafe character", name)
+		}
+		if unicode.IsControl(r) {
+			return fmt.Errorf("%s contains a control character", name)
+		}
+	}
+	for _, m := range cpsTagRe.FindAllStringSubmatch(spec, -1) {
+		tag := m[1]
+		if !cpsTagSupported[tag] {
+			return fmt.Errorf("%s: unsupported CPS tag <%s> (pinned amneziawg-go supports b/t/r/rc/rd/d/ds/dz)", name, tag)
+		}
+	}
+	if n := estimateCPSSize(spec); n > maxCPSPacketBytes {
+		return fmt.Errorf("%s estimated size %d exceeds %d bytes (WAN fragmentation risk)", name, n, maxCPSPacketBytes)
+	}
+	return nil
+}
+
+// estimateCPSSize returns an upper bound on the UDP payload produced by a CPS
+// chain (same accounting as web/src/utils/generator.ts estimateCPSSize).
+func estimateCPSSize(spec string) int {
+	n := 0
+	for _, m := range cpsBytesRe.FindAllStringSubmatch(spec, -1) {
+		n += len(m[1]) / 2
+	}
+	for _, m := range cpsRandRe.FindAllStringSubmatch(spec, -1) {
+		v, _ := strconv.Atoi(m[1])
+		if v > maxCPSTagBytes {
+			v = maxCPSTagBytes
+		}
+		if v > 0 {
+			n += v
+		}
+	}
+	n += 4 * len(cpsFixedRe.FindAllStringIndex(spec, -1))
+	return n
 }
 
 type uintRange struct{ lo, hi uint64 }
