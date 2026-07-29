@@ -13,7 +13,7 @@ import { api } from '@/lib/api'
 import { useThemeStore } from '@/stores/theme'
 import { useToastStore } from '@/stores/toasts'
 import type { CabinetView, CabinetDevice, AddDeviceResult, CabinetBillingSummary } from '@/types'
-  import { genCfg, snippetFromCfg } from '@/utils/generator'
+
 import Button from '@/components/atoms/Button.vue'
 import Badge from '@/components/atoms/Badge.vue'
 import IconButton from '@/components/atoms/IconButton.vue'
@@ -71,55 +71,36 @@ type DeviceTemplate = 'phone' | 'laptop' | 'desktop' | 'other'
 const pickedTemplate = ref<DeviceTemplate>('phone')
 const customName     = ref('')
 
-import type { Intensity, MimicProfile } from '@/utils/generator'
-
-/*
-  Protection profile — 3 named presets bake the right combinations of
-  intensity/profile/mtu/extreme. Avg user picks "Авто" and forgets;
-  power users can flip to "Тихий" for strict networks (Iran, Turkmenistan,
-  school WiFi) or "Быстрый" for low-latency / low-overhead.
-*/
-type PresetKey = 'auto' | 'stealth' | 'fast'
-
-interface Params {
-  intensity: Intensity
-  profile:   MimicProfile
-  mtu:       number
-  extreme:   boolean
-}
-
-interface PresetDef {
-  v: PresetKey
-  label: string
-  hint: string
-  icon: any
-  params: Params
-}
-
-const PRESETS: PresetDef[] = [
-  {
-    v: 'auto', label: 'Авто', icon: Shield,
-    hint: 'Баланс скорости и обхода — рекомендуется',
-    // mtu 1280 matches typical WG_MTU and keeps junk under path MTU
-    params: { intensity: 'medium', profile: 'quic_initial', mtu: 1280, extreme: false },
-  },
-  {
-    v: 'stealth', label: 'Тихий', icon: EyeOff,
-    hint: 'Сильнее H/S/Jc (без I1–I5 — стабильнее на WAN)',
-    params: { intensity: 'high', profile: 'tls_client_hello', mtu: 1280, extreme: true },
-  },
-  {
-    v: 'fast', label: 'Быстрый', icon: Gauge,
-    hint: 'Минимум обфускации, ниже задержка',
-    params: { intensity: 'low', profile: 'random', mtu: 1280, extreme: false },
-  },
-]
-
-const pickedPreset = ref<PresetKey>('auto')
-
-function presetParams(): Params {
-  return (PRESETS.find(p => p.v === pickedPreset.value) || PRESETS[0]).params
-}
+  /*
+    Protection presets are resolved SERVER-SIDE (awg.GenerateObfuscation).
+    The cabinet only sends the preset key — never a client-built snippet —
+    so "Авто" (what everyone clicks) always gets WAN-safe H/S/Jc bounds.
+  */
+  type PresetKey = 'auto' | 'stealth' | 'fast'
+  
+  interface PresetDef {
+    v: PresetKey
+    label: string
+    hint: string
+    icon: any
+  }
+  
+  const PRESETS: PresetDef[] = [
+    {
+      v: 'auto', label: 'Авто', icon: Shield,
+      hint: 'Стабильный коннект — рекомендуется',
+    },
+    {
+      v: 'stealth', label: 'Тихий', icon: EyeOff,
+      hint: 'Сильнее обход DPI (чуть больше overhead)',
+    },
+    {
+      v: 'fast', label: 'Быстрый', icon: Gauge,
+      hint: 'Минимум обфускации, ниже задержка',
+    },
+  ]
+  
+  const pickedPreset = ref<PresetKey>('auto')
 
 interface Template { key: DeviceTemplate; icon: any; label: string }
 const templates: Template[] = [
@@ -274,39 +255,24 @@ function goToSplit() {
   wizardStep.value = 'split'
 }
 
-async function createDevice() {
-  if (wizardStep.value === 'creating') return
-  wizardErr.value  = ''
-  const name       = customName.value.trim() || defaultName[pickedTemplate.value]
-  wizardStep.value = 'creating'
+  async function createDevice() {
+    if (wizardStep.value === 'creating') return
+    wizardErr.value  = ''
+    const name       = customName.value.trim() || defaultName[pickedTemplate.value]
+    wizardStep.value = 'creating'
 
-  const p = presetParams()
-  // emitCPS: false — I1–I5 are initiator-only junk; large/mimic chains have
-  // broken WAN handshakes on CGNAT paths while LAN still worked. H/S/Jc is
-  // the stable default against pinned amneziawg-go v0.2.18.
-  const cfg = genCfg({
-    version: '2.0',
-    intensity: p.intensity,
-    profile:   p.profile,
-    customHost: '', mimicAll: false, useTagC: false,
-    useTagT: true, useTagR: true, useTagRC: true, useTagRD: true,
-    useBrowserFp: false, browserProfile: '',
-    mtu: p.mtu,
-    junkLevel: 5, iterCount: 0, routerMode: false,
-    useExtremeMax: p.extreme,
-    emitCPS: false,
-  })
-  const snippet = snippetFromCfg(cfg, { includeI: false })
-
-  try {
-    justAdded.value  = await api.cabinetAddDevice(token.value, { snippet, deviceName: name })
-    wizardStep.value = 'done'
-    await reload()
-  } catch (e: any) {
-    wizardErr.value  = e?.message || 'Ошибка, попробуйте снова'
-    wizardStep.value = 'pick'
+    try {
+      justAdded.value  = await api.cabinetAddDevice(token.value, {
+        preset: pickedPreset.value,
+        deviceName: name,
+      })
+      wizardStep.value = 'done'
+      await reload()
+    } catch (e: any) {
+      wizardErr.value  = e?.message || 'Ошибка, попробуйте снова'
+      wizardStep.value = 'pick'
+    }
   }
-}
 
 // ── URL helpers ──────────────────────────────────────────────────────────
 const amneziaQr  = (id: string) => api.cabinetDeviceAmneziaQrUrl(token.value, id)

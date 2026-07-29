@@ -120,7 +120,7 @@ export const api = {
 		 request<{ confirmationUrl: string }>(`/api/cabinet/${enc(token)}/billing/checkout`, {
 			 method: 'POST', body: JSON.stringify({ invoiceId, email }),
 		 }),
-  cabinetAddDevice: (token: string, body: { snippet: string; deviceName: string }) =>
+  cabinetAddDevice: (token: string, body: { preset?: string; snippet?: string; deviceName: string }) =>
     request<AddDeviceResult>(`/api/cabinet/${enc(token)}/devices`, {
       method: 'POST', body: JSON.stringify(body),
     }),

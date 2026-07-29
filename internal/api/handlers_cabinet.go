@@ -70,6 +70,11 @@ func (h *Handlers) cabinetGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type cabinetAddDeviceBody struct {
+	// Preset selects server-side safe obfuscation (auto|stealth|fast).
+	// Default auto — what almost every user picks; must handshake on WAN.
+	Preset string `json:"preset"`
+	// Snippet is legacy: only used when Preset is empty. New cabinet UI
+	// never sends it; server generation is the source of truth.
 	Snippet    string `json:"snippet"`
 	DeviceName string `json:"deviceName"`
 }
@@ -92,14 +97,26 @@ func (h *Handlers) cabinetAddDevice(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	if strings.TrimSpace(in.Snippet) == "" {
-		writeJSON(w, 400, map[string]string{"error": "snippet is required"})
-		return
-	}
-	spec, err := awg.ParseObfuscation(in.Snippet)
-	if err != nil {
-		writeJSON(w, 400, map[string]string{"error": "snippet: " + err.Error()})
-		return
+
+	var spec awg.ObfuscationSpec
+	var err error
+	preset := strings.TrimSpace(strings.ToLower(in.Preset))
+	if preset != "" || strings.TrimSpace(in.Snippet) == "" {
+		// Server-side generation (preferred). Empty preset → auto.
+		if preset == "" {
+			preset = awg.PresetAuto
+		}
+		spec, err = awg.GenerateObfuscation(preset)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "obfuscation generate failed"})
+			return
+		}
+	} else {
+		spec, err = awg.ParseObfuscation(in.Snippet)
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": "snippet: " + err.Error()})
+			return
+		}
 	}
 
 	sub, err := h.Mgr.FindSubscriberByToken(token)
