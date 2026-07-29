@@ -71,12 +71,11 @@ export interface GeneratorInput {
   useExtremeMax: boolean;
 
   /**
-   * Emit I1–I5 CPS signature packets. Default false.
+   * Emit I1–I5 CPS signature packets.
+   * Default true for AWG 1.5/2.0 (panel targets protocol 2). Set false to omit.
    *
-   * Official amneziawg-go treats I* as initiator-only junk (no need to match
-   * on the responder). Large / QUIC-mimic chains have been observed to break
-   * WAN handshakes (LAN/loopback still OK) on common CGNAT paths — keep off
-   * unless you have a path-proven signature under SAFE_LIMITS.maxCPSBytes.
+   * I* is initiator-only (responder does not need matching chains). Chains are
+   * still scrubbed against SAFE_LIMITS.maxCPSBytes and supported tags.
    */
   emitCPS?: boolean;
 }
@@ -1417,7 +1416,8 @@ export function cpsTagsSupported(spec: string): boolean {
 
 /**
  * snippetFromCfg — render an [Interface] obfuscation block for cabinet/admin.
- * I1–I5 are omitted unless includeI is true AND each chain is size-safe.
+ * I1–I5 are included by default (AWG 2.0) when each chain is size-safe.
+ * Pass includeI: false to omit.
  */
 export function snippetFromCfg(
   cfg: AWGConfig,
@@ -1437,7 +1437,8 @@ export function snippetFromCfg(
     `Jmin = ${cfg.jmin}`,
     `Jmax = ${cfg.jmax}`,
   ];
-  if (opts.includeI) {
+  const includeI = opts.includeI !== false;
+  if (includeI) {
     const slots: [string, string][] = [
       ["I1", cfg.i1],
       ["I2", cfg.i2],
@@ -2121,12 +2122,11 @@ export function genCfg(input: GeneratorInput): AWGConfig {
   }
 
   // ── CPS Signature Chain (I1–I5) ───────────────────────────────────────────
-  // AWG 1.0 has no CPS. For 1.5/2.0, emit only when input.emitCPS === true.
-  // Default off: H/S/Jc is enough for stable WAN; I* is initiator-only and
-  // oversized/mimic chains have broken real-world handshakes.
+  // AWG 1.0 has no CPS. For 1.5/2.0 default ON (panel targets protocol 2).
+  // emitCPS: false opts out. Chains are scrubbed for size/tags below.
   // Force useTagC off — <c> is not in amneziawg-go v0.2.18 obfBuilders.
   const cpsInput: GeneratorInput = { ...input, useTagC: false };
-  const hasCPS = version !== "1.0" && input.emitCPS === true;
+  const hasCPS = version !== "1.0" && input.emitCPS !== false;
   const isComposite = profile === "tls_to_quic" || profile === "quic_burst";
   const isDns = profile === "dns_query";
 
