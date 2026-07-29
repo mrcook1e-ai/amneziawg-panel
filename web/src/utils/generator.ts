@@ -71,8 +71,8 @@ export interface GeneratorInput {
   useExtremeMax: boolean;
 
   /**
-   * Emit I1–I5 CPS signature packets.
-   * Default true for AWG 1.5/2.0 (panel targets protocol 2). Set false to omit.
+   * Emit I1–I5 CPS signature packets. Default false; enable only with a
+   * signature proven on the target network.
    *
    * I* is initiator-only (responder does not need matching chains). Chains are
    * still scrubbed against SAFE_LIMITS.maxCPSBytes and supported tags.
@@ -1416,8 +1416,7 @@ export function cpsTagsSupported(spec: string): boolean {
 
 /**
  * snippetFromCfg — render an [Interface] obfuscation block for cabinet/admin.
- * I1–I5 are included by default (AWG 2.0) when each chain is size-safe.
- * Pass includeI: false to omit.
+ * I1–I5 are omitted unless includeI is true and each chain is size-safe.
  */
 export function snippetFromCfg(
   cfg: AWGConfig,
@@ -1437,7 +1436,7 @@ export function snippetFromCfg(
     `Jmin = ${cfg.jmin}`,
     `Jmax = ${cfg.jmax}`,
   ];
-  const includeI = opts.includeI !== false;
+  const includeI = opts.includeI === true;
   if (includeI) {
     const slots: [string, string][] = [
       ["I1", cfg.i1],
@@ -2122,11 +2121,11 @@ export function genCfg(input: GeneratorInput): AWGConfig {
   }
 
   // ── CPS Signature Chain (I1–I5) ───────────────────────────────────────────
-  // AWG 1.0 has no CPS. For 1.5/2.0 default ON (panel targets protocol 2).
-  // emitCPS: false opts out. Chains are scrubbed for size/tags below.
+  // AWG 1.0 has no CPS. For 1.5/2.0, emit only after explicit opt-in.
+  // Chains are scrubbed for size/tags below.
   // Force useTagC off — <c> is not in amneziawg-go v0.2.18 obfBuilders.
   const cpsInput: GeneratorInput = { ...input, useTagC: false };
-  const hasCPS = version !== "1.0" && input.emitCPS !== false;
+  const hasCPS = version !== "1.0" && input.emitCPS === true;
   const isComposite = profile === "tls_to_quic" || profile === "quic_burst";
   const isDns = profile === "dns_query";
 
