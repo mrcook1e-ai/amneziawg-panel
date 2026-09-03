@@ -199,7 +199,6 @@ Body (unix-секунды, `totalAmount` в копейках):
     "dnsOverride": "",
     "allowedIPsOverride": "",
     "mtuOverride": 0,
-    "itimeOverride": null,
     "totalRx": 0,
     "totalTx": 0,
     "lastHandshakeAt": null,
@@ -255,13 +254,10 @@ Body: `{ "address": "10.8.0.7" }`. Валидируется по /24 и uniquene
   "clearExpiresAt": false,
   "dnsOverride": "1.1.1.1",
   "allowedIPsOverride": "0.0.0.0/0",
-  "mtuOverride": 1280,
-  "itimeOverride": 0,
-  "clearItimeOverride": false
+  "mtuOverride": 1280
 }
 ```
 - `clearExpiresAt: true` → сбросить `expiresAt`. Иначе если передано — обновляет.
-- `clearItimeOverride: true` → сбросить override (используется profile-default). Иначе `itimeOverride: 0` валиден и означает «выключить CPS для этого клиента».
 - `200` → полный `Client` / `404`.
 
 ### `GET /api/wireguard/client/{id}/configuration`
@@ -312,11 +308,26 @@ Snapshot кабинета для subscriber'а.
 Subscriber добавляет себе устройство.
 ```json
 {
-  "snippet": "[Interface]\nJc = 4\nJmin = 50\n…",
+  "preset": "awg2",
   "deviceName": "iPhone"
 }
 ```
-Backend парсит snippet (см. [snippet формат](#snippet-формат)), создаёт `Profile + Client + awgN` интерфейс, поднимает его, рендерит `.conf`.
+
+`preset` — поколение протокола AmneziaWG, обфускация генерируется на сервере:
+
+| preset | Что получает клиент | Кому |
+|---|---|---|
+| `awg1` | Jc/Jmin/Jmax, S1–S2, фиксированные H1–H4. Без S3/S4, без I*, без 3.x-ключей | Роутеры и старые клиенты: Keenetic, OpenWrt, GL.iNet, kernel-модуль 1.0 |
+| `awg2` | + S3/S4, H как диапазоны, официальный DNS-мимикрия I1 | Совместимость — работает со всеми версиями приложений Amnezia |
+| `awg31` | + HeaderProtectionKey, ContentPaddingAddition, рандомизированные таймеры, RandomTrailers, DisableCookies; S1–S4 ≥ 12, H1–H4 = 1/2/3/4 | Максимальная защита, нужна AmneziaVPN 5.x |
+
+Пустой или неизвестный `preset` → `awg2` (значение `awg.DefaultPreset`). Легаси-значения
+`auto` / `stealth` / `fast` принимаются и тоже дают `awg2` — ровно то, что они генерировали раньше.
+
+Альтернатива: `{"snippet": "[Interface]\nJc = 4\n…"}` без `preset` — обфускация берётся из
+snippet (см. [snippet формат](#snippet-формат)).
+
+Backend создаёт `Profile + Client + awgN` интерфейс, поднимает его, рендерит `.conf`.
 
 **Ответ:**
 ```json
@@ -497,7 +508,6 @@ interface Client {
   dnsOverride?: string
   allowedIPsOverride?: string
   mtuOverride?: number             // 0 = use default
-  itimeOverride?: number | null    // null = inherit profile.Itime
 
   totalRx?: number                 // накопленный счётчик с момента создания
   totalTx?: number
@@ -533,15 +543,29 @@ Snippet принимается как блок `[Interface]` или плоски
 
 **Обязательные:**
 - `Jc` (0..128), `Jmin` (0..1280), `Jmax` (0..1280) — `Jmax > Jmin` если ненулевой
-- `S1..S4` (0..1280) — не все нули; инварианты `S1+56 != S2`, `S1+56 != S3`, `S2+92 != S3`
-- `H1..H4` — формат `"min-max"`, диапазоны без пересечений
+- `S1..S3` (0..1280), `S4` (0..32) — не все нули; инварианты `S1+56 != S2`, `S1+56 != S3`, `S2+92 != S3`
+- `H1..H4` — `"n"` (фиксированное значение, AWG 1.0 и 3.1) или `"min-max"` (диапазон, AWG 2.0);
+  диапазоны без пересечений. `"5-5"` нормализуется в `"5"`
 
-**Опциональные:**
-- `Itime` (0..86400, 0 = выкл CPS)
-- `I1..I5`, `J1..J3` — opaque CPS-строки
+**Опциональные (AWG 2.0):**
+- `I1..I5` — opaque CPS-строки; теги `b/t/r/rc/rd/d/ds/dz`
 
-> ⚠ `Itime` / `J1..J3` принимаются и сохраняются, но **не эмитятся в `.conf`** — `amneziawg-tools v1.0.20260223` не парсит эти поля. После апгрейда upstream — раскомментировать в `internal/awg/config.go` шаблонах.
+**Опциональные (AWG 3.x):**
+- `HeaderProtectionKey` — base64, ровно 32 байта (`awg genkey`).
+  **При заданном ключе `S1..S4` обязаны быть ≥ 12** — amneziawg-go берёт nonce ChaCha20
+  из первых 12 байт S-префикса и иначе отклоняет UAPI-set
+- `ContentPaddingAddition`, `RekeyAfterTime`, `RekeyTimeout`, `RejectAfterTime`,
+  `KeepaliveTimeout`, `MaxHandshakeAttempts` — `"n"` или `"lo-hi"`, значения ≤ 65535
+  (amneziawg-tools парсит их как u16-диапазоны)
+- `RandomTrailers`, `DisableCookies` — `on` / `off`
+
+> ⚠ `Itime` / `J1..J3` из беты AWG 1.5 **принимаются и молча отбрасываются**: их нет ни в
+> amneziawg-go v3, ни в amneziawg-tools v3.1. Эмитить их нельзя — tools обрывают весь
+> интерфейс на любом неизвестном ключе `[Interface]`.
 
 Дубликат ключа → ошибка. Неизвестный ключ → молча игнорируется.
+
+Новые ключи попадают в `.conf` **только когда заданы**, поэтому профили AWG 1.0/2.0
+рендерятся байт-в-байт как раньше и остаются читаемыми для старых `amneziawg-tools`.
 
 Генерировать snippet можно в [AmneziaWG-Architect](https://vadim-khristenko.github.io/AmneziaWG-Architect/).

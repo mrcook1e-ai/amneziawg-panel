@@ -30,9 +30,11 @@ watch(() => props.open, (v) => {
   }
 })
 
+// The generation decides which Amnezia builds can connect at all, so it
+// belongs in the picker label alongside the port.
 const profileOptions = computed(() => profiles.items.map(p => ({
   value: p.id,
-  label: `${p.name} · :${p.port}${p.hasMimicry ? ' · мимикрия' : ''}`,
+  label: `${p.name} · :${p.port} · AWG ${p.generation}${p.hasMimicry ? ' · мимикрия' : ''}`,
 })))
 
 function submit() {

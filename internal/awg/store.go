@@ -9,10 +9,17 @@ import (
 	"path/filepath"
 )
 
-// ErrSchemaTooOld is returned by Load when state.json predates the AWG 2.0-only
-// schema (v3). There is no in-place migration: the operator must wipe state.json
-// (and the rendered awgN.conf files alongside it) and recreate profiles.
-var ErrSchemaTooOld = errors.New("state.json schema is older than v3 — wipe state and recreate profiles")
+// ErrSchemaTooOld is returned by Load when state.json predates MinSchemaVersion.
+// There is no in-place migration that far back: the operator must wipe
+// state.json (and the rendered awgN.conf files alongside it) and recreate
+// profiles.
+var ErrSchemaTooOld = errors.New("state.json schema is too old — wipe state and recreate profiles")
+
+// ErrSchemaTooNew is returned by Load when state.json was written by a newer
+// binary. Loading it anyway would silently drop every field this build does
+// not know about and persist that loss on the next Save, so refuse instead and
+// let the operator roll forward again.
+var ErrSchemaTooNew = errors.New("state.json was written by a newer version — upgrade the panel binary")
 
 const StateFile = "state.json"
 
@@ -49,8 +56,15 @@ func (s *Store) Load() (*Config, error) {
 	if err := json.Unmarshal(b, c); err != nil {
 		return nil, err
 	}
-	if c.SchemaVersion != 0 && c.SchemaVersion < SchemaVersion {
-		return nil, fmt.Errorf("%w (found v%d, need v%d)", ErrSchemaTooOld, c.SchemaVersion, SchemaVersion)
+	// Accept the whole supported window [MinSchemaVersion, SchemaVersion]:
+	// state written by an older but still supported build loads as-is and is
+	// rewritten at the current version on the next Save. A zero version is an
+	// empty or hand-made file and stays tolerated, as it always was.
+	if c.SchemaVersion != 0 && c.SchemaVersion < MinSchemaVersion {
+		return nil, fmt.Errorf("%w (found v%d, need at least v%d)", ErrSchemaTooOld, c.SchemaVersion, MinSchemaVersion)
+	}
+	if c.SchemaVersion > SchemaVersion {
+		return nil, fmt.Errorf("%w (found v%d, this build writes v%d)", ErrSchemaTooNew, c.SchemaVersion, SchemaVersion)
 	}
 	if c.Profiles == nil {
 		c.Profiles = map[string]*Profile{}

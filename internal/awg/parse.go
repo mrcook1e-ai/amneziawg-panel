@@ -2,6 +2,7 @@ package awg
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
 	"math"
 	"regexp"
@@ -10,7 +11,7 @@ import (
 	"unicode"
 )
 
-// Limits aligned with pinned amneziawg-go v0.2.18 (Dockerfile AWG_GO_REF) and
+// Limits aligned with pinned amneziawg-go v3.1 (Dockerfile AWG_GO_REF) and
 // WAN path-MTU safety. See device/obf.go builders and docs.amnezia.org.
 const (
 	// maxS4Padding is the recommended transport-padding ceiling across AWG docs.
@@ -19,10 +20,21 @@ const (
 	maxCPSPacketBytes = 1200
 	// maxCPSTagBytes is the per-tag random-size cap in amneziawg-go.
 	maxCPSTagBytes = 1000
+	// hpkNonceBytes mirrors device.HeaderCipherNonceSize. With a header
+	// protection key set, amneziawg-go reads the ChaCha20 nonce from the
+	// first 12 bytes of the S prefix and rejects any S below that
+	// ("S%d must be more then 12 to use headerProtection", uapi.go).
+	hpkNonceBytes = 12
+	// hpkKeyBytes is the raw length of a base64 HeaderProtectionKey.
+	hpkKeyBytes = 32
+	// maxU16Range caps the 3.x range-valued device params: amneziawg-tools
+	// parses them with u16_range_from_string (type.c).
+	maxU16Range = math.MaxUint16
 )
 
-// cpsTagSupported lists tags registered in amneziawg-go v0.2.18 newObfChain.
-// Notably missing: "c" (counter) — Architect may emit it; we reject it so
+// cpsTagSupported lists tags registered in amneziawg-go v3.1 newObfChain
+// (device/obf.go obfBuilders — unchanged since v0.2.x). Notably missing:
+// "c" (counter) — external generators may emit it; we reject it so
 // awg setconf does not fail with "unknown tag".
 var cpsTagSupported = map[string]bool{
 	"b": true, "t": true, "r": true, "rc": true, "rd": true,
@@ -30,29 +42,42 @@ var cpsTagSupported = map[string]bool{
 }
 
 var (
-	cpsTagRe  = regexp.MustCompile(`<\s*([a-zA-Z]+)`)
+	cpsTagRe   = regexp.MustCompile(`<\s*([a-zA-Z]+)`)
 	cpsBytesRe = regexp.MustCompile(`(?i)<\s*b\s+0x([0-9a-f]+)\s*>`)
 	cpsRandRe  = regexp.MustCompile(`<\s*(?:r|rc|rd)\s+(\d+)\s*>`)
 	cpsFixedRe = regexp.MustCompile(`<\s*(?:t|c)\s*>`)
 )
 
 // ObfuscationSpec is the parsed result of an admin-pasted or cabinet-generated
-// AWG 2.0 [Interface] snippet.
+// AmneziaWG [Interface] snippet. The AWG 3.x fields are optional — empty means
+// "not set", which reproduces AWG 2.0 behaviour exactly.
 type ObfuscationSpec struct {
 	Jc, Jmin, Jmax     int
 	S1, S2, S3, S4     int
-	H1, H2, H3, H4     string // "min-max" range, both bounds inclusive
+	H1, H2, H3, H4     string // "n" (fixed) or "min-max" range, both inclusive
 	I1, I2, I3, I4, I5 string
-	J1, J2, J3         string
-	Itime              int // 0 = CPS chain disabled
+
+	HeaderProtectionKey    string
+	ContentPaddingAddition string
+	RekeyAfterTime         string
+	RekeyTimeout           string
+	RejectAfterTime        string
+	KeepaliveTimeout       string
+	MaxHandshakeAttempts   string
+	RandomTrailers         bool
+	DisableCookies         bool
 }
 
 // ParseObfuscation reads a free-form snippet (the [Interface] block from an
-// AWG 2.0 config — section headers, comments, server/client-specific fields
+// AmneziaWG config — section headers, comments, server/client-specific fields
 // are all tolerated and ignored) and returns the obfuscation parameters.
 //
-// Required: Jc, Jmin, Jmax, S1..S4, H1..H4. Itime defaults to 0. I*/J* are
-// optional. Duplicates of the same key are an error.
+// Required: Jc, Jmin, Jmax, S1..S2, H1..H4. S3/S4, I*, and the AWG 3.x keys
+// are optional. Duplicates of the same key are an error.
+//
+// Itime and J1-J3 are still accepted and silently dropped: they were part of
+// the abandoned AWG 1.5 beta and exist in no shipping implementation, but old
+// snippets in circulation still carry them and should not be rejected.
 func ParseObfuscation(snippet string) (ObfuscationSpec, error) {
 	var spec ObfuscationSpec
 	seen := map[string]bool{}
@@ -104,7 +129,10 @@ func isIgnoredKey(keyU string) bool {
 		"ADDRESS", "LISTENPORT", "DNS", "MTU",
 		"ALLOWEDIPS", "ENDPOINT", "PERSISTENTKEEPALIVE",
 		"POSTUP", "POSTDOWN", "PREUP", "PREDOWN",
-		"FWMARK", "TABLE", "SAVECONFIG":
+		"FWMARK", "TABLE", "SAVECONFIG", "ADVANCEDSECURITY",
+		// AWG 1.5 beta leftovers: dropped from amneziawg-go and
+		// amneziawg-tools alike. Tolerated in input, never stored.
+		"ITIME", "J1", "J2", "J3":
 		return true
 	}
 	return false
@@ -128,15 +156,13 @@ func applyField(s *ObfuscationSpec, keyU, val string) error {
 		// Hard-cap at recommended 32 so transport frames stay MTU-friendly.
 		return parseIntField(&s.S4, val, 0, maxS4Padding)
 	case "H1":
-		return parseRangeField(&s.H1, val)
+		return parseU32RangeField(&s.H1, val)
 	case "H2":
-		return parseRangeField(&s.H2, val)
+		return parseU32RangeField(&s.H2, val)
 	case "H3":
-		return parseRangeField(&s.H3, val)
+		return parseU32RangeField(&s.H3, val)
 	case "H4":
-		return parseRangeField(&s.H4, val)
-	case "ITIME":
-		return parseIntField(&s.Itime, val, 0, 86400)
+		return parseU32RangeField(&s.H4, val)
 	case "I1":
 		s.I1 = val
 	case "I2":
@@ -147,12 +173,24 @@ func applyField(s *ObfuscationSpec, keyU, val string) error {
 		s.I4 = val
 	case "I5":
 		s.I5 = val
-	case "J1":
-		s.J1 = val
-	case "J2":
-		s.J2 = val
-	case "J3":
-		s.J3 = val
+	case "HEADERPROTECTIONKEY":
+		return parseHPKField(&s.HeaderProtectionKey, val)
+	case "CONTENTPADDINGADDITION":
+		return parseU16RangeField(&s.ContentPaddingAddition, val)
+	case "REKEYAFTERTIME":
+		return parseU16RangeField(&s.RekeyAfterTime, val)
+	case "REKEYTIMEOUT":
+		return parseU16RangeField(&s.RekeyTimeout, val)
+	case "REJECTAFTERTIME":
+		return parseU16RangeField(&s.RejectAfterTime, val)
+	case "KEEPALIVETIMEOUT":
+		return parseU16RangeField(&s.KeepaliveTimeout, val)
+	case "MAXHANDSHAKEATTEMPTS":
+		return parseU16RangeField(&s.MaxHandshakeAttempts, val)
+	case "RANDOMTRAILERS":
+		return parseBoolField(&s.RandomTrailers, val)
+	case "DISABLECOOKIES":
+		return parseBoolField(&s.DisableCookies, val)
 	default:
 		// Unknown key — silently ignore so future protocol additions don't
 		// break snippet upload. Lint at the UI layer if strictness is needed.
@@ -172,32 +210,59 @@ func parseIntField(dst *int, val string, lo, hi int) error {
 	return nil
 }
 
-// parseRangeField accepts only "min-max" (both required). Single integers are
-// rejected — AWG 2.0 means ranges, by design we don't paper over old formats.
-func parseRangeField(dst *string, val string) error {
-	dash := strings.IndexByte(val, '-')
-	if dash < 0 {
-		return fmt.Errorf("expected min-max range, got %q", val)
+// parseBoolField accepts the on/off spelling amneziawg-tools writes plus the
+// usual truthy synonyms its parse_bool() understands.
+func parseBoolField(dst *bool, val string) error {
+	switch strings.ToLower(strings.TrimSpace(val)) {
+	case "on", "true", "yes", "1":
+		*dst = true
+	case "off", "false", "no", "0":
+		*dst = false
+	default:
+		return fmt.Errorf("expected on/off, got %q", val)
 	}
-	lo, err := strconv.ParseUint(strings.TrimSpace(val[:dash]), 10, 32)
-	if err != nil {
-		return fmt.Errorf("invalid range min: %w", err)
-	}
-	hi, err := strconv.ParseUint(strings.TrimSpace(val[dash+1:]), 10, 32)
-	if err != nil {
-		return fmt.Errorf("invalid range max: %w", err)
-	}
-	if lo > hi {
-		return fmt.Errorf("range min > max (%d > %d)", lo, hi)
-	}
-	if hi > math.MaxUint32 {
-		return fmt.Errorf("range max %d exceeds uint32", hi)
-	}
-	*dst = fmt.Sprintf("%d-%d", lo, hi)
 	return nil
 }
 
-// Validate enforces the AWG 2.0 invariants. Run after parsing.
+// parseHPKField validates a base64 32-byte header protection key (awg genkey).
+func parseHPKField(dst *string, val string) error {
+	val = strings.TrimSpace(val)
+	raw, err := base64.StdEncoding.DecodeString(val)
+	if err != nil {
+		return fmt.Errorf("not valid base64: %w", err)
+	}
+	if len(raw) != hpkKeyBytes {
+		return fmt.Errorf("must decode to %d bytes, got %d", hpkKeyBytes, len(raw))
+	}
+	*dst = val
+	return nil
+}
+
+// parseU32RangeField accepts "n" or "min-max", matching amneziawg-tools
+// u32_range_from_string (src/type.c): a bare integer is a fixed value, i.e.
+// the range [n, n]. AWG 1.0 and the official AWG 3.1 defaults use fixed H
+// values; AWG 2.0 uses ranges.
+func parseU32RangeField(dst *string, val string) error {
+	return parseRangeField(dst, val, math.MaxUint32)
+}
+
+// parseU16RangeField is the same grammar bounded to uint16, which is what
+// amneziawg-tools uses for the AWG 3.x device params (u16_range_from_string).
+func parseU16RangeField(dst *string, val string) error {
+	return parseRangeField(dst, val, maxU16Range)
+}
+
+func parseRangeField(dst *string, val string, max uint64) error {
+	r, err := parseUintRange(val, max)
+	if err != nil {
+		return err
+	}
+	*dst = formatUintRange(r)
+	return nil
+}
+
+// Validate enforces the AmneziaWG invariants. Run after parsing, and again on
+// every generated spec so the two paths cannot diverge.
 func (s ObfuscationSpec) Validate() error {
 	if s.Jmax > 0 && s.Jmax <= s.Jmin {
 		return fmt.Errorf("Jmax (%d) must be greater than Jmin (%d)", s.Jmax, s.Jmin)
@@ -214,6 +279,9 @@ func (s ObfuscationSpec) Validate() error {
 	if s.S2+92 == s.S3 {
 		return fmt.Errorf("S2+92 must not equal S3 (response/cookie would collide)")
 	}
+	if s.S4 > maxS4Padding {
+		return fmt.Errorf("S4 %d exceeds recommended max %d", s.S4, maxS4Padding)
+	}
 
 	hs := [4]string{s.H1, s.H2, s.H3, s.H4}
 	hn := [4]string{"H1", "H2", "H3", "H4"}
@@ -222,7 +290,7 @@ func (s ObfuscationSpec) Validate() error {
 			return fmt.Errorf("%s is required", hn[i])
 		}
 	}
-	ranges, err := parseHRanges(hs)
+	ranges, err := parseHRanges(hs, hn)
 	if err != nil {
 		return err
 	}
@@ -241,6 +309,44 @@ func (s ObfuscationSpec) Validate() error {
 	} {
 		if err := validateCPSChain(slot.name, slot.val); err != nil {
 			return err
+		}
+	}
+
+	return s.validateAWG3()
+}
+
+// validateAWG3 checks the AWG 3.x additions. All are optional; each is only
+// checked when present.
+func (s ObfuscationSpec) validateAWG3() error {
+	if s.HeaderProtectionKey != "" {
+		var probe string
+		if err := parseHPKField(&probe, s.HeaderProtectionKey); err != nil {
+			return fmt.Errorf("HeaderProtectionKey: %w", err)
+		}
+		// amneziawg-go reads the ChaCha20 nonce out of the S prefix, so
+		// every S must leave room for it or the UAPI set is rejected and
+		// the interface never comes up.
+		for i, sv := range [4]int{s.S1, s.S2, s.S3, s.S4} {
+			if sv < hpkNonceBytes {
+				return fmt.Errorf("S%d must be at least %d when HeaderProtectionKey is set (got %d)",
+					i+1, hpkNonceBytes, sv)
+			}
+		}
+	}
+
+	for _, f := range []struct{ name, val string }{
+		{"ContentPaddingAddition", s.ContentPaddingAddition},
+		{"RekeyAfterTime", s.RekeyAfterTime},
+		{"RekeyTimeout", s.RekeyTimeout},
+		{"RejectAfterTime", s.RejectAfterTime},
+		{"KeepaliveTimeout", s.KeepaliveTimeout},
+		{"MaxHandshakeAttempts", s.MaxHandshakeAttempts},
+	} {
+		if f.val == "" {
+			continue
+		}
+		if _, err := parseUintRange(f.val, maxU16Range); err != nil {
+			return fmt.Errorf("%s: %w", f.name, err)
 		}
 	}
 	return nil
@@ -273,7 +379,7 @@ func validateCPSChain(name, spec string) error {
 }
 
 // estimateCPSSize returns an upper bound on the UDP payload produced by a CPS
-// chain (same accounting as web/src/utils/generator.ts estimateCPSSize).
+// chain.
 func estimateCPSSize(spec string) int {
 	n := 0
 	for _, m := range cpsBytesRe.FindAllStringSubmatch(spec, -1) {
@@ -294,13 +400,63 @@ func estimateCPSSize(spec string) int {
 
 type uintRange struct{ lo, hi uint64 }
 
-func parseHRanges(hs [4]string) ([4]uintRange, error) {
+// parseUintRange accepts "n" (fixed) or "lo-hi" (inclusive), bounded by max.
+func parseUintRange(val string, max uint64) (uintRange, error) {
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return uintRange{}, fmt.Errorf("empty value")
+	}
+	dash := strings.IndexByte(val, '-')
+	if dash < 0 {
+		n, err := strconv.ParseUint(val, 10, 64)
+		if err != nil {
+			return uintRange{}, fmt.Errorf("expected a number or min-max range, got %q", val)
+		}
+		if n > max {
+			return uintRange{}, fmt.Errorf("%d exceeds maximum %d", n, max)
+		}
+		return uintRange{n, n}, nil
+	}
+	lo, err := strconv.ParseUint(strings.TrimSpace(val[:dash]), 10, 64)
+	if err != nil {
+		return uintRange{}, fmt.Errorf("invalid range min: %w", err)
+	}
+	hi, err := strconv.ParseUint(strings.TrimSpace(val[dash+1:]), 10, 64)
+	if err != nil {
+		return uintRange{}, fmt.Errorf("invalid range max: %w", err)
+	}
+	if lo > hi {
+		return uintRange{}, fmt.Errorf("range min > max (%d > %d)", lo, hi)
+	}
+	if hi > max {
+		return uintRange{}, fmt.Errorf("range max %d exceeds maximum %d", hi, max)
+	}
+	return uintRange{lo, hi}, nil
+}
+
+// formatUintRange round-trips a range the way amneziawg-tools prints it
+// (u32_range_to_string): a degenerate range collapses back to a bare number.
+func formatUintRange(r uintRange) string {
+	if r.lo == r.hi {
+		return strconv.FormatUint(r.lo, 10)
+	}
+	return fmt.Sprintf("%d-%d", r.lo, r.hi)
+}
+
+// isRangeValue reports whether a stored H value is a true "lo-hi" range as
+// opposed to a fixed number. Used to tell AWG 2.0 profiles from 1.0 ones.
+func isRangeValue(v string) bool {
+	return strings.ContainsRune(v, '-')
+}
+
+func parseHRanges(hs [4]string, hn [4]string) ([4]uintRange, error) {
 	var out [4]uintRange
 	for i, s := range hs {
-		dash := strings.IndexByte(s, '-')
-		lo, _ := strconv.ParseUint(s[:dash], 10, 64)
-		hi, _ := strconv.ParseUint(s[dash+1:], 10, 64)
-		out[i] = uintRange{lo, hi}
+		r, err := parseUintRange(s, math.MaxUint32)
+		if err != nil {
+			return out, fmt.Errorf("%s: %w", hn[i], err)
+		}
+		out[i] = r
 	}
 	return out, nil
 }

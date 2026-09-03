@@ -5,8 +5,13 @@
 # Hub ships userspace from September 2021 — ancient, no AWG 1.5/2.0 support.
 # We build both binaries from source against pinned refs and copy them into
 # a slim Alpine runtime. Bump these when a new known-good release lands.
-ARG AWG_TOOLS_REF=v1.0.20260223
-ARG AWG_GO_REF=v0.2.18
+#
+# AWG 3.1 line. v3 is wire-compatible downwards: with none of the 3.x device
+# params set, the daemon behaves byte-for-byte like 2.0/1.0, so one binary
+# serves awg1/awg2/awg31 profiles simultaneously. Tools v3.1 is required to
+# `setconf` the new Interface keys — older tools abort on any unknown key.
+ARG AWG_TOOLS_REF=v3.1.20260812
+ARG AWG_GO_REF=v3.1.20260828
 
 # --- frontend ---
 FROM node:20-alpine AS frontend
@@ -26,10 +31,11 @@ COPY . .
 COPY --from=frontend /web/dist ./internal/static/dist
 RUN CGO_ENABLED=0 go build -tags embed -ldflags="-s -w" -o /out/awgpanel ./cmd/server
 
-# --- amneziawg-go (userspace WG daemon, AWG 2.0-capable) ---
-# v0.2.x requires Go 1.24+; panel's own backend stays on 1.22 since our code
-# is happy there. Two stages, two toolchains — by design.
-FROM golang:1.24-alpine AS awggo
+# --- amneziawg-go (userspace WG daemon, AWG 3.1-capable) ---
+# v3.x declares `go 1.25.0` and moved to module path .../amneziawg-go/v3;
+# the panel's own backend stays on 1.22 since our code is happy there.
+# Two stages, two toolchains — by design.
+FROM golang:1.25-alpine AS awggo
 ARG AWG_GO_REF
 RUN apk add --no-cache git
 RUN git clone --depth=1 --branch ${AWG_GO_REF} \

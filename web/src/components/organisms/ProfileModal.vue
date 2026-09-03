@@ -29,15 +29,42 @@ const err = ref('')
 const currentSummary = computed(() => {
   const p = props.profile
   if (!p) return ''
-  return [
+  const lines = [
     `Jc=${p.jc}  Jmin=${p.jmin}  Jmax=${p.jmax}`,
-    `S1=${p.s1}  S2=${p.s2}  S3=${p.s3}  S4=${p.s4}`,
+    p.generation === '1.0'
+      ? `S1=${p.s1}  S2=${p.s2}`
+      : `S1=${p.s1}  S2=${p.s2}  S3=${p.s3}  S4=${p.s4}`,
     `H1=${p.h1}`,
     `H2=${p.h2}`,
     `H3=${p.h3}`,
     `H4=${p.h4}`,
-    `Itime=${p.itime}`,
-  ].join('\n')
+  ]
+  // AWG 3.x params, shown only when the profile actually carries them.
+  // The header protection key is secret key material — never render it.
+  if (p.headerProtectionKey) lines.push('HeaderProtectionKey=••••••••  (скрыт)')
+  for (const [k, v] of [
+    ['ContentPaddingAddition', p.contentPaddingAddition],
+    ['RekeyAfterTime',         p.rekeyAfterTime],
+    ['RekeyTimeout',           p.rekeyTimeout],
+    ['RejectAfterTime',        p.rejectAfterTime],
+    ['KeepaliveTimeout',       p.keepaliveTimeout],
+    ['MaxHandshakeAttempts',   p.maxHandshakeAttempts],
+    ['PersistentKeepalive',    p.persistentKeepalive],
+  ] as const) {
+    if (v) lines.push(`${k}=${v}`)
+  }
+  if (p.randomTrailers) lines.push('RandomTrailers=on')
+  if (p.disableCookies) lines.push('DisableCookies=on')
+  return lines.join('\n')
+})
+
+/** Colour the generation badge so 1.0 profiles stand out in a list of 2.0s. */
+const generationTone = computed(() => {
+  switch (props.profile?.generation) {
+    case '3.1': return 'bg-emerald-400/15 text-emerald-700 dark:text-emerald-400'
+    case '2.0': return 'bg-amber-400/15 text-amber-700 dark:text-amber-400'
+    default:    return 'bg-ink-200/80 text-ink-600 dark:bg-ink-100/50'
+  }
 })
 
 watch(() => props.open, (v) => {
@@ -80,8 +107,8 @@ function submit() {
   <Modal :open="open" size="lg" :title="mode === 'create' ? 'Новый профиль подключения' : 'Редактирование профиля'" @close="emit('close')">
     <div class="space-y-4">
       <p class="text-[12.5px] text-ink-500 leading-relaxed">
-        Профиль — отдельный AmneziaWG 2.0 интерфейс на своём UDP-порту. Параметры обфускации (Jc/J/S/H/I/Itime)
-        вставляются единым блоком из внешнего генератора —
+        Профиль — отдельный AmneziaWG интерфейс на своём UDP-порту. Параметры обфускации (Jc/S/H/I и, для 3.1,
+        HeaderProtectionKey и таймеры) вставляются единым блоком из внешнего генератора —
         <a class="underline" target="_blank" rel="noopener" href="https://vadim-khristenko.github.io/AmneziaWG-Architect/">AmneziaWG-Architect</a>.
         Сервер сам сгенерирует ключи и адреса.
       </p>
@@ -112,12 +139,20 @@ function submit() {
           v-model="snippet"
           rows="12"
           class="w-full p-3.5 rounded-2xl bg-ink-100 text-[11.5px] mono leading-snug outline-none transition-colors duration-150 focus:bg-amber-50 dark:focus:bg-amber-400/10"
-          :placeholder="`[Interface]\nJc = 4\nJmin = 362\nJmax = 943\nS1 = 43\nS2 = 65\nS3 = 35\nS4 = 28\nH1 = 320858491-320865164\nH2 = 1445464973-1445512660\nH3 = 3235131120-3235164350\nH4 = 3875042355-3875063814\nItime = 60\nI1 = <b 0x...><r 28><t><rc 12>`"
+          :placeholder="`[Interface]\nJc = 4\nJmin = 362\nJmax = 943\nS1 = 43\nS2 = 65\nS3 = 35\nS4 = 28\nH1 = 320858491-320865164\nH2 = 1445464973-1445512660\nH3 = 3235131120-3235164350\nH4 = 3875042355-3875063814\nI1 = <b 0x...><r 28><t><rc 12>`"
         />
       </Field>
 
       <div v-if="mode === 'edit' && currentSummary" class="p-3 rounded-lg bg-ink-100/40 space-y-1">
-        <div class="text-[11px] uppercase tracking-[0.12em] text-ink-500">Текущая обфускация</div>
+        <div class="flex items-center gap-2">
+          <div class="text-[11px] uppercase tracking-[0.12em] text-ink-500">Текущая обфускация</div>
+          <span
+            v-if="profile"
+            class="text-[9.5px] uppercase tracking-[0.08em] font-semibold px-1.5 py-0.5 rounded-md"
+            :class="generationTone">
+            AWG {{ profile.generation }}
+          </span>
+        </div>
         <pre class="mono text-[11px] text-ink-700 whitespace-pre-wrap leading-relaxed">{{ currentSummary }}</pre>
       </div>
 

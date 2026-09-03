@@ -86,7 +86,9 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 		MTU:        mtu,
 		AllowedIPs: allowedIPs,
 		Endpoint:   fmt.Sprintf("%s:%d", host, profCopy.Port),
-		Keepalive:  keepalive,
+		// Profile-level PersistentKeepalive (AWG 3.1 range) wins over the
+		// server-wide integer; RenderClient resolves it.
+		KeepaliveSecs: keepalive,
 	})
 	if err != nil {
 		return "", err
@@ -97,6 +99,7 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 	if mtu > 0 {
 		mtuStr = strconv.Itoa(mtu)
 	}
+	keepaliveStr := resolveKeepalive(&profCopy, keepalive)
 
 	// I1–I5 always present in last_config (empty string when unused), matching
 	// official Amnezia third-party AWG 2.0 exports.
@@ -125,11 +128,12 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 		"config":                string(confAmnezia),
 		"hostName":              host,
 		"mtu":                   mtuStr,
-		"persistent_keep_alive": strconv.Itoa(keepalive),
+		"persistent_keep_alive": keepaliveStr,
 		"port":                  profCopy.Port,
 		"psk_key":               clientCopy.PreSharedKey,
 		"server_pub_key":        profCopy.PublicKey,
 	}
+	addAWG3Keys(last, &profCopy)
 
 	lastJSON, err := json.Marshal(last)
 	if err != nil {
@@ -139,7 +143,8 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 	// ── Outer JSON ───────────────────────────────────────────────────────
 	// AWG params are also present at the awg{} top level (not just last_config)
 	// so Amnezia's configurator can read them without parsing last_config.
-	// protocol_version "2" marks AWG 2.0 (H ranges, S3/S4, I1–I5).
+	// protocol_version is informational — AmneziaVPN 5.x detects the real
+	// generation from the markers themselves — but we report it honestly.
 	awgObj := map[string]any{
 		"H1":                 profCopy.H1,
 		"H2":                 profCopy.H2,
@@ -156,8 +161,9 @@ func (m *Manager) AmneziaVPNURLWith(deviceID, allowedIPsOverride string) (string
 		"port":               portStr,
 		"transport_proto":    "udp",
 		"isThirdPartyConfig": true,
-		"protocol_version":   "2",
+		"protocol_version":   protocolVersionForExport(&profCopy),
 	}
+	addAWG3Keys(awgObj, &profCopy)
 
 	server := map[string]any{
 		"description":      profCopy.Name,
@@ -219,4 +225,46 @@ func splitAllowedIPs(allowedIPs string) []string {
 		return []string{"0.0.0.0/0", "::/0"}
 	}
 	return result
+}
+
+// addAWG3Keys adds the AWG 3.x device params to an exported JSON object,
+// under the exact key names used in the .conf. AmneziaVPN 5.x reads these
+// names verbatim from both awg{} and last_config.
+//
+// Only keys that are actually set are added: their presence is what makes the
+// client classify the config as v3, so an AWG 1.0/2.0 export must stay clean
+// or an old client would be handed a generation it cannot speak.
+func addAWG3Keys(dst map[string]any, p *Profile) {
+	for k, v := range map[string]string{
+		"HeaderProtectionKey":    p.HeaderProtectionKey,
+		"ContentPaddingAddition": p.ContentPaddingAddition,
+		"RekeyAfterTime":         p.RekeyAfterTime,
+		"RekeyTimeout":           p.RekeyTimeout,
+		"RejectAfterTime":        p.RejectAfterTime,
+		"KeepaliveTimeout":       p.KeepaliveTimeout,
+		"MaxHandshakeAttempts":   p.MaxHandshakeAttempts,
+	} {
+		if v != "" {
+			dst[k] = v
+		}
+	}
+	if p.RandomTrailers {
+		dst["RandomTrailers"] = "on"
+	}
+	if p.DisableCookies {
+		dst["DisableCookies"] = "on"
+	}
+}
+
+// protocolVersionForExport maps a profile generation onto the protocol_version
+// string carried in a vpn:// payload. AWG 2.0 exports keep the bare "2" they
+// have always used — AmneziaVPN detects the generation from the markers
+// anyway, and changing a value already in the field buys nothing.
+func protocolVersionForExport(p *Profile) string {
+	switch g := p.Generation(); g {
+	case GenAWG2:
+		return "2"
+	default:
+		return g
+	}
 }

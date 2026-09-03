@@ -6,13 +6,13 @@ import {
   Shield, Lock, Key, Smartphone, Laptop, Monitor,
   QrCode, Download, Copy, Check, Trash2, X,
   Sun, Moon, Plus, ChevronLeft, ChevronRight, Loader2,
-  MoreHorizontal, Globe, ExternalLink, Zap, EyeOff, Gauge,
+  MoreHorizontal, Globe, ExternalLink, Router, ShieldCheck,
 } from 'lucide-vue-next'
 
 import { api } from '@/lib/api'
 import { useThemeStore } from '@/stores/theme'
 import { useToastStore } from '@/stores/toasts'
-import type { CabinetView, CabinetDevice, AddDeviceResult, CabinetBillingSummary } from '@/types'
+import type { CabinetView, CabinetDevice, AddDeviceResult, CabinetBillingSummary, PresetKey } from '@/types'
 
 import Button from '@/components/atoms/Button.vue'
 import Badge from '@/components/atoms/Badge.vue'
@@ -72,13 +72,11 @@ const pickedTemplate = ref<DeviceTemplate>('phone')
 const customName     = ref('')
 
 /*
-  Network-situation presets (not OS/device). Resolved SERVER-SIDE via
-  awg.GenerateObfuscation. Device type only names the key + soft tips —
-  the same AWG 2.0 conf can fail on an old Windows Amnezia build and
-  work on phone (client bug), so we never map "laptop → stealth".
+  Protocol-generation presets, resolved SERVER-SIDE via awg.GenerateObfuscation.
+  Device type only names the key and picks soft tips — the choice that actually
+  matters is which AmneziaWG generation the subscriber's app can speak, and
+  that is a property of their app version, not of their hardware.
 */
-type PresetKey = 'auto' | 'stealth' | 'fast'
-
 interface PresetDef {
   v: PresetKey
   label: string
@@ -89,43 +87,48 @@ interface PresetDef {
 
 const PRESETS: PresetDef[] = [
   {
-    v: 'auto',
-    label: 'Обычная сеть',
-    icon: Shield,
+    v: 'awg2',
+    label: 'AWG 2.0',
+    icon: Globe,
     recommended: true,
-    hint: 'Дом, Wi‑Fi, большинство операторов — стабильный старт',
+    hint: 'Совместимость. Работает со всеми версиями приложений Amnezia',
   },
   {
-    v: 'fast',
-    label: 'Слабые блокировки',
-    icon: Gauge,
-    hint: 'Меньше обфускации и задержка — если DPI почти нет',
+    v: 'awg31',
+    label: 'AWG 3.1',
+    icon: ShieldCheck,
+    hint: 'Максимальная защита. Нужно свежее приложение Amnezia (5.x)',
   },
   {
-    v: 'stealth',
-    label: 'Сильные блокировки',
-    icon: EyeOff,
-    hint: 'Жёсткий DPI. На LTE берите только если «Обычная» не проходит',
+    v: 'awg1',
+    label: 'AWG 1.0',
+    icon: Router,
+    hint: 'Роутеры и старые клиенты: Keenetic, OpenWrt, GL.iNet',
   },
 ]
 
-const pickedPreset = ref<PresetKey>('auto')
+/*
+  Default stays AWG 2.0: it connects from every Amnezia build in circulation,
+  and the cabinet has no way to know which version a subscriber has installed.
+  Mirrors awg.DefaultPreset on the server — keep the two in step.
+*/
+const pickedPreset = ref<PresetKey>('awg2')
 
-/** Soft default when entering the config step — always safe WAN profile. */
+/** Soft default when entering the config step — always the safe generation. */
 function suggestedPreset(_device: DeviceTemplate): PresetKey {
-  return 'auto'
+  return 'awg2'
 }
 
 /** Short tip under device type / config step. */
 const DEVICE_NETWORK_TIP: Record<DeviceTemplate, string> = {
   phone:
-    'На телефоне начните с «Обычная сеть». Крупный junk на LTE часто хуже, чем на Wi‑Fi.',
+    'Обновите Amnezia из стора — тогда подойдёт AWG 3.1. Если приложение давно не обновлялось, берите AWG 2.0.',
   laptop:
-    'На ноутбуке важнее версия Amnezia (AWG 2.0), чем «особый» профиль. Конфиг не привязан к ОС.',
+    'Выбор зависит от версии приложения, а не от ОС. Сомневаетесь — AWG 2.0 подключится в любом случае.',
   desktop:
-    'На ПК нужна актуальная AmneziaVPN с AWG 2.0. Старые Windows-сборки иногда зависают на connect.',
+    'AWG 3.1 требует актуальной AmneziaVPN 5.x. Старые Windows-сборки её не поймут — тогда AWG 2.0.',
   other:
-    'Один ключ — одно устройство. Не используйте один conf на телефон и компьютер сразу.',
+    'Для роутера (Keenetic, OpenWrt, GL.iNet) берите AWG 1.0. Один ключ — одно устройство.',
 }
 
 /** Post-create checklist lines by device. */
@@ -924,8 +927,8 @@ const qrDeviceName = computed(() =>
             <div v-else-if="wizardStep === 'config'" class="p-6 space-y-5">
               <div class="flex items-start justify-between gap-3">
                 <div>
-                  <h3 class="text-[19px] font-semibold">Ситуация сети</h3>
-                  <p class="text-[12.5px] text-ink-500 mt-0.5">Не тип устройства — насколько жёсткий DPI / оператор</p>
+                  <h3 class="text-[19px] font-semibold">Версия протокола</h3>
+                  <p class="text-[12.5px] text-ink-500 mt-0.5">Зависит от версии приложения, а не от устройства</p>
                 </div>
                 <IconButton size="sm" title="Закрыть" @click="closeWizard">
                   <X :size="16" />

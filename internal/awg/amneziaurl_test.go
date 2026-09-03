@@ -45,6 +45,10 @@ func Test_AmneziaVPNURLWith_renders_configured_DNS_in_nested_config(t *testing.T
 				Name:      "Synthetic Profile",
 				Port:      51820,
 				PublicKey: "synthetic-server-public-key",
+				// AWG 2.0 markers: S3/S4 plus H as ranges. protocol_version
+				// is derived from these, so the fixture has to carry them.
+				S1: 15, S2: 20, S3: 10, S4: 8,
+				H1: "100-200", H2: "300-400", H3: "500-600", H4: "700-800",
 			}
 			m := &Manager{
 				cfg: config.Config{
@@ -115,7 +119,7 @@ func Test_AmneziaVPNURLWith_renders_configured_DNS_in_nested_config(t *testing.T
 			}
 
 			var last struct {
-				Config string `json:"config"`
+				Config string  `json:"config"`
 				I1     *string `json:"I1"`
 				I2     *string `json:"I2"`
 				I3     *string `json:"I3"`
@@ -148,6 +152,14 @@ func Test_AmneziaVPNURLWith_emits_I_chains_in_config_when_set(t *testing.T) {
 		Name:      "Synthetic Profile",
 		Port:      51820,
 		PublicKey: "synthetic-server-public-key",
+		S1:        15,
+		S2:        20,
+		S3:        10,
+		S4:        8,
+		H1:        "100-200",
+		H2:        "300-400",
+		H3:        "500-600",
+		H4:        "700-800",
 		I1:        "<b 0xc100000001aabb><rc 12><t><r 20>",
 		I2:        "<t><r 16><rc 8><rd 6>",
 		I3:        "<t><r 80><rc 10><rd 8>",
@@ -222,4 +234,175 @@ func Test_AmneziaVPNURLWith_emits_I_chains_in_config_when_set(t *testing.T) {
 	if !strings.Contains(last.Config, "I1 = "+profile.I1) {
 		t.Fatalf("nested conf missing I1:\n%s", last.Config)
 	}
+}
+
+// decodeVPNURL unwraps a vpn:// payload back into the awg{} object.
+func decodeVPNURL(t *testing.T, url string) map[string]any {
+	t.Helper()
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(url, "vpn://"))
+	if err != nil {
+		t.Fatalf("decode base64 payload: %v", err)
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(payload[4:]))
+	if err != nil {
+		t.Fatalf("open zlib payload: %v", err)
+	}
+	body, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("decompress payload: %v", err)
+	}
+	_ = zr.Close()
+
+	var outer struct {
+		Containers []struct {
+			AWG map[string]any `json:"awg"`
+		} `json:"containers"`
+	}
+	if err := json.Unmarshal(body, &outer); err != nil {
+		t.Fatalf("decode outer JSON: %v", err)
+	}
+	if len(outer.Containers) == 0 {
+		t.Fatal("payload has no containers")
+	}
+	return outer.Containers[0].AWG
+}
+
+func syntheticManager(profile *Profile) *Manager {
+	return &Manager{
+		cfg: config.Config{
+			WGHost:       "vpn.test.invalid",
+			DNS:          "1.1.1.1",
+			AllowedIPs:   "0.0.0.0/0",
+			PersistentKA: 25,
+		},
+		profiles: map[string]*profileState{profile.ID: {profile: profile}},
+		clients: map[string]*Client{
+			"synthetic-client": {
+				ID:         "synthetic-client",
+				ProfileID:  profile.ID,
+				Address:    "10.77.0.2",
+				PrivateKey: "synthetic-client-private-key",
+			},
+		},
+	}
+}
+
+func Test_AmneziaVPNURLWith_exports_AWG31_keys(t *testing.T) {
+	// Given an AWG 3.1 profile
+	profile := &Profile{
+		ID:        "synthetic-profile",
+		Name:      "Synthetic Profile",
+		Port:      51820,
+		PublicKey: "synthetic-server-public-key",
+		S1:        100, S2: 120, S3: 30, S4: 12,
+		H1: "1", H2: "2", H3: "3", H4: "4",
+		I1:                     defaultI1CPS,
+		HeaderProtectionKey:    "OjW5s9DDbnR/oPuMvHwOoHFHNXBhLUXcC0Wj4bDCOWQ=",
+		ContentPaddingAddition: "10-100",
+		RekeyAfterTime:         "100-120",
+		RekeyTimeout:           "3-7",
+		RejectAfterTime:        "150-180",
+		KeepaliveTimeout:       "5-15",
+		MaxHandshakeAttempts:   "15-20",
+		RandomTrailers:         true,
+		DisableCookies:         true,
+		PersistentKeepalive:    "25-35",
+	}
+
+	// When
+	url, err := syntheticManager(profile).AmneziaVPNURLWith("synthetic-client", "")
+	if err != nil {
+		t.Fatalf("generate AmneziaVPN URL: %v", err)
+	}
+	awgObj := decodeVPNURL(t, url)
+
+	// Then: the 3.x keys ride at the awg{} top level under their conf names,
+	// which is what AmneziaVPN 5.x reads.
+	want := map[string]string{
+		"HeaderProtectionKey":    "OjW5s9DDbnR/oPuMvHwOoHFHNXBhLUXcC0Wj4bDCOWQ=",
+		"ContentPaddingAddition": "10-100",
+		"RekeyAfterTime":         "100-120",
+		"RekeyTimeout":           "3-7",
+		"RejectAfterTime":        "150-180",
+		"KeepaliveTimeout":       "5-15",
+		"MaxHandshakeAttempts":   "15-20",
+		"RandomTrailers":         "on",
+		"DisableCookies":         "on",
+	}
+	for k, v := range want {
+		if got, _ := awgObj[k].(string); got != v {
+			t.Fatalf("awg[%q] = %v, want %q", k, awgObj[k], v)
+		}
+	}
+	if got := awgObj["protocol_version"]; got != GenAWG31 {
+		t.Fatalf("protocol_version = %v, want %q", got, GenAWG31)
+	}
+
+	// And again inside last_config, alongside the rendered conf.
+	var last map[string]any
+	if err := json.Unmarshal([]byte(awgObj["last_config"].(string)), &last); err != nil {
+		t.Fatalf("decode last_config: %v", err)
+	}
+	for k, v := range want {
+		if got, _ := last[k].(string); got != v {
+			t.Fatalf("last_config[%q] = %v, want %q", k, last[k], v)
+		}
+	}
+	if got, _ := last["persistent_keep_alive"].(string); got != "25-35" {
+		t.Fatalf("persistent_keep_alive = %v, want the profile range", last["persistent_keep_alive"])
+	}
+	conf, _ := last["config"].(string)
+	for _, line := range []string{
+		"HeaderProtectionKey = OjW5s9DDbnR/oPuMvHwOoHFHNXBhLUXcC0Wj4bDCOWQ=",
+		"RandomTrailers = on",
+		"ContentPaddingAddition = 10-100",
+		"PersistentKeepalive = 25-35",
+	} {
+		if !strings.Contains(conf, line) {
+			t.Fatalf("nested conf missing %q:\n%s", line, conf)
+		}
+	}
+}
+
+// Test_AmneziaVPNURLWith_pre31_exports_stay_clean guards the other direction:
+// an AWG 1.0/2.0 export must not sprout 3.x keys, since their mere presence is
+// what makes the official client classify a config as v3.
+func Test_AmneziaVPNURLWith_pre31_exports_stay_clean(t *testing.T) {
+	profile := &Profile{
+		ID:        "synthetic-profile",
+		Name:      "Synthetic Profile",
+		Port:      51820,
+		PublicKey: "synthetic-server-public-key",
+		S1:        15, S2: 20, S3: 10, S4: 8,
+		H1: "100-200", H2: "300-400", H3: "500-600", H4: "700-800",
+	}
+	awgObj := decodeVPNURL(t, mustURL(t, syntheticManager(profile)))
+	var last map[string]any
+	if err := json.Unmarshal([]byte(awgObj["last_config"].(string)), &last); err != nil {
+		t.Fatalf("decode last_config: %v", err)
+	}
+	for _, k := range []string{
+		"HeaderProtectionKey", "ContentPaddingAddition", "RekeyAfterTime",
+		"RekeyTimeout", "RejectAfterTime", "KeepaliveTimeout",
+		"MaxHandshakeAttempts", "RandomTrailers", "DisableCookies",
+	} {
+		if _, ok := awgObj[k]; ok {
+			t.Fatalf("AWG 2.0 export must not carry awg[%q]", k)
+		}
+		if _, ok := last[k]; ok {
+			t.Fatalf("AWG 2.0 export must not carry last_config[%q]", k)
+		}
+	}
+	if got := awgObj["protocol_version"]; got != "2" {
+		t.Fatalf("protocol_version = %v, want \"2\"", got)
+	}
+}
+
+func mustURL(t *testing.T, m *Manager) string {
+	t.Helper()
+	url, err := m.AmneziaVPNURLWith("synthetic-client", "")
+	if err != nil {
+		t.Fatalf("generate AmneziaVPN URL: %v", err)
+	}
+	return url
 }

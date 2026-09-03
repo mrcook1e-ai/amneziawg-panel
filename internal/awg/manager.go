@@ -343,6 +343,15 @@ func (m *Manager) newProfile(id, name, description string, spec ObfuscationSpec)
 	return p, nil
 }
 
+// GenerateObfuscation builds a preset spec, drawing any key material from the
+// same awg binary the manager uses for WireGuard keys. HeaderProtectionKey is
+// an ordinary 32-byte key in the private-key format, so `awg genkey` produces
+// it. Callers outside the manager should prefer this over the package-level
+// function so they cannot forget the key source.
+func (m *Manager) GenerateObfuscation(preset string) (ObfuscationSpec, error) {
+	return GenerateObfuscation(preset, m.keys.GenPrivate)
+}
+
 // applySpec copies every obfuscation field from spec into the profile.
 // Centralised so create and patch stay in sync.
 func applySpec(p *Profile, s ObfuscationSpec) {
@@ -350,8 +359,16 @@ func applySpec(p *Profile, s ObfuscationSpec) {
 	p.S1, p.S2, p.S3, p.S4 = s.S1, s.S2, s.S3, s.S4
 	p.H1, p.H2, p.H3, p.H4 = s.H1, s.H2, s.H3, s.H4
 	p.I1, p.I2, p.I3, p.I4, p.I5 = s.I1, s.I2, s.I3, s.I4, s.I5
-	p.J1, p.J2, p.J3 = s.J1, s.J2, s.J3
-	p.Itime = s.Itime
+
+	p.HeaderProtectionKey = s.HeaderProtectionKey
+	p.ContentPaddingAddition = s.ContentPaddingAddition
+	p.RekeyAfterTime = s.RekeyAfterTime
+	p.RekeyTimeout = s.RekeyTimeout
+	p.RejectAfterTime = s.RejectAfterTime
+	p.KeepaliveTimeout = s.KeepaliveTimeout
+	p.MaxHandshakeAttempts = s.MaxHandshakeAttempts
+	p.RandomTrailers = s.RandomTrailers
+	p.DisableCookies = s.DisableCookies
 }
 
 func (m *Manager) nextProfileIDLocked() string {
@@ -587,6 +604,9 @@ type ProfileView struct {
 	Endpoint    string `json:"endpoint"`
 	ClientCount int    `json:"clientCount"`
 	HasMimicry  bool   `json:"hasMimicry"`
+	// Generation is the AWG protocol generation detected from the profile's
+	// own markers, the same way the official client classifies an import.
+	Generation string `json:"generation"`
 }
 
 // ListProfiles returns all profiles enriched with client count and endpoint.
@@ -609,6 +629,7 @@ func (m *Manager) ListProfiles() []ProfileView {
 			Endpoint:    endpoint,
 			ClientCount: clientCounts[p.ID],
 			HasMimicry:  p.I1 != "" || p.I2 != "" || p.I3 != "" || p.I4 != "" || p.I5 != "",
+			Generation:  p.Generation(),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
@@ -656,10 +677,6 @@ type ClientPatch struct {
 	DNSOverride        *string    `json:"dnsOverride"`
 	AllowedIPsOverride *string    `json:"allowedIPsOverride"`
 	MTUOverride        *int       `json:"mtuOverride"`
-	// ItimeOverride: nil = no change. To set, send a pointer to the desired
-	// value. To clear, set ClearItimeOverride = true.
-	ItimeOverride      *int `json:"itimeOverride"`
-	ClearItimeOverride bool `json:"clearItimeOverride"`
 }
 
 func (m *Manager) PatchClient(id string, p ClientPatch) (*Client, error) {
@@ -686,12 +703,6 @@ func (m *Manager) PatchClient(id string, p ClientPatch) (*Client, error) {
 	}
 	if p.MTUOverride != nil {
 		c.MTUOverride = *p.MTUOverride
-	}
-	if p.ClearItimeOverride {
-		c.ItimeOverride = nil
-	} else if p.ItimeOverride != nil {
-		v := *p.ItimeOverride
-		c.ItimeOverride = &v
 	}
 	c.UpdatedAt = time.Now().UTC()
 	if err := m.saveStateLocked("save_patch_state"); err != nil {
@@ -829,8 +840,9 @@ func (m *Manager) renderArgs(profile *Profile, c *Client) ClientRenderArgs {
 		MTU:        m.cfg.MTU,
 		AllowedIPs: m.cfg.AllowedIPs,
 		Endpoint:   fmt.Sprintf("%s:%d", m.cfg.WGHost, profile.Port),
-		Keepalive:  m.cfg.PersistentKA,
-		// Itime is resolved inside RenderClient from profile + per-client override.
+		// PersistentKeepalive: profile range wins over this server-wide
+		// fallback; resolved inside RenderClient.
+		KeepaliveSecs: m.cfg.PersistentKA,
 	}
 }
 

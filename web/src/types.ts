@@ -19,9 +19,6 @@ export interface Client {
   dnsOverride?: string
   allowedIPsOverride?: string
   mtuOverride?: number
-  // null/undefined = inherit Itime from profile, otherwise this exact value
-  // (including 0 for "disable CPS for this client", typically Windows).
-  itimeOverride?: number | null
   totalRx?: number
   totalTx?: number
   lastHandshakeAt?: string | null
@@ -48,12 +45,12 @@ export interface ProfileInfo {
   jc: number
   jmin: number
   jmax: number
-  // Packet padding (AWG 2.0 — S3/S4 mandatory)
+  // Packet padding. S3/S4 are 0 on AWG 1.0 profiles, which predate them.
   s1: number
   s2: number
   s3: number
   s4: number
-  // Header ranges, format "min-max"
+  // Magic headers: "n" (fixed, AWG 1.0 / 3.1) or "min-max" (range, AWG 2.0)
   h1: string
   h2: string
   h3: string
@@ -64,14 +61,32 @@ export interface ProfileInfo {
   i3?: string
   i4?: string
   i5?: string
-  j1?: string
-  j2?: string
-  j3?: string
-  // CPS chain interval in seconds, 0 = disabled
-  itime: number
+
+  // AWG 3.x. All optional — absent means "not set", i.e. AWG 2.0 behaviour.
+  // headerProtectionKey is secret key material: mask it in the UI.
+  headerProtectionKey?: string
+  contentPaddingAddition?: string
+  rekeyAfterTime?: string
+  rekeyTimeout?: string
+  rejectAfterTime?: string
+  keepaliveTimeout?: string
+  maxHandshakeAttempts?: string
+  randomTrailers?: boolean
+  disableCookies?: boolean
+  // Peer-section keepalive as a range ("25-35"). Empty = server-wide default.
+  persistentKeepalive?: string
+
   clientCount: number
   hasMimicry: boolean
+  // Protocol generation detected from the profile's own markers, the same way
+  // the official AmneziaVPN client classifies an imported config.
+  generation: AWGGeneration
 }
+
+export type AWGGeneration = '1.0' | '1.5' | '2.0' | '3.1'
+
+/** Cabinet device presets — one per AmneziaWG protocol generation. */
+export type PresetKey = 'awg1' | 'awg2' | 'awg31' 
 
 // BYOC profile creation — the admin pastes an [Interface] snippet
 // (typically from AmneziaWG-Architect); the server parses it.
@@ -276,10 +291,6 @@ export interface ClientPatch {
   dnsOverride?: string
   allowedIPsOverride?: string
   mtuOverride?: number
-  // To set, send a number. To clear (inherit profile's Itime), set
-  // clearItimeOverride = true.
-  itimeOverride?: number
-  clearItimeOverride?: boolean
 }
 
 export interface CreateClientArgs {

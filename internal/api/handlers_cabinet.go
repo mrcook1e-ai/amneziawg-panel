@@ -70,8 +70,10 @@ func (h *Handlers) cabinetGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type cabinetAddDeviceBody struct {
-	// Preset = network situation (auto|stealth|fast), not OS/device.
-	// Default auto («обычная сеть») — WAN-safe; cabinet UI labels map 1:1.
+	// Preset = AmneziaWG protocol generation: awg1 | awg2 | awg31. The legacy
+	// network-situation names (auto|stealth|fast) are still accepted and all
+	// resolve to awg2, which is what they used to produce. Empty falls back
+	// to awg.DefaultPreset.
 	Preset string `json:"preset"`
 	// Snippet is legacy: only used when Preset is empty. New cabinet UI
 	// never sends it; server generation is the source of truth.
@@ -102,11 +104,8 @@ func (h *Handlers) cabinetAddDevice(w http.ResponseWriter, r *http.Request) {
 	var err error
 	preset := strings.TrimSpace(strings.ToLower(in.Preset))
 	if preset != "" || strings.TrimSpace(in.Snippet) == "" {
-		// Server-side generation (preferred). Empty preset → auto.
-		if preset == "" {
-			preset = awg.PresetAuto
-		}
-		spec, err = awg.GenerateObfuscation(preset)
+		// Server-side generation (preferred). Unknown/empty → DefaultPreset.
+		spec, err = h.Mgr.GenerateObfuscation(preset)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "obfuscation generate failed"})
 			return
